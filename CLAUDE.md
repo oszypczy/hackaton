@@ -7,6 +7,8 @@ AI tools are explicitly allowed during the competition.
 
 ## Reading order for Claude (token-aware)
 
+**Pre-event setup work** — if user is asking you to set up the repo, optimize token usage, configure Claude Code, build subagents/slash commands, or pre-extract papers: read `docs/TOKEN_OPTIMIZATION_PLAN.md` first. It's a self-contained handoff with all decisions, exact commands, and rationale. Stop when done; you don't need the rest of this list.
+
 When user asks about state, next steps, papers, or attack techniques — read in this order, stop as soon as you have enough:
 
 1. **`TODO.md`** (root, ~5 KB) — current state of prep, what's blocked, what's next
@@ -67,6 +69,9 @@ GPU access during competition: Jülich Supercomputer (https://judoor.fz-juelich.
 CLAUDE.md                                    # this file
 TODO.md                                      # ACTIVE — overall hackathon prep tracker
 docs/
+  TOKEN_OPTIMIZATION_PLAN.md                 # ACTIVE — pre-event setup playbook (read this for token/setup work)
+  claude_token_playbook.md                   # research #1 — Claude Code token economics
+  claude_retrieval_strategy.md               # research #2 — RAG vs no-RAG verdict (recommends no-RAG)
   01_email_invitation_papers.txt             # ORGANIZER mail #1
   02_email_registration_confirmed.txt        # ORGANIZER mail #2
   hackathon_preparation.md                   # OUR analysis of past editions

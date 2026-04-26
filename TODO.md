@@ -9,6 +9,8 @@ Stan na 2026-04-26.
 - ✅ Lookup table dla paperów: `references/papers/MAPPING.md` z **Quick-attack lookup** (sekcja 5b)
 - ✅ 3 specs mock-challengeów (A/B/C) + 2 opcjonalne (D/E) w `docs/practice/` — zaktualizowane Min-K%++ / emoji attack / DIPPER / watermark stealing
 - ✅ **6 deep-research artefaktów** w `docs/deep_research/` (adversarial / model inversion / watermarking / model stealing / image attribution / fairness audit)
+- ✅ **Plan optymalizacji tokenowej**: `docs/TOKEN_OPTIMIZATION_PLAN.md` (po dwóch researchach 2026-04-26 — werdykt: hybryda MAPPING + .txt, skip RAG/FAISS). Self-contained handoff dla freshej sesji / kolegi.
+- ⚠️ **Plan tokenowy NIE wykonany** — Phase 0 (settings, .claudeignore, slim CLAUDE.md, pre-extract PDFów, refactor MAPPING) czeka na realizację
 - ⚠️ **Brak kodu** — żadnego boilerplate, fixture data, scoring scripts
 - ⚠️ **Brak rejestracji Jülich** + nieznana data Zoom info session
 - ⚠️ Folder `references/repos/` jeszcze nie sklonowany — patrz sekcja paper repos w MAPPING.md
@@ -83,18 +85,17 @@ Stan na 2026-04-26.
 
 ### 7. Synteza materiałów pod minimalny token footprint
 
-Mamy: 19 PDFów paperów (~300 MB) + 3 deep-research artefakty (30–55 KB każdy) + `MAPPING.md` (7 KB). Ładowanie jednego deep research = ~14k tokenów. Cały korpus PDFów = setki tysięcy tokenów jeśli czytany surowy. **Realnie podczas hackathonu nie chcemy tego ciągnąć.**
+**ROZSTRZYGNIĘTE 2026-04-26.** Pełen plan: **`docs/TOKEN_OPTIMIZATION_PLAN.md`** (self-contained handoff).
 
-Cel: zsyntetyzować wszystko do minimalnej formy zachowując pełen dostęp do informacji. Inaczej: ustalić "kompresować ile się da" vs "trzymać raw + RAG vs MAPPING".
-
-- [ ] **Rozkmin czy lepiej:**
-  - (a) rozszerzyć `MAPPING.md` do bogatszej formy (np. ~30 KB zamiast 7 KB) z key formulas + algorithm pseudocodes + reference numbers per paper — żeby Claude w ogóle nie musiał otwierać PDFów dla 80% pytań
-  - (b) pozostawić MAPPING jako jest + dodać per-paper streszczenia ~1-stronicowe (`references/papers/summaries/NN_*.md`)
-  - (c) zbudować lokalny vector DB nad PDFami (RAG) — patrz prompt #2 do Claude Research wysłany 2026-04-26
-  - (d) hybryda: MAPPING dla discovery, RAG dla deep dive, PDF tylko jak wszystko inne zawiedzie
-- [ ] Zważyć trade-off: czas na syntezę (godziny) vs zaoszczędzone tokeny w trakcie hackathonu (potencjalnie 50–200k tokens)
-- [ ] **Synteza deep research artefaktów** — `04_model_stealing.md` (55KB), `05_image_attribution.md` (56KB), `06_fairness_auditing.md` (31KB). Czy zrobić z nich "cheat sheet" 5–10 KB każdy, zachowując key recipes i numerki?
-- [ ] Decyzja po otrzymaniu wyników z prompt #1 i #2 do Claude Research (token saving + vector DB)
+- [x] **Decyzja po otrzymaniu wyników z prompt #1 i #2 do Claude Research** (oba researchy w `docs/claude_token_playbook.md` + `docs/claude_retrieval_strategy.md`)
+- [x] **Werdykt**: hybryda (a/b/d) bez RAG.
+  - MAPPING.md jako **router** (file path + sekcje + key terms, **NIE numery stron** — czytamy `.txt`)
+  - Pre-ekstrakcja 25 PDFów do `references/papers/txt/` (`pdftotext -layout`, ~10 min runtime)
+  - Skip vector DB / FAISS — break-even >100 cached queries; hackathon nie zrobi tyle
+  - Qdrant + voyage-code-3 = stretch goal, tylko jeśli code search po PyTorch repos w pierwszych 4h
+- [ ] **Realizacja Phase 0** z planu (settings.json, .claudeignore, slim CLAUDE.md, pdftotext, refactor MAPPING) — ~2h roboty, mechaniczne
+- [ ] **Realizacja Phase 1** przed mini-hackathonem 2026-05-02 (subagenty, slash commands, FAQ/LEARNINGS, templates, smoke tests, Justfile, account verification)
+- [ ] **Synteza deep research artefaktów** (04/05/06) do cheat sheetów — odsunięte do P2/stretch w PLANIE; decyzja po mini-hackathonie
 
 ---
 
