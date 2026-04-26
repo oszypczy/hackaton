@@ -12,7 +12,7 @@ AI tools are explicitly allowed during the competition.
 When user asks about state, next steps, papers, or attack techniques — read in this order, stop as soon as you have enough:
 
 1. **`TODO.md`** (root, ~5 KB) — current state of prep, what's blocked, what's next
-2. **`references/papers/MAPPING.md`** (~12 KB) — paper lookup table; one entry per paper with arXiv, code repo, core idea, key result, "use for which challenge"
+2. **`references/papers/MAPPING_INDEX.md`** (~700 words) — lean router. One line per paper: number, title, "use for". For grep terms + key sections jump to the matching entry in `MAPPING.md` (rich, ~3.1k words; load on demand).
 3. **`docs/practice/QUICKSTART.md`** (~3 KB) — "scenario → tool → numbers" cheat sheet; covers all 7 attack categories (text/image watermark, MIA, diffusion mem, model stealing, adversarial, property inference)
 4. **`docs/practice/challenge_X_*.md`** (~5–7 KB each) — full spec for a specific mock challenge
 5. **`docs/practice/README.md`** (~5 KB) — overview, role mapping, SprintML eval style
@@ -21,12 +21,21 @@ Only if 1–5 don't have the answer:
 - Open `docs/deep_research/0N_*.md` (**30–55 KB each, ~7–14k tokens** — heavy, justify before loading)
 - Open a paper PDF (`references/papers/NN_*.pdf`, **0.8–22 MB**, often 30k+ tokens — last resort)
 
-## Status (snapshot 2026-04-26)
-- 25 PDFs in `references/papers/` + `MAPPING.md` lookup
-- 6/7 deep research artifacts pulled (only prompt 7 toolkit pending)
-- 5 challenge specs + QUICKSTART in `docs/practice/`
-- **Active blockers:** brak kodu / boilerplate; Jülich access nieprzetestowany; Zoom info session nieogłoszony
-- Repo currently has only docs + reference papers; no code yet
+## Retrieval rules
+
+For ANY question about the paper corpus, follow this order strictly:
+1. Read `references/papers/MAPPING_INDEX.md` first (lean router — picks ONE paper, ~700 words)
+2. Read the relevant entry in `references/papers/MAPPING.md` (rich — grep terms + key sections per paper, ~3.1k words; do NOT load whole file, jump to the entry)
+3. Use Grep on `references/papers/txt/*.txt` for the key terms from MAPPING
+4. Read `references/papers/txt/NN_*.txt` with `offset`/`limit` for surgical reads
+5. Read raw PDF only if `.txt` extraction lost something critical (rare; flag it)
+
+Hard rules:
+- Never read >2 papers per turn (research #2: top retrieval failure on cross-paper synthesis)
+- Never read full PDF when `.txt` exists (60k → 25k tokens saving)
+- Read tool caps at 25k tokens/file — use `offset`/`limit` (txt) or `pages: "1-15"` (PDF) for big files
+
+Current status: see @docs/STATUS.md
 
 ## Source separation (important)
 
@@ -68,8 +77,22 @@ GPU access during competition: Jülich Supercomputer (https://judoor.fz-juelich.
 ```
 CLAUDE.md                                    # this file
 TODO.md                                      # ACTIVE — overall hackathon prep tracker
+SUBMISSION_LOG.md                            # one-liner per successful /submit
+Justfile                                     # eval / score / submit / baseline / extract-papers
+.claudeignore                                # PDFs, fixtures, lockfiles
+.claude/
+  settings.json                              # token-hygiene defaults
+  agents/                                    # paper-grep, pytorch-debug, code-reviewer
+  commands/                                  # /submit, /grill, /eval, /baseline
+templates/                                   # pytorch_train_loop, hf_dataset_loader, eval_scaffold
+tests/
+  smoke.py                                   # `just eval` runs this; <30s, exits 0/1
 docs/
-  TOKEN_OPTIMIZATION_PLAN.md                 # ACTIVE — pre-event setup playbook (read this for token/setup work)
+  TOKEN_OPTIMIZATION_PLAN.md                 # pre-event setup playbook (read for token/setup work)
+  STATUS.md                                  # volatile project state (out of CLAUDE.md prefix)
+  SETUP.md                                   # per-teammate setup checklist
+  FAQ.md                                     # team Q&A — append on every recurring question
+  LEARNINGS.md                               # session insights — append on every /compact
   claude_token_playbook.md                   # research #1 — Claude Code token economics
   claude_retrieval_strategy.md               # research #2 — RAG vs no-RAG verdict (recommends no-RAG)
   01_email_invitation_papers.txt             # ORGANIZER mail #1
@@ -83,6 +106,7 @@ docs/
     04_model_stealing.md                     # Claude Research result for prompt 4
     05_image_attribution.md                  # Claude Research result for prompt 5
     06_fairness_auditing.md                  # Claude Research result for prompt 6
+    07_hackathon_toolkit.md                  # Claude Research result for prompt 7
   practice/                                  # mock challenges (3 + 2 optional) + quickstart
     README.md                                # overview, mapping, SprintML eval style
     QUICKSTART.md                            # "if hackathon throws X, do Y" 1-page lookup
@@ -93,13 +117,17 @@ docs/
     challenge_E_model_stealing.md            # OPTIONAL — B4B / CIFAR-100 extraction
 references/
   papers/                                    # 25 PDFs total
-    MAPPING.md                               # paper lookup table — READ FIRST
+    MAPPING_INDEX.md                         # lean router — READ FIRST (~700 words)
+    MAPPING.md                               # rich per-paper entries (grep terms + sections, ~3.1k words)
+    txt/                                     # pre-extracted .txt from PDFs (Phase 0 step 4)
     01–04 required (organizers' email)
     05–08 supplementary surveys
     09–19 hidden papers (SprintML 2022–2026, fetched 2026-04-26)
     20–25 competition-ready tools (Min-K%++, Watermark Stealing, DIPPER,
           Recursive Paraphrasing, WAVES, ChatGPT divergence) added 2026-04-26
           after pull researchy 01/02/03
+scripts/
+  extract_papers.sh                          # pdftotext → references/papers/txt/
 ```
 Note: `references/repos/` is referenced in older notes but does **not exist** yet. MAPPING.md sekcja 8 ma listę repos do sklonowania (CDI, IAR Privacy, B4B, NeMo, PoW, Maini, Kirchenbauer).
 
@@ -109,6 +137,13 @@ Note: `references/repos/` is referenced in older notes but does **not exist** ye
 - **Fixture data for challenges B and C must be pre-generated on a non-M4 GPU** (Jülich / Colab T4 / CUDA-teammate). M4s cannot train DDPM from scratch or generate watermarked corpora with Llama-3-8B in fp16.
 - **Challenges D and E are OPTIONAL** (Property Inference, Model Stealing). Treat A/B/C as primary; only suggest D/E when team explicitly considers a second round of practice.
 - **Deep research artifacts are heavy.** Don't auto-load `docs/deep_research/*` unless 1–4 above didn't answer. State explicitly when you're about to load one and why.
+
+## Output rules
+- No preamble. No "Great question," no "I apologize," no "Here's the implementation."
+- Do not restate the user's question
+- Diff-only edits — never echo full files unless explicitly asked
+- Bullets > prose. Numbers > adjectives.
+- No summary at the end of tool sequences
 
 ## When to update CLAUDE.md / TODO.md
 

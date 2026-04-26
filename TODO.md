@@ -10,7 +10,9 @@ Stan na 2026-04-26.
 - ✅ 3 specs mock-challengeów (A/B/C) + 2 opcjonalne (D/E) w `docs/practice/` — zaktualizowane Min-K%++ / emoji attack / DIPPER / watermark stealing
 - ✅ **6 deep-research artefaktów** w `docs/deep_research/` (adversarial / model inversion / watermarking / model stealing / image attribution / fairness audit)
 - ✅ **Plan optymalizacji tokenowej**: `docs/TOKEN_OPTIMIZATION_PLAN.md` (po dwóch researchach 2026-04-26 — werdykt: hybryda MAPPING + .txt, skip RAG/FAISS). Self-contained handoff dla freshej sesji / kolegi.
-- ⚠️ **Plan tokenowy NIE wykonany** — Phase 0 (settings, .claudeignore, slim CLAUDE.md, pre-extract PDFów, refactor MAPPING) czeka na realizację
+- ✅ **Phase 0 token-hygiene baseline DONE 2026-04-26** — settings.json + .claudeignore + 25/25 PDFów→.txt + slim CLAUDE.md (152 lines) + MAPPING router split (INDEX 693w + MAPPING.md 3099w)
+- ✅ **Phase 1 productivity scaffolding DONE 2026-04-26** — 3 subagenty, 4 slash commands, FAQ/LEARNINGS skeletony, Justfile + templates/ + tests/smoke.py (zielony), SUBMISSION_LOG, docs/SETUP.md per-teammate checklist
+- ⚠️ **Per-teammate setup** — każdy musi przejść `docs/SETUP.md` przed mini-hackathonem (brew install, unset ANTHROPIC_API_KEY, claude logout/login, ccusage)
 - ⚠️ **Brak kodu** — żadnego boilerplate, fixture data, scoring scripts
 - ⚠️ **Brak rejestracji Jülich** + nieznana data Zoom info session
 - ⚠️ Folder `references/repos/` jeszcze nie sklonowany — patrz sekcja paper repos w MAPPING.md
@@ -93,8 +95,21 @@ Stan na 2026-04-26.
   - Pre-ekstrakcja 25 PDFów do `references/papers/txt/` (`pdftotext -layout`, ~10 min runtime)
   - Skip vector DB / FAISS — break-even >100 cached queries; hackathon nie zrobi tyle
   - Qdrant + voyage-code-3 = stretch goal, tylko jeśli code search po PyTorch repos w pierwszych 4h
-- [ ] **Realizacja Phase 0** z planu (settings.json, .claudeignore, slim CLAUDE.md, pdftotext, refactor MAPPING) — ~2h roboty, mechaniczne
-- [ ] **Realizacja Phase 1** przed mini-hackathonem 2026-05-02 (subagenty, slash commands, FAQ/LEARNINGS, templates, smoke tests, Justfile, account verification)
+- [x] **Realizacja Phase 0** z planu — DONE 2026-04-26:
+  - `.claude/settings.json` (sonnet, MAX_THINKING_TOKENS=10000, autocompact 70%)
+  - `.claudeignore` (PDFs, __pycache__, .venv, data/, checkpoints, lockfiles)
+  - `scripts/extract_papers.sh` + 25/25 PDFów wyekstraktowanych do `references/papers/txt/` (5.6 MB)
+  - CLAUDE.md slim (152 linii, Status snapshot przeniesiony do `docs/STATUS.md`, dodane sekcje Output rules + Retrieval rules)
+  - MAPPING.md zrefactowany (router format z txt/ paths + grep terms + key sections per paper, 3099 słów)
+  - **MAPPING_INDEX.md** lean router (693 słów, ~924 tokeny) — czytany pierwszy, MAPPING.md load-on-demand
+- [x] **Realizacja Phase 1** DONE 2026-04-26:
+  - 3 subagenty (`paper-grep` Haiku, `pytorch-debug` Sonnet, `code-reviewer` Sonnet) w `.claude/agents/`
+  - 4 slash commands (`/submit`, `/grill`, `/eval`, `/baseline`) w `.claude/commands/`
+  - `docs/FAQ.md` + `docs/LEARNINGS.md` (skeletony)
+  - `Justfile` + `templates/` (pytorch_train_loop, hf_dataset_loader, eval_scaffold) + `tests/smoke.py` (zielony, 6 PASS / 3 SKIP, <2s)
+  - `SUBMISSION_LOG.md` skeleton
+  - `docs/SETUP.md` — per-teammate checklist (każdy musi przejść przed mini-hackathonem)
+  - **TODO per-teammate**: `brew install poppler ripgrep just`, `unset ANTHROPIC_API_KEY`, `claude logout && login`, `npx ccusage blocks --live` (patrz `docs/SETUP.md`)
 - [ ] **Synteza deep research artefaktów** (04/05/06) do cheat sheetów — odsunięte do P2/stretch w PLANIE; decyzja po mini-hackathonie
 
 ---

@@ -1,0 +1,11 @@
+references/papers/*.pdf
+**/__pycache__/
+.venv/
+data/
+*.ckpt
+*.safetensors
+*.pt
+*.bin
+node_modules/
+dist/
+*.lock

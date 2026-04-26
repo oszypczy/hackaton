@@ -1,0 +1,1495 @@
+                                         Membership Inference Attacks From First Principles
+                                            Nicholas Carlini∗1           Steve Chien1 Milad Nasr1,2 Shuang Song1 Andreas Terzis1                                              Florian Tramèr1
+                                                                           1 Google Research 2 University of Massachusetts Amherst
+
+
+
+
+                                                                                                                                          100
+                                            Abstract—A membership inference attack allows an adversary
+                                         to query a trained machine learning model to predict whether or
+                                         not a particular example was contained in the model’s training                                  10 1
+
+
+
+                                                                                                                    True Positive Rate
+                                         dataset. These attacks are currently evaluated using average-case
+                                         “accuracy” metrics that fail to characterize whether the attack                                 10 2                                  Ours. (acc=63.7%)
+                                         can confidently identify any members of the training set. We                                                                          Ye et al. (acc=60.0%)
+
+
+
+
+arXiv:2112.03570v2 [cs.CR] 12 Apr 2022
+                                         argue that attacks should instead be evaluated by computing                                                                           Sablayrolles et al. (acc=56.1%)
+                                         their true-positive rate at low (e.g., ≤ 0.1%) false-positive rates,                            10 3                                  Long et al. (acc=53.5%)
+                                         and find most prior attacks perform poorly when evaluated in
+                                                                                                                                                                               Watson et al. (acc=59.1%)
+                                                                                                                                                                               Shokri et al. (acc=59.5%)
+                                         this way. To address this we develop a Likelihood Ratio Attack
+                                                                                                                                         10 4                                  Song et al. (acc=59.5%)
+                                         (LiRA) that carefully combines multiple ideas from the literature.                                                                    Yeom et al. (acc=59.5%)
+                                         Our attack is 10× more powerful at low false-positive rates, and                                                                      Jayaraman et al. (acc=59.0%)
+                                         also strictly dominates prior attacks on existing metrics.                                      10 5 5
+                                                                                                                                            10    10 4     10 3 10 2 10 1                 100
+                                                                 I. I NTRODUCTION                                                                        False Positive Rate
+                                            Neural networks are now trained on increasingly sensitive
+                                         datasets, and so it is necessary to ensure that trained models are         Fig. 1: Comparing the true-positive rate vs. false-positive rate
+                                         privacy-preserving. In order to empirically verify if a model is           of prior membership inference attacks reveals a wide gap in
+                                         in fact private, membership inference attacks [60] have become             effectiveness. An attack’s average accuracy is not indicative
+                                         the de facto standard [42, 63] because of their simplicity. A              of its performance at low FPRs. By extending on the most
+                                         membership inference attack receives as input a trained model              effective ideas, we improve membership inference attacks by
+                                         and an example from the data distribution, and predicts if that            10×, for a non-overfit CIFAR-10 model (92% test accuracy).
+                                         example was used to train the model.
+                                            Unfortunately as noted by recent work [44, 69], many prior              metrics (e.g., AUC) are often uncorrelated with low FP success
+                                         membership inference attacks use an incomplete evaluation                  rates. For example the attack of Yeom et al. [70] has a high
+                                         methodology that considers average-case success metrics (e.g.,             accuracy (59.5%) yet fails completely at low FPRs, and the
+                                         accuracy or ROC-AUC) that aggregate an attack’s accuracy                   attack of Long et al. [36] has a much lower accuracy (53.5%)
+                                         over an entire dataset and over all detection thresholds [6, 18,           but achieves higher success rates at low FPRs.
+                                         26, 33–35, 45, 52, 54, 54–57, 61, 63, 66, 70]. However, privacy               We develop a Likelihood Ratio Attack (LiRA) that succeeds
+                                         is not an average case metric, and should not be evaluated as              10× more often than prior work at low FPRs—but still
+                                         such [65]. Thus, while existing membership inference attacks               strictly dominates prior attacks on aggregate metrics intro-
+                                         do appear effective when evaluated under this average-case                 duced previously. Our attack combines per-example difficulty
+                                         methodology, we make the case they do not actually effectively             scores [37, 56, 68] with a principled and well-calibrated Gaus-
+                                         measure the worst-case privacy of machine learning models.                 sian likelihood estimate. Figure 1 shows the success rate of our
+                                            Contributions. In this paper we re-examine the problem                  attack on a log-scale Receiver Operating Characteristic (ROC)
+                                         statement of membership inference attacks from first princi-               curve [59], comparing the ratio of true-positives to false-
+                                         ples. We first argue that membership inference attacks should              positives. We perform an extensive experimental evaluation to
+                                         be evaluated by considering their true-positive rate (TPR) at              understand each of the factors that contribute to our attack’s
+                                         low false-positive rates (FPR). This objective of designing                success, and release our open source code.1
+                                         methods around low false-positive rates is typical in many                    Future work will need to re-examine many questions that
+                                         areas of computer security [21, 27, 28, 31, 41, 49], and for               have been studied using prior, much less effective, membership
+                                         similar reasons it is the right metric here. If a membership               inference attacks. Attacks that use less information (e.g., label-
+                                         inference attack can reliably violate the privacy of even just             only attacks [6, 34, 54]) may or may not achieve high success
+                                         a few users in a sensitive dataset, it has succeeded. And con-             rate at low false-positive rates; algorithms previously seen as
+                                         versely, an attack that only unreliably achieves high aggregate            “private” because they resist prior attacks might be vulnerable
+                                         attack success rate should not be considered successful.                   to our new attack; and old defenses dismissed as ineffective
+                                            When evaluated this way, we find most prior attacks fail                might be able to defend against these new stronger attacks.
+                                         in the low false-positive rate regime. Furthermore, aggregate
+                                           ∗ Authors ordered alphabetically.                                                  1 https://github.com/tensorflow/privacy/tree/master/research/mi lira 2021
+
+
+
+
+                                                                                                                1
+                       II. BACKGROUND                                        We focus on a more fundamental attack that predicts if a
+  We begin with a background that will be familiar to readers             particular example is part of a training dataset. First explored
+knowledgeable of machine learning privacy.                                as tracing attacks [11, 12, 22, 59] on medical datasets, they
+                                                                          were exended to machine learning models as membership
+A. Machine learning notation                                              inference attacks [60]. In these settings, being able to reliably
+   A classification neural network fθ : X → [0, 1]n is a                  (with high precision) identify a few users as being contained
+learned function that maps some input data sample x ∈ X                   in sensitive medical datasets is itself a privacy violation [22]—
+to an n-class probability distribution; we let f (x)y denote the          even if this is done with low recall. Further, membership
+probability of class y. Given a dataset D sampled from some               inference attacks are the foundation of stronger extraction
+underlying distribution D, we write fθ ← T (D) to denote that             attacks [3, 4], and in order to be used in this way must again
+the neural network f parameterized with weights θ is learned              have exceptionally high precision.
+by running the training algorithm T on the training set D.                      b) Theory of memorization: The ability to perform mem-
+Neural networks are trained via stochastic gradient descent               bership inference is directly tied to a model’s ability to
+[32] to minimize some loss function `:                                    memorize individual data points or labels. Zhang et al. [72]
+                              X                                           demonstrated that standard neural networks can memorize en-
+             θi+1 ← θi − η           ∇θ `(fθi (x), y)        (1)
+                                                                          tirely randomly labeled datasets. A recent line of work initiated
+                             (x,y)∈B
+                                                                          by Feldman [14] shows both theoretically and empirically that
+Here, B is a batch of random training examples from D, and                some amount of memorization may be necessary to achieve
+η is the learning rate, a small constant. For classification tasks,       optimal generalization [2, 15].
+the most common loss function is the cross-entropy loss:                        c) Privacy-preserving training: The most widely de-
+                 `(fθ (x), y) = − log(fθ (x)y ) .                         ployed technique to make neural networks private is to make
+                                                                          the learning process differentially private [10]. This can be
+When the weights θ are clear from context, we will simply                 done in various ways—for example by modifying the SGD
+write a trained model as f . At times it will be useful to view           algorithm [1, 64], or by aggregating results from a model
+a model f as a function f (x) = σ(z(x)), where z : X →                    ensemble [50]. Independent from differential privacy based
+Rn returns the feature outputs of the network, followed by a              defenses, there are other heuristic techniques (that is, without a
+                                          z1            zn
+softmax normalization layer σ(z) = [ Pe ezi , . . . , Pe ezi ].           formal proof of privacy) that have been developed to improve
+                                         i              i
+   Training neural networks that reach 100% training accuracy             the privacy of machine learning models [26, 45]. Unfortu-
+is easy—running the gradient descent from Equation 1 on any               nately, many of these have been shown to be vulnerable to
+sufficiently sized neural network eventually achieves this goal           more advanced forms of attack [6, 61].
+[72]. The difficulty is in training models that generalize to an                d) Measuring training data privacy: Given a particular
+unseen test set Dtest ← D drawn from the same distribution.               training scheme, a final direction of work aims to answer the
+There are a number of techniques to increase the generalization           question “how much privacy does this scheme offer?” Existing
+ability of neural networks (augmentations [7, 67, 73], weight             techniques often work by altering the training pipeline, either
+regularization [30], tuned learning rates [23, 38]). For the              by injecting outlier canaries [3], or using poisoning to search
+remainder of this paper, all models we train use state-of-the-art         for worst-case memorization [24, 47]. While these techniques
+generalization-enhancing techniques. This makes our analysis              give increasingly strong measurements of a trained model’s
+much more realistic than prior work, which often uses models              privacy, the fact that they require modifying the training
+with 2–5× higher error rates than our models.                             pipeline creates an up-front cost to deployment. As a result, by
+                                                                          far the most common technique used to audit machine learning
+B. Training data privacy
+                                                                          models is to just use a membership inference attack. Existing
+   Neural networks must not leak details of their training                membership inference attack libraries (see, e.g., Murakonda
+datasets, particularly when used in privacy-sensitive scenarios           and Shokri [42], Song and Marn [63]) form the basis for most
+[5, 13]. The field of training data privacy constructs attacks            production privacy analysis [63], and it is therefore critical that
+that leak data, develops techniques to prevent memorization,              they accurately assess the privacy of machine learning models.
+and measures the privacy of proposed defenses.
+      a) Privacy attacks: There are various forms of attacks                        III. M EMBERSHIP I NFERENCE ATTACKS
+on the privacy of training data. Training data extraction [4]
+is an explicit attack where an adversary recovers individual                 The objective of a membership inference attack (MIA) [60]
+examples used to train the model. In contrast, model inversion            is to predict if a specific training example was, or was not, used
+attacks recover aggregate details of particular sub-classes               as training data in a particular model. This makes MIAs the
+instead of individual training examples [16]. Finally, property           simplest and most widely deployed attack for auditing training
+inference attacks aim at inferring non-trivial properties of the          data privacy. It is thus important that they can reliably succeed
+training dataset. For example, a classifier trained on bitcoin            at this task. This section formalizes the membership inference
+logs can reveal whether or not the machines that generated                attack security game (§III-A), and introduces our membership
+the logs were patched for Meltdown and Spectre [17].                      inference evaluation methodology (§III-B).
+
+
+
+                                                                      2
+A. Definitions                                                          as non-members. While this dataset is not sensitive, it serves
+  We define membership inference via a standard security                as a strong baseline for understanding properties of machine
+game inspired by Yeom et al. [70] and Jayaraman et al. [25].            learning models in general. We train this model using standard
+                                                                        techniques to reduce overfitting, including weight decay [30],
+Definition 1 (Membership inference security game). The game             train-time augmentations [7], and early stopping. As a result,
+proceeds between a challenger C and an adversary A:                     this model has only a 8% train-test accuracy gap.
+  1) The challenger samples a training dataset D ← D and
+      trains a model fθ ← T (D) on the dataset D.                       Balanced Attack Accuracy. The simplest method to evaluate
+  2) The challenger flips a bit b, and if b = 0, samples a              attack efficacy is through a standard “accuracy” metric that
+      fresh challenge point from the distribution (x, y) ← D            measures how often an attack correctly predicts membership
+      (such that (x, y) ∈
+                        / D). Otherwise, the challenger selects         on a balanced dataset of members and non-members [6, 18,
+      a point from the training set (x, y) ←$ D.                        33, 46, 56, 60, 61, 66, 68, 70].
+  3) The challenger sends (x, y) to the adversary.
+                                                                        Definition 2. The balanced attack accuracy of a membership
+  4) The adversary gets query access to the distribution D,
+                                                                        inference attack A in Definition 1 is defined as
+      and to the model fθ , and outputs a bit b̂ ← AD,f (x, y).
+  5) Output 1 if b̂ = b, and 0 otherwise.                                                     Pr [AD,f (x, y) = b].
+                                                                                            x,y,f,b
+   For simplicity, we will write A(x, y) to denote the adver-              Even though balanced accuracy is used in many papers
+sary’s prediction on the sample (x, y) when the distribution D          to evaluate membership inference attacks, we argue that this
+and model f are clear from context.                                     metric is inherently inadequate for multiple reasons:
+   Note that this game assumes that the adversary is given
+                                                                           • Balanced accuracy is symmetric. That is, the metric
+access to the underlying training data distribution D; while
+                                                                             assigns equal cost to false-positives and to false-negatives.
+some attacks do not make use of this assumption [70], many
+                                                                             However, in practice, adversaries often only care about
+attacks require query-access to the distribution in order to
+                                                                             one of these two sources of errors. For example, when
+train “shadow models” [60] (as we will describe). The above
+                                                                             a membership inference attack is used in a training data
+game also assumes that the adversary is given access to both
+                                                                             extraction attack [4], false negatives are benign (some
+a training example and its ground-truth label.
+                                                                             data will not be successfully extracted) whereas false-
+   Instead of outputting a “hard prediction”, all the attacks we
+                                                                             positives directly reduce the utility of the attack.
+consider output a continuous confidence score, which is then
+                                                                           • Balanced accuracy is an average-case metric, but this is
+thresholded to yield a membership prediction. That is,
+                                                                             not what matters in security. Consider comparing two at-
+                  A(x, y) = 1[A0 (x, y) > τ ]                                tacks. Attack A perfectly targets a known subset of 0.1%
+                                                                             of users, but succeeds with a random 50% chance on the
+where 1 is the indicator function, τ is some tunable decision                rest. Attack B succeeds with 50.05% probability on any
+threshold, and A0 outputs a real-valued confidence score.                    given user. On average, these two attacks have the same
+                                                                             attack success rate (and thus the same balanced accuracy).
+A first membership inference attack. For illustrative pur-                   However, the second attack is practically useless, while
+poses, we begin by considering a very simple membership                      the first attack is exceptionally potent.
+inference attack (due to Yeom et al. [70]). This attack relies             We now illustrate how exactly these issues arise for the
+on the observation that, because machine learning models are            simple LOSS attack described above. For our CIFAR-10
+trained to minimize the loss of their training examples (see            model, this attack’s balanced accuracy is 60%. This is (much)
+Equation 1), examples with lower loss are on average more               better than random guessing, and so one might reasonably
+likely to be members of the training data. Formally, the LOSS           conclude that the attack is useful and practically worrying.
+membership inference attack defines                                        However, this attack completely fails at confidently identi-
+              Aloss (x, y) = 1[−`(f (x), y) > τ ] .                     fying any members! Let’s examine for the moment the 1%
+                                                                        of samples from the CIFAR-10 dataset with lowest losses
+B. Evaluating membership inference attacks                              `(f (x), y). These are the samples where the attack is most
+   Prior work lays out several strategies to determine the effec-       confident that they are members. Yet, on this subset, the
+tiveness of a membership inference attack, i.e., how to measure         attack is only correct 48% of the time (worse than random
+the adversary’s success in Definition 1. We now show that               guessing). In contrast, for the 1% samples with highest loss
+existing evaluation methodologies fail to characterize whether          (confident non-members), the attack is correct 100% of the
+an attack succeeds at confidently predicting membership. We             time. Thus, the LOSS attack is actually a strong non-
+thus propose a more suitable evaluation procedure.                      membership inference attack, and is practically useless at
+   As a running example for the remainder of this section,              inferring membership. An attack with the symmetrical prop-
+we train a standard CIFAR-10 [29] ResNet [19] to 92% test               erty (i.e., the attack confidently identifies members, but not
+accuracy by training it on half of the dataset (i.e., 25,000            non-members) is a much stronger attack on privacy, yet it
+examples)—leaving another 25,000 examples for evaluation                achieves the same balanced accuracy.
+
+
+
+                                                                    3
+ROC Analysis. Instead of the balanced accuracy, we should                                                               false-positive rates between 3% and 40%, which we argue is
+thus consider metrics that emphasize positive predictions (i.e.,                                                        too high to be practically meaningful.
+membership guesses) over negative (non-membership) predic-                                                                 In this paper, we argue for studying the extremely low
+tions. A natural choice is to consider the tradeoff between                                                             false-positive regime. We do this by (1) reporting full ROC
+the true-positive rate (TPR) and false-positive rate (FPR).                                                             curves in logarithmic scale (see Figure 2b); and (2) optionally
+Intuitively, an attack should maximize the true-positive rate                                                           summarizing an attack’s success rate by reporting its TPR at
+(many members are identified), while incurring few false-                                                               a fixed low FPR (e.g., 0.001% or 0.1%). For example, the
+positives (incorrect membership guesses). We prefer this to a                                                           LOSS attack achieves a TPR of 0% at an FPR of 0.1% (worse
+precision/recall analysis because TPR/FPR is independent of                                                             than chance). While summarizing an attack’s performance
+the (often unknown) prevalence of members in the population.                                                            at a single choice of (low) FPR can be useful for quickly
+   The TPR/FPR tradeoff is fully characterized by the Receiver                                                          comparing attack configurations, we encourage future work to
+Operating Characteristic (ROC) curve, which compares the                                                                always also report full (log-scale) ROC curves as we do.
+attack’s TPR and FPR for all possible choices of the decision                                                                  IV. T HE L IKELIHOOD R ATIO ATTACK (L I RA)
+threshold τ . In Figure 2a, we show the ROC curve for
+the LOSS attack. The attack fails to achieve a TPR better                                                               A. Membership inference as hypothesis testing
+than random chance at any FPR below 20%—it is therefore                                                                    The game in Definition 1 requires the adversary to distin-
+ineffective at confidently breaching the privacy of its members.                                                        guish between two “worlds”: one where f is trained on a
+                                                                                                                        randomly sampled dataset that contains a target point (x, y),
+                        1.0                                                                                             and one where f is not trained on (x, y). It is thus natural to
+                                                                                                                        see a membership inference attack as performing a hypothesis
+
+
+   True Positive Rate                                         True Positive Rate
+                        0.8                                                        10−1
+                                                                                                                        test to guess whether or not f was trained on (x, y).
+                        0.6
+                                                                                                                           We formalize this by considering two distributions over
+                        0.4                                                        10−3                                 models: Qin (x, y) = {f ← T (D ∪ {(x, y)}) | D ← D} is the
+                        0.2                                                                                             distribution of models trained on datasets containing (x, y),
+                                                                                   10−5                                 and then Qout (x, y) = {f ← T (D\{(x, y)}) | D ← D}.
+                                 0.25 0.50 0.75        1.00                           10−5       10−3        10−1       Given a model f and a target example (x, y), the adversary’s
+                                 False Positive Rate                                         False Positive Rate
+                                                                                                                        task is to perform a hypothesis test that predicts if f was
+                              (a) linear scale                                            (b) log scale                 sampled either from Qin or if it was sampled from Qout [59].
+Fig. 2: ROC curve for the LOSS baseline membership infer-                                                                  We perform this hypothesis test according to the Neyman-
+ence attack, shown with both linear scaling (left), also and                                                            Pearson lemma [48], which states that the best hypothesis test
+log-log scaling (right) to emphasize the low-FPR regime.                                                                at a fixed false positive rate is obtained by thresholding the
+                                                                                                                        Likelihood-ratio Test between the two hypotheses:
+   Prior papers that do report ROC curves summarize them                                                                                                p(f | Qin (x, y))
+                                                                                                                                        Λ(f ; x, y) =                      ,          (2)
+by the AUC (Area Under the Curve) [20, 39, 43, 57, 68, 69].                                                                                             p(f | Qout (x, y))
+However, as we can see from the curves above, the AUC is not                                                            where p(f | Qb (x, y)) is the probability density function over
+an appropriate measure of an attack’s efficacy, since the AUC                                                           f under the (fixed) distribution of model parameters Qb (x, y).
+averages over all false-positive rates, including high error rates                                                         Unfortunately the above test is intractable: even the distribu-
+that are irrelevant for a practical attack. The TPR of an attack                                                        tions Qin and Qout are not analytically known. To simplify the
+when the FPR is above 50% is not meaningfully useful, yet                                                               situation, we instead define Q̃in and Q̃out as the distributions
+this regime accounts for more than half of its AUC score.                                                               of losses on (x, y) for models either trained, or not trained,
+   To illustrate, consider our hypothetical Attack A from                                                               on this example. Then, we can replace both probabilities in
+earlier that confidently identifies 0.1% of members, but makes                                                          Equation 2 with the easy-to-calculate quantity
+no confident predictions for any other samples. This attack
+perfectly breaches the privacy of some members, but has an                                                                                p(`(f (x), y) | Q̃in/out (x, y)).           (3)
+AUC ≈ 51%—lower than the AUC of the weak LOSS attack.                                                                   This is now a likelihood test for a one-dimensional statistic,
+True-Positive Rate at Low False-Positive Rates. Our recom-                                                              which can be efficiently computed with query access to f .
+mended evaluation of membership inference attacks is thus to                                                            Our attack follows the above intuition. We train several
+report an attack’s true-positive rate at low false-positive rates.                                                      “shadow models” in order to directly estimate the distribution
+   Prior work occasionally reports true-positive rates at mod-                                                          Q̃in/out . To minimize the number of shadow models neces-
+erate false-positive rates (or reports precision/recall values that                                                     sary, we assume Q̃in/out is a Gaussian distribution, reducing
+can be converted into TPR/FPR rates if the prevalence is                                                                our attack to estimating just four parameters: the mean and
+known). For example, Shokri et al. [60] frequently reports that                                                         variance of each distribution. To run our inference attack on
+the “recall is almost 1” however there is a meaningful FPR                                                              any model f , we can compute its loss on `(f (x), y), measure
+difference between a recall of 1.0 and 0.999. Other works                                                               the likelihood of this loss under each of the distributions Q̃in
+consistently report precision/recall values, but for equivalent                                                         and Q̃out , and return whichever is is more likely.
+
+
+
+                                                                                                                    4
+                            member       non-member                      200
+                                                                                  confidence           CE loss         logit scaling
+        200                                                                           f (x)y          − log(f (x)y )     φ(f (x)y )
+              easy to fit / inlier    easy to fit / outlier
+                         bird                 dog
+        100                                                                 0
+                                                                                0.0    0.5     1.0   10−7 10−3 101 −20       0        20
+          0
+                                                                        Fig. 4: The model’s confidence, or its logarithm (the cross-
+        200
+              hard to fit / inlier    hard to fit / outlier             entropy loss) are not normally distributed. Applying the logit
+                     airplane                truck                      function yields values that are approximately normal.
+        100
+
+
+          0                                                             different quantities. An example can be an outlier but easy to
+                  10−5          100       10−5        100               fit (upper right), or an inlier but hard to fit (lower left).
+                                                                           The goal of a membership inference adversary is to distin-
+Fig. 3: Some examples are easier to fit than others, and some           guish the two distributions in Figure 3 for a given example.
+have a larger separability between their losses when being              This view illustrates the shortcomings of prior attacks (e.g.,
+a member of the training set or not. We train 1024 models               the LOSS attack): a global threshold on the observed loss
+on random subsets of CIFAR-10 and plot the losses for four              `(f (x), y) cannot distinguish between the different scenarios
+examples when the example is a member of the training set               in Figure 3. The only confident assessment that such an attack
+(Q̃in (x, y), in red) or not (Q̃out (x, y), in blue).                   can make is that examples with high loss are non-members. In
+                                                                        contrast, the Likelihood-ratio test in Equation (2) considers the
+                                                                        hardness of each example individually by modeling separate
+B. Memorization and per-example hardness
+                                                                        pairs of distributions Q̃in , Q̃out for each example (x, y).
+   By casting membership inference as a Likelihood-ratio test,
+it becomes clear why the LOSS attack (and those that build              C. Estimating the likelihood-ratio with parametric modeling
+on it) are ineffective: by directly thresholding the quantity              We directly turn this observation into a membership infer-
+`(f (x), y), this attack implicitly assumes that the losses of          ence attack by computing per-example hardness scores [37,
+all examples are a priori on an equal scale, and that the               56, 68, 69]. By training models on random samples of data
+inclusion or exclusion of one example will have a similar effect        from the distribution D, we obtain empirical estimates of the
+on the model as any other example. That is, if we measure               distributions Q̃in and Q̃out for any example (x, y). And from
+`(f (x), y) < `(f (x0 ), y 0 ) then the LOSS attack predicts that       here, we can estimate the likelihood from Equation 3 to predict
+(x, y) is more likely to be a member than (x0 , y 0 )—regardless        if an example is a member of the training dataset or not.
+of any other properties of these examples.                                 To improve performance at very low false-positive rates,
+   Feldman and Zhang [15] show that not all examples are                instead of empirically modeling the distributions Q̃in/out di-
+equal: some examples (“outliers”) have an outsized effect               rectly from the data, we opt for a parametric and model Q̃in/out
+on the learned model when inserted into a training dataset,             by Gaussian distributions. Parametric modeling has several
+compared to other (“inlier”) examples. To replicate their               significant benefits over nonparametric modeling.
+experiment, we choose a training dataset D and sample a
+                                                                           • Parametric modeling requires training fewer shadow
+random subset Din ⊂ D containing half of the dataset. We
+                                                                              models to achieve the same generalization of nonpara-
+train a model on this dataset f ← T (Din ), and evaluate the
+                                                                              metric approaches. For example, we can match the recent
+loss on every example (x, y) ∈ D, annotated by whether or
+                                                                              (nonparametric) work of [69] with 400× fewer models.
+not (x, y) was in the training set Din . We repeat the above
+                                                                           • We can extend our attack to multivariate parametric
+experiment hundreds of times, thereby empirically estimating
+                                                                              models, allowing us to further improve attack success
+the distributions p(`(f (x), y) | Q̃in/out (x, y)) by sampling.
+                                                                              rate by querying the model multiple times (§VI-C).
+   Figure 3 plots histograms of model losses on four CIFAR-10
+images when the image is contained in the model’s training                 Doing this requires some care. Indeed, as can be seen in
+dataset (red) and when it is absent (blue). We chose these              Figure 3, the model’s cross-entropy loss is not well approx-
+images to illustrate two different axes of variation. On the            imated by a normal distribution. First, the cross-entropy loss
+columns we compare “inliers” to “outliers”, as determined by            is on a logarithmic scale. If we take the negative exponent,
+the model’s loss when not trained on the example. The left              exp(−`(f (x), y)), we instead obtain the model “confidence”
+column shows examples with low loss when omitted from                   f (x)y , which is bounded in the interval [0, 1] and thus not
+the training set, those in the right column have high loss.             normally distributed either (i.e., the confidences for outliers
+On rows we compare how easy the examples are to fit. The                and inliers concentrate, respectively, around 0 and 1). We thus
+examples in the top row have very low loss when trained                 apply a logit scaling to the model’s confidence,
+on, while the examples in the bottom row have higher loss.
+                                                                                                       
+                                                                                                    p
+Importantly, observe that these two dimensions do measure                           φ(p) = log            ,    for p = f (x)y
+                                                                                                  1−p
+
+
+                                                                    5
+Algorithm 1 Our online Likelihood Ratio Attack (LiRA).                       new models after they are told to infer the membership of the
+We train shadow models on datasets with and without the                      example (x, y). This requires training new machine learning
+target example, estimate mean and variance of the loss dis-                  models for every (batch of) membership inference queries, and
+tributions, and compute a likelihood ratio test. (In our offline             is computationally expensive.
+variant, we omit lines 5, 6, 10, and 12, and instead return                     To improve the efficiency of our attack, we propose an
+the prediction by estimating a single-tailed distribution, as is             offline attack algorithm that trains shadow models on randomly
+shown in Equation (4).)                                                      sampled datasets ahead of time, and never trains shadow
+Require: model f , example (x, y), data distribution D                       models on the target points. For this attack, we remove lines
+  1: confsin = {}                                                            5,6,10 and 12 from Algorithm 1, and only estimate the mean
+                                                                                                   2
+  2: confsout = {}                                                           µout and variance σout   of model confidences when the target
+  3: for N times do                                                          example is not in the shadow models’ training data. We
+  4:    Dattack ←$ D                  . Sample a shadow dataset              then change the likelihood-ratio test in line 15 to a one-
+  5:    fin ← T (Dattack ∪ {(x, y)})            . train IN model             sided hypothesis test. That is, we measure the probability of
+  6:    confsin ← confsin ∪ {φ(fin (x)y )}                                   observing a confidence as high as the target model’s under the
+  7:    fout ← T (Dattack \{(x, y)})          . train OUT model              null-hypothesis that the target point (x, y) is a non-member:
+  8:    confsout ← confsout ∪ {φ(fout (x)y )}                                                                                   2
+                                                                               Λ = 1 − Pr[Z > φ(f (x)y )], where Z ∼ N (µout , σout ) . (4)
+  9: end for
+ 10: µin ← mean(confsin )                                                    The larger the target model’s confidence is compared to µout ,
+ 11: µout ← mean(confsout )                                                  the higher the likelihood that the query sample is a member.
+       2                                                                     Similar to our online attack, we improve the attack by querying
+ 12: σin ← var(confsin )
+       2                                                                     on multiple augmentations and fitting a multivariate normal.
+ 13: σout ← var(confsout )
+ 14: confobs = φ(f (x)y )                    . query target model                               V. ATTACK E VALUATION
+                                      2
+                p(confobs | N (µin , σin ))                                     We now investigate our offline and online attack variants in
+15: return Λ =                        2 ))
+               p(confobs | N (µout , σout                                    a thorough evaluation across datasets and ML techniques.
+                                                                                Again, we focus extensively on the low-false positive rate
+                                                                             regime. This is the setting with the most practical conse-
+to obtain a statistic in the range (−∞, ∞) that is (empirically)             quences: for example, to extract training data [4] it is far more
+approximately normal. Figure 4 displays the distributions of                 important for attacks to have a low false positive rate than
+model confidences, the negative log of the confidences (the                  high average success, as false positives are fare more costly
+cross-entropy loss), and the logit of the confidences. Only the              than false negatives. Similarly, de-identifying even a few users
+logit appraoch is well approximated by a pair of Gaussians.                  contained in a sensitive dataset is far more important than
+                                                                             saying an average-case statement “most people are probably
+Our complete online attack (Algorithm 1). We first train                     not contained in the sensitive dataset”.
+N shadow models [60] on random samples from the data                            We use both datasets traditionally used for membership
+distribution D, so that half of these models are trained on the              inference attack evaluations, but also new datasets that are
+target point (x, y), and half are not (we call these respectively            less typically used. In addition to the CIFAR-10 dataset
+IN and OUT models for (x, y)). We then fit two Gaussians to                  introduced previously, we also consider three other datasets:
+the confidences of the IN and OUT models on (x, y) (in logit                 CIFAR-100 [29] (another standard image classification task),
+scale). Finally, we query the confidence of the target model f               ImageNet [9] (a standard challenging image classification task)
+on (x, y) and output a parametric Likelihood-ratio test.                     and WikiText-103 [40] (a natural language processing text
+   This attack is easily parallelized across multiple target                 dataset). For CIFAR-100, we follow the same process as for
+points. Given a dataset D ← D, we train shadow models on                     CIFAR-10 and train a wide ResNet [71] to 60% accuracy on
+N subsets of D, chosen so that each target (x, y) ∈ D appears                half of the dataset (25,000 examples). For ImageNet, we train
+in N/2 subsets. The same N shadow models can then be used                    a ResNet-50 on 50% of the dataset (roughly half a million
+to estimate the Likelihood-ratio test for all examples in D.                 examples). For WikiText-103, we use the GPT-2 tokenizer [53]
+   As an optimization, we can improve the attack by querying                 to split the dataset into a million sentences and train a small
+the target model on multiple points x1 , x2 , . . . , xm obtained            GPT-2 [53] model on 50% of the dataset for 20 epochs to
+by applying standard data augmentations to the target point                  minimize the cross-entropy loss. Prior work has additionally
+x (as previously observed in [6]). In this case, we fit m-                   performed experiments on two toy datasets that we do not
+dimensional spherical Gaussians N (µin , σ 2in I), N (µout , σ 2out I)       believe are meaningful benchmarks for privacy because of
+to the losses collected from querying the shadow models m                    their simplicity: Purchase and Texas (see [60] for details).2
+times per example, and compute a standard likelihood-ratio
+                                                                                2 While these datasets ostensibly have privacy-relevance, we believe it is
+test between two multivariate normal distributions.
+                                                                             more important to study datasets that reveal interesting properties of machine
+                                                                             learning than datasets that discuss privacy. We nevertheless present these
+Our offline attack. While our online attack is effective, it has             results in the Appendix, but encourage future work to omit these results and
+a significant usability limitation: it requires the adversary train          focus on the more informative tasks we consider.
+
+
+
+
+                                                                         6
+                            100                                                                                     100
+
+
+                           10−1                                                                                    10−1
+
+
+
+
+      True Positive Rate                                                                      True Positive Rate
+                           10−2                                                                                    10−2
+
+
+                           10−3                                                                                    10−3                     CIFAR-100, auc=0.859
+                                                       CIFAR-100, auc=0.925                                                                 CIFAR-10, auc=0.674
+                                                       CIFAR-10, auc=0.720                                                                  ImageNet, auc=0.728
+                           10−4                                                                                    10−4
+                                                       ImageNet, auc=0.765                                                                  WikiText-103, auc=0.713
+                                                       WikiText, auc=0.715                                                                  Online
+                           10−5                                                                                    10−5
+                              10−5   10−4    10−3        10−2     10−1        100                                     10−5   10−4    10−3        10−2     10−1        100
+                                            False Positive Rate                                                                     False Positive Rate
+
+
+Fig. 5: Success rate of our attack on CIFAR-10, CIFAR-                                  Fig. 6: Success rate of our offline attack on CIFAR-
+100, ImageNet, and WikiText. All plots are generated with                               10, CIFAR-100, ImageNet, and WikiText. All plots are
+256 shadow models, except ImageNet which uses 64.                                       generated with 128 OUT shadow models, except ImageNet
+                                                                                        which uses 32. For each dataset, we also plot our online attack
+                                                                                        with the same number of shadow models (half IN, half OUT).
+   For each dataset, the adversary trains N shadow models
+(N = 64 for ImageNet, and N = 256 otherwise) on training
+sets chosen so that each example (x, y) is contained in exactly                         B. Offline attack evaluation
+half of the shadow models’ training sets (thus, for each                                   Figure 6 evaluates our offline attack from Section IV-C,
+example we have N/2 IN models, and N/2 OUT models). We                                  where the adversary performs the costly operations of training
+use the entire dataset for this purpose, and thus the training                          shadow models only before being handed the target query
+sets of individual shadow models and the target model may                               point (x, y). Our attack performs only slightly worse in this
+partially overlap. This is a strong assumption, which we make                           offline setting—at an FPR of 0.1%, our offline attack’s TPR
+here mainly due to the small size of some of the datasets we                            is at most 20% lower than that of our best online attack with
+consider. In Section VI-D, we show that our attack works just                           the same number of shadow models.
+as well when the adversary trains shadow models on datasets
+that are fully disjoint from the target model’s training set.                           C. Re-evaluating prior membership inference attacks
+   For all datasets except ImageNet, we repeat each attack 10                              In order to understand how our attack compares to prior
+times and report the attack success rates across all 10 attacks.                        work, we now re-evaluate prior attack techniques under our
+                                                                                        low-FPR objective. We study these attacks following the same
+A. Online attack evaluation                                                             evaluation protocol introduced above and on the same datasets
+                                                                                        (for WikiText, we omit a few entries for attacks that are not
+   Figure 5 presents the main results of our online attack when                         directly applicable to sequential language models).
+evaluated on the four more complex of the datasets mentioned                               A summary of our analysis is presented in Table I. We
+above (CIFAR-10, CIFAR-100, ImageNet, and WikiText-103).                                compare the efficacy of eight representative attacks from the
+Even though these datasets are complex, it is relatively effi-                          literature. For each attack, we compute a full ROC curve and
+cient to train most of these models—for example a CIFAR-10                              select a decision threshold that maximizes TPR at a given FPR.
+or CIFAR-100 model takes just six minutes to train. Additional                          Surprisingly, we find that despite being published in 2019, the
+results for the Purchase and Texas dataset are given in the                             attack of Sablayrolles et al. [56] outperforms other attacks
+Appendix—these datasets are much simpler and while they                                 under our metric (often by an order of magnitude), even when
+are typically used for membership inference, we argue they                              compared to more recent attacks such as Jayaraman et al. [25]
+are too simple to have generalizable lessons.                                           (PETS’21) and Song and Mittal [61] (USENIX’21).
+   Our attack has true-positive rates ranging from 0.1% to
+10% at a false-positive rate of 0.001%. If we compare the                               Shadow models. One of the first membership inference attacks
+three image datasets, consistent with prior works, we find that                         (due to Shokri et al. [60]) that improves on the baseline LOSS
+the attack’s average success rate (i.e., the AUC) is correlated                         attack, introduced the idea of shadow models, but used in a
+directly with the generalization gap of the trained model. All                          simpler way than we have done here. Each shadow model
+three models have perfect 100% training accuracy, but the test                          fi (of a similar type to the target model f ) is trained on
+accuracy of the CIFAR-10 model is 90%, the ImageNet model                               random subsets Di of training data available to the adversary.
+is 65%, and the CIFAR-100 model is 60%. Yet, at low false-                              The attack then trains a new neural network g to predict an
+positives, the CIFAR-10 models are easier to attack than the                            example’s membership status. Given the pre-softmax features
+ImageNet models, despite their better generalization.                                   fi (x) and class label y, the model g predicts whether the data
+
+
+
+                                                                                    7
+                       shadow   multiple   class      example
+                                                                   TPR @ 0.001% FPR                 TPR @ 0.1% FPR              Balanced Accuracy
+Method                 models   queries    hardness   hardness   C-10    C-100        WT103      C-10     C-100    WT103       C-10    C-100    WT103
+Yeom et al. [70]         #        #         #          #         0.0%     0.0%         0.00%     0.0%      0.0%      0.1%    59.4%     78.0%     50.0%
+Shokri et al. [60]                #                    #         0.0%     0.0%             –     0.3%      1.6%         –    59.6%     74.5%          –
+Jayaraman et al. [25]    #                  #          #         0.0%     0.0%             –     0.0%      0.0%         –    59.4%     76.9%          –
+Song and Mittal [61]              #                    #         0.0%     0.0%             –     0.1%      1.4%         –    59.5%     77.3%          –
+Sablayrolles et al. [56]          #                              0.1%     0.8%         0.01%     1.7%      7.4%      1.0%    56.3%     69.1%     65.7%
+Long et al. [37]                  #                              0.0%     0.0%             –     2.2%      4.7%         –    53.5%     54.5%          –
+Watson et al. [68]                #                              0.1%     0.9%         0.02%     1.3%      5.4%      1.1%    59.1%     70.1%     65.4%
+Ye et al. [69]                    #                                  -        -             -        -         -         -   60.3%     76.9%     65.5%
+Ours                                                             2.2%    11.2%         0.09%     8.4%    27.6%      1.4%     63.8%     82.6%     65.6%
+
+TABLE I: Comparison of prior membership inference attacks under the same settings for well-generalizing models on
+CIFAR-10, CIFAR-100, and WikiText-103 using 256 shadow models. Accuracy is only presented for completeness; we do not
+believe this is a meaningful metric for evaluating membership inference attacks. Full ROC curves are presented in Appendix A.
+
+
+point (x, y) was a member of the shadow training set Di .                             in practice using per-class thresholds neither helps improve
+For a target model f and point (x, y), the attack then outputs                        balanced attack accuracy nor attack success rates at low false-
+g(f (x), y) as a membership confidence score.                                         positive rates, although it does improve the AUC of attacks
+   We implement this by training shadow models that ran-                              on CIFAR-10 and CIFAR-100 by 2%.
+domly subsample half of the total dataset. The training set of                           The attack of Song and Mittal [61] reported in Figure 1 and
+the shadow models thus partially overlaps with the training set                       Table I combines per-class scores with additional techniques.
+of the target model f . This is a stronger assumption than that                       Instead of working with the standard cross-entropy loss, this
+made by Shokri et al. [60] and thus yields a slightly stronger                        attack uses a modified entropy measure and trains shadow
+attack. Despite being significantly more expensive than the                           models to approximate the distributions of entropy values for
+LOSS attack due to the overhead of training many shadow                               members and non-members of each class. Given a model f
+models and then training a membership inference predictor                             and target sample (x, y), the attack computes a hypothesis test
+on the output of the models, this attack does not perform                             between the (per-class) member and non-member distributions
+significantly better at low false-positive rates.                                     (see [61]). Despite these additional techniques, this attack does
+                                                                                      not improve upon the baseline attack [60] at low FPRs.
+Multiple queries. It is possible to improve attacks by making
+multiple queries to the model. Jayaraman et al. [25] do this                          Per-example hardness. As we do in our work, a final
+with their MERLIN attack, that queries the target model f                             direction considers per-example hardness. Sablayrolles et al.
+multiple times on a sample x perturbed with fresh Gaussian                            [56] is the most direct influence for LiRA. Their attack,
+noise, and measures how the model’s loss varies in the                                A0 (x, y) = `(f (x), y) − τx,y , scales the loss by a per-
+neighborhood of x. However, even when querying the target                             example hardness threshold τx,y that is estimated by training
+model 100 times and carefully choosing the noise magnitude,                           shadow models. Instead of fitting Gaussians to the shadow
+we find that this attack does not improve the adversary’s                             models’ outputs as we do, this paper takes a simpler non-
+success at low false-positive rates.                                                  parametric approach and sets the threshold near the midpoint
+   Choquette-Choo et al. [6] suggest an alternate technique to                        τx,y = (µin (x, y) + µout (x, y))/2 so as to maximize the attack
+increase attack accuracy when models are trained with data                            accuracy; here µin , µout are the means computed as we do.
+augmentations. In addition to querying the model on f (x),                               The recent work of Watson et al. [68] considers an offline
+this attack also queries on augmentations of x that the model                         variant of Sablayrolles et al. [56], that sets τx,y = µout (x, y)
+might have seen during training. This is the direct motivation                        (i.e., each example’s loss is calibrated by the average loss of
+for us making these additional queries, which as we will show                         shadow models not trained on this example).
+in Section VI-C improves our attack success rate considerably.                           Both Sablayrolles et al. and Watson et al. evaluate their
+                                                                                      attacks using average case metrics (balanced accuracy and
+Per-class hardness. Instead of using per-example hardness                             AUC), and find that using per-example hardness thresholds
+scores as we have done, a potentially simpler method would be                         can moderately improve upon past attacks. In our evaluation
+to design just one scoring function A0y per class y, by scaling                       (Table I), we find that the balanced accuracy and AUC of
+the model’s loss by a class-dependent value: A0 y (x, y) =                            their approaches are actually slightly lower than those of
+A0 (x, y) − τy . For example, in the ImageNet dataset [9] there                       other simpler attacks. Yet, we find that per-example hardness-
+are several hundred classes for various breeds of dogs, and so                        calibrated attacks reach a significantly better true-positive rate
+correctly classifying individual dog breeds tends to be harder                        at low false-positive rates—and are thus much better attacks
+than other broader classes. Interestingly, despite this intuition,                    according to our suggested evaluation methodology.
+
+
+
+                                                                                  8
+                         100                                                         Attack Approach                                   TPR @ 0.1% FPR
+                                                                                     LOSS attack [70]                                            0.0%
+                                                                                       + Logit scaling                                           0.1%
+                        10−1                                                           + Multiple queries                                        0.1%
+
+
+
+
+       TPR @ 0.1% FPR
+                                                                                     LOSS attack [70]                                            0.0%
+                                                                                       + Per-example thresholds (Q̃out only) [68]                1.3%
+                        10−2
+                                                      CNN1, CNN2, CNN4                 + Logit scaling                                           4.7%
+                                                      CNN8, CNN16                      + Gaussian Likelihood                                     4.7%
+                                                      CNN32, CNN64                     + Multiple queries (our offline attack)                   7.1%
+                        10−3                          WRN28-1
+                                                                                     LOSS attack [70]                                            0.0%
+                                                      WRN28-2
+                                                      WRN28-10                         + Per-example thresholds (Q̃in & Q̃out ) [56]             1.7%
+                        10−4                                                           + Logit scaling                                           1.9%
+                               0.0   0.1   0.2        0.3    0.4         0.5           + Gaussian Likelihood                                     5.6%
+                                           Train Test Gap                              + Multiple queries (our online attack)                    8.4%
+
+Fig. 7: Attack true-positive rate versus model train-test gap for                  TABLE II: By iteratively adding the main components of our
+a variety of CIFAR-10 models.                                                      attack we can interpolate between the simple LOSS threshold
+                                                                                   attack [70] and our full offline and online attacks.
+
+    The discrepancy between the balanced accuracy and our
+recommended low false-positive metric is even more stark for                       D. Membership inference and overfitting
+the attack of Long et al. [37]. This attack also trains shadow                        To better understand the relationship between overfitting
+models to estimate per-example hardness, but additionally                          and vulnerability to membership inference attacks, Figure 7
+filters out a fraction of outliers to which the attack should be                   plots various models’ train-test gap (that is, their train accuracy
+applied, and then makes no confident guesses for non-outliers.                     minus their test accuracy) versus our attack’s TPR at an FPR
+This attack thus cannot achieve a high average accuracy, yet                       of 0.1%. We train CNN models and Wide ResNets (WRN)
+outperforms most prior attacks at low false-positive rates.                        of various sizes on CIFAR-10, with different optimizers and
+    To expand, this attack [37] builds a graph of all examples                     data augmentations (see Section VI-E for details). Each point
+x, where an edge between x and x0 is weighted by the                               represents one training configuration for the target model.
+cosine similarity between the features z(x) and z(x0 ). Our                           While there is an overall trend that overfit models (those
+implementation of this attack selects the 10% of outliers with                     with higher train-test gap) are more vulnerable to attack, we
+the largest distance to their nearest neighbor in this graph.                      do find examples of models that have identical train-test gaps
+For each such outlier (x, y), the attack trains shadow models                      but are 100× more vulnerable to attack. In Figure 16 in the
+to numerically estimate the probability of observing a loss as                     Appendix we further plot the attack TPR as a function of the
+high as `(f (x), y) when (x, y) is not a member.                                   test accuracy of these models. There, we observe a clear trend
+    The attack in the concurrent work of Ye et al. [69] is close                   that more accurate models are more vulnerable to attack.
+in spirit to ours. They follow the same approach as our offline
+attack, by training multiple OUT models and then performing                                              VI. A BLATION S TUDY
+an exact one-sided hypothesis test. Specifically, to target an                         Our attack has a number of moving pieces that are con-
+FPR of α, their attack sets each example’s decision threshold                      nected in various ways; in this section we investigate how
+so that an α-fraction of the measured OUT losses for that                          these pieces come together to reach such high accuracy at low
+example lie below the threshold.                                                   false-positive rates. We exclusively use CIFAR-10 for these
+    The critical difference between our attack and these prior                     ablation studies as it is the most popular image classification
+attacks is that we use a more efficient parametric approach,                       dataset and is the hardest datasets we have considered;
+that models the distribution of losses as Gaussians. Since                             A summary of our analysis is presented in Table II. The
+Sablayrolles et al. [56] and Watson et al. [68] only measure                       baseline LOSS attack achieves a true-positive rate of 0% at a
+the means of the distributions, the attacks are sub-optimal if                     false positive rate of 0.1% (as shown previously in Figure 2b).
+different samples’ loss distributions have very different scales                   If we do not use per-example thresholds, this basic attack can
+and spreads (c.f. Figure 4). The attacks of Long et al. [37]                       only be marginally improved by properly scaling the loss and
+and Ye et al. [69] take into account the full distribution of                      issuing multiple queries to the target model.
+OUT losses, but have difficulties extrapolating to low FPRs                            By incorporating per-example thresholds obtained by es-
+due to the lack of a parametric assumption. By design, the                         timating the distributions Q̃in and Q̃out as in [56], the attack
+exact test of Ye et al. [69] can at best target an FPR of 1/N                      success rate increases to 1.7%—about one-order-of-magnitude
+with N shadow models. It is thus inapplicable in the setting                       better than chance. By ensuring that we appropriately re-scale
+we consider here (256 shadow models, and a target FPR of                           the model losses (explored in detail in Section VI-A) and
+0.1%). Long et al. [37] extrapolate to the tails of the empirical                  fitting the re-scaled losses with Gaussians (see Section VI-B),
+loss distribution using cubic splines, which easily overfit and                    we increase the attack success rate by a factor of 3.3×. Finally,
+diverge outside of their support.                                                  we can nearly double the attack success rate by evaluating the
+
+
+
+                                                                               9
+                            100                                                                                               0.12
+                                                                                                                                            Gaussian LRT with per-example variance
+                                −1                                                                                            0.10          Gaussian LRT with global variance
+                           10
+                                                                                                                                            non-parametric (Sablayrolles et al.)
+
+
+
+
+      True Positive Rate                                                                                     TPR @ 0.1% FPR
+                                                                                                                              0.08
+                           10−2
+                                                                                                                              0.06
+                                                     f (x)y (confidence)
+                           10−3
+                                                     log(f (x)y ) (CE loss)
+                                                                                                                              0.04
+                                                     φ(f (x))y ) (logit scale, unstable)
+                                                     φ(f (x))y ), (logit scale, stable)
+                           10−4
+                                                     z(x)y (output feature)                                                   0.02
+                                                     z(x)y − max(z(x)y0 ) (Hinge)
+                           10−5                                                                                               0.00
+                              10−5    10−4     10−3        10−2           10−1             100                                         4    8    16    32     64  128            256   512
+                                              False Positive Rate                                                                               Number of shadow models
+
+
+Fig. 8: The best scoring metrics ensure the output distribution                                       Fig. 9: Attack success rate increases as the number of shadow
+is approximately Gaussian, and the worst metrics are not easily                                       models increases, with the benefit eventually tapering off.
+modeled with a standard distribution (see Figure 4).                                                  When fewer than 64 models are used, it is better to estimate
+                                                                                                      the variance of the model confidence as a global parameter
+                                                                                                      instead of computing it on a per-example basis.
+target model on the same data augmentations as used during
+training, as we will show in Section VI-C.
+   We also perform the same ablation but with the offline                                               If the adversary can query the model to obtain the unnor-
+variant of our attack. Here, if we start with the attack of                                           malized features z(x) (i.e., the outputs of the model’s last layer
+Watson et al. [68] to reach a 1.3% true-positive rate; adding                                         before the softmax function), a hinge loss performs similarly
+logit scaling, Gaussian likelihood, and multiple queries yields                                                                      `Hinge (x, y) = z(x)y − max z(x)y0 .
+                                                                                                                                                              0
+                                                                                                                                                              y 6=y
+an attack that is nearly as strong as our full attack (TPR of
+7.1% versus 8.4% at an FPR of 0.1%).                                                                  To see why this is the case, observe that
+                                                                                                                                              X
+A. Logit scaling the loss function                                                                            φ(f (x)y ) = log(f (x)y ) − log   f (x)y0
+                                                                                                                                                                       y 0 6=y
+   The first step of our attack projects the model’s confidences                                                                           = z(x)y − LogSumExp z(x)y0 ,
+to a logit scale to ensure that the distributions that we work                                                                                               y 0 6=y
+with are approximately normal. Figure 8 compares perfor-                                              where the LogSumExp function is a smooth approximation to
+mance of our attack for various choices of statistics that we                                         the maximum function. When the features z(x) are available,
+can fit using shadow models. Recall that we defined our neural                                        we recommend using the hinge loss as its computation is
+network function f (x) to denote the evaluation of the model                                          numerically simpler than that of the logit-scaled confidence.
+along with a final softmax activation function; we use z(x) to                                           We note that the different attack variants we consider here
+denote the pre-softmax activations of the neural network.                                             lead to orders-of-magnitude differences in attack performance
+   As expected, we find that using the model’s confidence                                             at low false-positive rates—even though all variants achieve
+f (x)y ∈ [0, 1], or its logarithm (the cross-entropy loss), leads                                     similar AUC scores (68–72%). This again highlights the
+to poor performance of the attack since these statistics do not                                       importance of carefully designing attacks, and of measuring
+behave like Gaussians (recall from Figure 4).                                                         attack performance at low false-positive rates rather than on
+   Our logit rescaling performs best, but the exact numerical                                         average across the entire ROC curve.
+                                                    p
+computation of the logit function φ(p) = log( 1−p      ) matters.                                        The choice of an appropriate loss function can also have a
+We consider two mathematically equivalent variants:                                                   major impact on previous MIAs. For example, for the attack of
+                                                                                                      Watson et al. [68] (which scales the model’s loss by the mean
+                            φunstable = log(f (x)y ) − log(1 − f (x)y )                               loss of OUT models not trained on the example, µout (x, y))
+                                                           X
+                             φstable = log(f (x)y ) − log      f (x)y0 .                              applying logit scaling nearly quadruples the attack’s true-
+                                                              y 0 6=y                                 positive rate at an FPR of 0.1% (see Table II).
+
+We find that the second version is more stable in practice,                                           B. Gaussian distribution fitting
+when the model’s confidence is very high, f (x)y ≈ 1 (we                                                 Like other shadow models membership inference at-
+compute all logarithms as log(x + ) for a small  > 0).                                              tacks [60], our attack requires that we train enough models
+Note that this second stable variant requires access to the full                                      to accurately estimate the distribution of losses. It is thus
+vector of model confidences f (x) ∈ [0, 1]n rather than just the                                      desirable to minimize the number of shadow models that are
+confidence of the predicted class.                                                                    necessary. However, most prior works in Table I that rely on
+
+
+
+                                                                                                 10
+                                       TPR @ FPR                                                      100
+               Queries                 0.1%   0.001%
+               1 (no augmentations)    5.6%    1.0%
+               2 (mirror)              7.5%    1.8%                                                  10−1
+
+
+
+
+                                                                                True Positive Rate
+               18 (mirror + shifts)    8.4%    2.2%
+               162 (mirror + shifts)   8.4%    2.2%
+                                                                                                     10−2
+TABLE III: Querying on augmented versions of the image                                                                             Dtrain ⊂ Dattack
+                                                                                                                                   auc=0.692
+doubles the true-positive rate at low false-positive rates, with
+                                                                                                                                   Dtrain ∩ Dattack = ∅
+most benefits given by just two queries.                                                             10−3                          auc=0.682
+                                                                                                                                   Dtrain 6= Dattack
+                                                                                                                                   auc=0.783
+                                                                                                     10−4
+shadow models do not analyze this tradeoff and report results                                           10−4   10−3          10−2         10−1            100
+only for a fixed number of shadow models [37, 56, 60].                                                                False Positive Rate
+   Figure 9 displays our online attack’s TPR at a fixed FPR
+of 0.1%, as we vary the number of shadow models (half IN                  Fig. 10: The attack’s success rate on CINIC-10 remains un-
+and half OUT). Training more than 64 shadow models pro-                   changed when the training sets of shadow models are sampled
+vides diminishing benefits, but the attack deteriorates quickly           from a dataset Dattack that is disjoint from the target model’s
+with fewer models—due to the difficulty of fitting Gaussian               training set Dtrain . The attack’s performance does decrease
+distributions on a small number of data points.                           when the two datasets are sampled from different distributions.
+   With a small number of shadow models, we can improve the
+                                                    2      2
+attack considerably by estimating the variances σin   and σout of
+model confidences in Algorithm 1 globally rather than for each               In a real attack, the adversary likely has access to a dataset
+individual example. That is, we still estimate the means µin and          Dattack that is disjoint from the training set Dtrain . We now
+µout separately for each example, but we estimate the variance            show that this more realistic setup has only a minor influence
+  2
+σin                 2
+    (respectively σout ) over the shadow models’ confidences              on the attack’s success rate.
+on all training set members (respectively non-members).                      For this experiment, we use the CINIC-10 dataset [8]. This
+   For a small number of shadow models (< 64), estimating a               dataset combines CIFAR-10 with an additional 210k images
+global variance outperforms our general attack that estimates             taken from ImageNet that correspond to classes contained
+the variance for each example separately. For a larger number             in CIFAR-10 (e.g., bird/airplane/truck etc). We train a target
+of models, our full attack is stronger: with 1024 shadow                  model and 128 shadow models (OUT models only) each on
+models for example, the TPR decreases from 8.4% to 7.9%                   50,000 points. We compare three attack setups:
+by using a global variance.                                                  1) The shadow models’ training sets are sampled from the
+                                                                                 full CINIC-10 dataset. This is the same setup as in all
+C. Number of queries                                                             our previous experiments, where Dtrain ⊂ Dattack .
+                                                                             2) The shadow models’ training sets have no overlap with
+   Models are typically trained to minimize their loss not
+                                                                                 the target model, i.e., Dtrain ∩ Dattack = ∅.
+only on the original training example, but also on augmented
+                                                                             3) The target model is trained on CIFAR-10, while the
+versions of the example. It therefore makes sense to perform
+                                                                                 attacker trains shadow models on the ImageNet portion
+membership inference attacks on the augmented versions of
+                                                                                 of CINIC-10. There is thus a distribution shift between
+the example that may have been seen during training. Results
+                                                                                 the target model’s dataset and the attacker’s dataset.
+of this analysis are presented in Table III. There are 162
+potential augmentations of each training image for our CIFAR-                Figure 10 shows that our attack’s performance is not influ-
+10 model (2 × 9 × 9, computed by either horizontally flipping             enced by an overlap between the training sets of the target
+the image or not, and shifting the image by up to ±4 pixels               model and shadow models. The attack success is unchanged
+in each height or width). We find that querying on just 2                 when the attacker uses a disjoint dataset. A distribution shift
+augmentations gives most of the benefit, with increasing to               between the training sets of the target model and shadow
+18 queries performing identically to all 162 augmentations.               models does reduce the attack’s TPR. Surprisingly, the attack’s
+                                                                          AUC is much higher when there is a distribution shift—we
+D. Disjoint datasets                                                      leave an explanation of this phenomenon to future work.
+
+   In our experiments so far, we trained both the target models           E. Mismatched training procedures
+and the adversary’s shadow models by subsampling from a                     We now explore how our attack is affected if the attacker
+common dataset. That is, we use a large dataset Dattack (e.g.,            does not know the exact training procedure of the target model.
+the entire CIFAR-10 dataset) to train shadow models, and the              We train models with various architectures, optimizers, and
+target model’s training set Dtrain is some (unknown) subset of            data augmentations to investigate the attack’s performance
+this dataset. This setup favors the attacker, as the training sets        when the adversary guesses each of these incorrectly. For
+of shadow models and the target model can partially overlap.              each attack, we train 64 shadow models and use our online
+
+
+
+                                                                     11
+                              Shadow model architecture                                               Shadow model optimizer                                                Shadow model augmentation
+                   100                                                                         100                                                            100
+
+
+
+ TPR @ 0.1% FPR                                                              TPR @ 0.1% FPR                                                 TPR @ 0.1% FPR
+                             CNN-16    CNN-64      WRN28-2                                                 SGD                SGDM   Adam                                  None     +Mirror   +Shift   +Cutout
+                             CNN-32    WRN28-1     WRN28-10
+                  10−1                                                                        10−1                                                           10−1
+
+                  10−2                                                                        10−2                                                           10−2
+
+                  10−3                                                                        10−3                                                           10−3
+                         CNN-16   CNN-32   CNN-64 WRN28-1 WRN28-2 WRN28-10                           SGD                    SGDM     Adam                           None          +Mirror     +Shift    +Cutout
+                                      Target model architecture                                       Target model optimizer                                                Target model augmentation
+
+                             (a) Vary model architecture.                           (b) Vary training optimizer.                                                    (c) Vary data augmentation.
+Fig. 11: Our attack succeeds when the adversary is uncertain of the target model’s training setup. We vary the target model’s
+architecture (a), the training optimizer (b) and the data augmentation (c), as well as the adversary’s guess of each of these
+properties when training shadow models. The attack performs best when the adversary guesses correctly (black-lined markers).
+
+                                                                                                                             100                              Shadow model architecture
+attack variant with a global estimate of the variance (see
+
+
+
+                                                                                                           TPR @ 0.1% FPR
+                                                                                                                                     VGG16                    ResNet34   DenseNet121             MobileNet-v2
+Section VI-B). Figure 11 summarizes our results at a fixed FPR
+                                                                                                                                     ResNet18                 ResNet50   Inception-v3
+of 0.1%. Appendix Figures 22 to 24 have full ROC curves.
+                                                                                                                            10−1
+    In Figure 11a, we vary the target model’s architecture. We
+study three CNN models (with 16, 32 and 64 convolutional
+filters), and three Wide ResNets (WRN) with width 1, 2 and
+                                                                                                                            10−2
+10. All models are trained with SGD with momentum and
+with random augmentations. Our attack performs best when                                                                          16    t18   t34    t50    et12
+                                                                                                                                                                 1      3
+                                                                                                                                                                    on-v leNet-v
+                                                                                                                                                                                 2
+                                                                                                                               VGG ResNe ResNe ResNe     seN Incepti      i
+the attacker trains shadow models of the same architecture as                                                                                       Den               Mob
+the target model, but using a similar model (e.g., a WRN28-1                                                                                                 Target model architecture
+instead of a WRN28-2) has a minimal effect on the attack.
+Moreover, we find that for both the CNN and WRN model                                                     Fig. 12: Our attack succeeds against real state-of-the-art
+families, larger models are more vulnerable to attacks.                                                   CIFAR-10 models [51]. The attacker trains shadow models
+    In Figure 11b we fix the architecture to a WRN28-10,                                                  on a random subset of 50,000 points from the entire CIFAR-
+and vary the training optimizer: SGD, SGDM (SGD with                                                      10 dataset. The attack performs best when the shadow models
+momentum) or Adam. For both the defender or the attacker,                                                 have the same architecture as the target model, but training
+the choice of optimizer has minimal impact on the attack.                                                 different models still leads to a strong attack.
+    Finally, in Figure 11c we fix the architecture (WRN28-10)
+and optimizer (SGDM) and vary the data augmentation used
+for training: none, mirroring, mirroring + shifts, mirroring +
+shifts + cutout. The attacker’s guess of the data augmentation                                            by using the same training code and subsampling 50,000
+is used both to train shadow models, and to create additional                                             points at random from the entire CIFAR-10 dataset (60,000
+queries for the attack. We find that correctly guessing the target                                        examples). On average, we have 213 IN models and 43 OUT
+model’s data augmentation has the highest impact on attack                                                models per example. Figure 12 shows our attack’s true-positive
+performance. Models trained with stronger augmentations are                                               rate at a 0.1% FPR for various canonical model architectures.
+harder to attack, as these models are less overfit.                                                          We consider two attack variants: (1) the adversary knows
+                                                                                                          the target model’s architecture and uses it to train the shadow
+                            VII. A DDITIONAL I NVESTIGATIONS
+                                                                                                          models; (2) the shadow models use a different architecture than
+  We now pivot from evaluating our attack to using our attack                                             the target model. Since we only have 43 models to estimate the
+as a tool to better understand memorization in real models                                                distribution Q̃out ), esitmating a global variance for all examples
+(§VII-A) and why memorization occurs (§VII-B).                                                            performs best. The results of this experiment are qualitatively
+                                                                                                          similar to those in Section VI-E: (1) the model architecture
+A. Attacking real-world models                                                                            has a small effect on the privacy leakage (e.g., the attack
+   All our experiments so far have involved attacking models                                              works better against a ResNet-18 than against a MobileNet-
+that we ourselves have trained. To ensure that we did not some-                                           v2); (2) the attack works best when the shadow models share
+how train weakly accidentally private (or non-private) models,                                            the same architecture as the target model, but it is robust to
+we now show that our attacks also succeed on existing pre-                                                architecture mismatches. For example, attacking a ResNet-34
+trained state-of-the-art models. To this end, we load standard                                            model with either ResNet-18 or ResNet-50 shadow models
+models pre-trained by Phan [51] on the complete CIFAR-10                                                  leads to a minor drop in attack success rate (from 5% TPR to
+training set (50,000 examples). We train 256 shadow models                                                4% TPR).
+
+
+
+                                                                                                     12
+                               CIFAR-10, Correct Labels                                           VIII. C ONCLUSION
+                 400           CINIC-10, Correct Labels                        As we have argued throughout this paper, membership
+                               CIFAR-100, Random Labels                     inference attacks should focus on the problem of achieving
+                               CIFAR-10, Random Labels
+
+
+     Frequency
+                 300                                                        high true-positive rates at low false-positive rates. Our attack
+                                                                            presents one way to succeed at this goal. There are a number
+                 200                                                        of different evaluation directions that we hope future work will
+                                                                            explore under this direction.
+                 100                                                        Membership inference attacks as a privacy metric. Both
+                                                                            researchers [42] and practitioners [63] use membership infer-
+                  0                                                         ence attacks to measure privacy of trained models. We argue
+                       0   1       2       3    4         5
+                                                                            that these metrics should use strong attacks (such as ours)
+                               Privacy score
+                                                                            in order to accurately measure privacy leakage. Future work
+Fig. 13: Out-of-distribution training examples are less private.            using membership inference attacks should consider the low
+                                                                            false-positive rate regime, to better understand if the privacy
+                                                                            of even just a few users can be confidently breached.
+B. Why are some examples less private?                                      Usability improvements to membership inference attacks.
+   While our average attack success rate is modest, the success             The key limitation of per-example membership inference at-
+rate at low false-positive rates can be very high. This suggests            tacks is that they require new hyperparameters that need to be
+that there is a subset of examples that are easier to attack than           learned from the data. While it is much more important that
+others. While a full investigation of this is beyond the scope              attacks are strong (even if slow) as opposed to fast (but weak),
+of our paper, we find an important factor behind why some                   we hope that future work will improve the computational
+samples are less private is that they are out-of-distribution.              efficiency of our attack approach, in order to allow it to be
+   To make this argument, we intentionally inject out-of-                   deployed in more settings.
+distribution examples into a model’s training dataset and com-              Improving other privacy attacks with our method. Mem-
+pare the difficulty of attacking these newly inserted samples               bership inference attacks form the basis for many other privacy
+versus typical examples. Specifically, we insert 1,000 exam-                attack methods [3, 4, 17]. Our membership inference method,
+ples from various out-of-distribution sources into the 50,000-              in principle, should be able to directly improve these attacks.
+example CIFAR-10 training dataset to form a new augmented                   Rethinking our current understanding of MIA results. The
+51,000 example dataset. We then train shadow models on this                 literature on membership inference attacks has answered a
+dataset, run our attack, and measure the distinguishability of              number of memorization questions. However, many (or even
+distributions of losses for IN and OUT models for each of the               most) of these prior papers focused on the inadequate metric
+1,000 newly inserted examples (we use a simple measure of                   of average-case attack success rates, instead of on the low
+distance between distributions here, defined as d = |µσinin −µ out |
+                                                            +σout ).
+                                                                            false-positive rate regime. As a result it will be necessary to
+Figure 13 plots the distribution of these “privacy scores”                  re-investigate prior results from this perspective:
+assigned to each example. As a baseline, in blue, we show                      • Do previously-“broken” [26, 45] defenses prevent our
+the distribution of privacy scores for the standard CIFAR-10                      attack? Prior defenses were only ever shown to be in-
+dataset; these are tightly concentrated around 0.                                 effective at preventing an adversary from succeeding on
+   Next we show the privacy scores of examples inserted from                      average—not confidently at low false-positive rates.
+the CINIC-10 dataset, which are drawn from ImageNet. Due to                    • How does differential privacy interact with our improved
+this slight distribution shift, the CINIC-10 images have a larger                 attacks? We have preliminary evidence that vacuous guar-
+privacy score on average: it is easier to detect their presence                   antees might prevent our low-FPR attacks (Section A-A).
+in the dataset because they are slightly out-of-distribution.                  • Are attacks with reduced capabilities possible? For ex-
+   We can extend this further by inserting intentionally mis-                     ample, label-only attacks [6, 34, 54] can match the
+labeled images that are extremely out-of-distribution. If we                      balanced accuracy of shadow-model approaches. But do
+choose 1,000 images (shown in red) from the CIFAR-10 test                         these attacks work at low false-positive rates?
+set and assign new random labels to each image, then we                        • Are attacks with extra capabilities more effective? Prior
+get a much higher privacy score for these images. Finally,                        work has shown that access to gradient queries [46] or
+we interpolate between the extreme OOD setting of random                          intermediate models [58] improves attack AUC. However,
+(and thus incorrectly) labeled CIFAR-10 images and correctly-                     does this observation hold at low false-positive rates?
+labeled CINIC-10 by inserting randomly labeled images from                     We hope that future work will be able to answer these
+CIFAR-100 (shown in green). Because these images come                       questions, among many more, in order to better evaluate (and
+from a disjoint class distribution, models will not typically               develop) techniques that preserve the privacy of training data.
+be confident on their label one way or another unless they are              By developing attacks that succeed low false-positive rates,
+seen during training. The privacy scores here fall in between               we can evaluate privacy not as a measurement of the average
+correctly labeled CINIC-10 and incorrectly labeled CIFAR-10.                user, but of the most vulnerable.
+
+
+
+                                                                       13
+                    ACKNOWLEDGEMENTS                                        [15] Vitaly Feldman and Chiyuan Zhang. What neural networks
+                                                                                 memorize and why: Discovering the long tail via influence
+  We are grateful to Thomas Steinke, Dave Evans, Reza                            estimation. arXiv preprint arXiv:2008.03703, 2020.
+Shokri, Sanghyun Hong, Alex Sablayrolles, Liwei Song,                       [16] Matt Fredrikson, Somesh Jha, and Thomas Ristenpart. Model
+Matthias Lécuyer and the anonymous reviewers for comments                       inversion attacks that exploit confidence information and basic
+on drafts of this paper.                                                         countermeasures. In Proceedings of the 22nd ACM SIGSAC
+                                                                                 Conference on Computer and Communications Security, pages
+                                                                                 1322–1333, 2015.
+                          R EFERENCES                                       [17] Karan Ganju, Qi Wang, Wei Yang, Carl A Gunter, and Nikita
+ [1] Martin Abadi, Andy Chu, Ian Goodfellow, H. Brendan McMa-                    Borisov. Property inference attacks on fully connected neural
+     han, Ilya Mironov, Kunal Talwar, and Li Zhang. Deep learning                networks using permutation invariant representations. In Pro-
+     with differential privacy. In Proceedings of the 2016 ACM                   ceedings of the 2018 ACM SIGSAC conference on computer
+     SIGSAC Conference on Computer and Communications Secu-                      and communications security, pages 619–633, 2018.
+     rity, page 308–318. ACM, 2016.                                         [18] Jamie Hayes, Luca Melis, George Danezis, and Emiliano
+ [2] Gavin Brown, Mark Bun, Vitaly Feldman, Adam Smith, and                      De Cristofaro. LOGAN: Membership inference attacks against
+     Kunal Talwar. When is memorization of irrelevant training                   generative models. In Proceedings on Privacy Enhancing
+     data necessary for high-accuracy learning? In Proceedings                   Technologies (PoPETs), pages 133–152. De Gruyter, 2019.
+     of the 53rd Annual ACM SIGACT Symposium on Theory of                   [19] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun.
+     Computing, pages 123–132, 2021.                                             Deep residual learning for image recognition, 2015.
+ [3] Nicholas Carlini, Chang Liu, Úlfar Erlingsson, Jernej Kos,            [20] Xinlei He, Jinyuan Jia, Michael Backes, Neil Zhenqiang Gong,
+     and Dawn Song. The secret sharer: Evaluating and testing                    and Yang Zhang. Stealing links from graph neural networks. In
+     unintended memorization in neural networks. In 28th USENIX                  30th USENIX Security Symposium (USENIX Security 21), 2021.
+     Security Symposium (USENIX Security 19), pages 267–284,                [21] Grant Ho, Aashish Sharma, Mobin Javed, Vern Paxson, and
+     2019.                                                                       David Wagner. Detecting credential spearphishing in enterprise
+ [4] Nicholas Carlini, Florian Tramer, Eric Wallace, Matthew Jagiel-             settings. In 26th USENIX Security Symposium (USENIX Secu-
+     ski, Ariel Herbert-Voss, Katherine Lee, Adam Roberts, Tom                   rity 17), pages 469–485, 2017.
+     Brown, Dawn Song, Ulfar Erlingsson, et al. Extracting training         [22] Nils Homer, Szabolcs Szelinger, Margot Redman, David Dug-
+     data from large language models. In 30th USENIX Security                    gan, Waibhav Tembe, Jill Muehling, John V Pearson, Dietrich A
+     Symposium (USENIX Security 21), 2021.                                       Stephan, Stanley F Nelson, and David W Craig. Resolving
+ [5] Mia Xu Chen, Benjamin N Lee, Gagan Bansal, Yuan Cao,                        individuals contributing trace amounts of dna to highly complex
+     Shuyuan Zhang, Justin Lu, Jackie Tsay, Yinan Wang, Andrew M                 mixtures using high-density snp genotyping microarrays. PLoS
+     Dai, Zhifeng Chen, et al. Gmail smart compose: Real-time                    genetics, 4(8), 2008.
+     assisted writing. In ACM SIGKDD International Conference               [23] Robert A Jacobs. Increased rates of convergence through
+     on Knowledge Discovery & Data Mining, pages 2287–2295,                      learning rate adaptation. Neural networks, 1(4):295–307, 1988.
+     2019.                                                                  [24] Matthew Jagielski, Jonathan Ullman, and Alina Oprea. Auditing
+ [6] Christopher A Choquette-Choo, Florian Tramer, Nicholas Car-                 differentially private machine learning: How private is private
+     lini, and Nicolas Papernot. Label-only membership inference                 SGD? arXiv preprint arXiv:2006.07709, 2020.
+     attacks. In International Conference on Machine Learning,              [25] Bargav Jayaraman, Lingxiao Wang, David Evans, and Quan-
+     pages 1964–1974. PMLR, 2021.                                                quan Gu. Revisiting membership inference under realistic as-
+ [7] Ekin D. Cubuk, Barret Zoph, Dandelion Mane, Vijay Vasude-                   sumptions. In Proceedings on Privacy Enhancing Technologies
+     van, and Quoc V. Le. Autoaugment: Learning augmentation                     (PoPETs), 2021.
+     policies from data, 2018.                                              [26] Jinyuan Jia, Ahmed Salem, Michael Backes, Yang Zhang, and
+ [8] Luke N Darlow, Elliot J Crowley, Antreas Antoniou, and                      Neil Zhenqiang Gong. Memguard: Defending against black-
+     Amos J Storkey. CINIC-10 is not Imagenet or CIFAR-10. arXiv                 box membership inference attacks via adversarial examples. In
+     preprint arXiv:1810.03505, 2018.                                            Proceedings of the 2019 ACM SIGSAC Conference on Computer
+ [9] Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li,                      and Communications Security, pages 259–274, 2019.
+     and Li Fei-Fei. ImageNet: A large-scale hierarchical image             [27] Alex Kantchelian, Michael Carl Tschantz, Sadia Afroz, Brad
+     database. In IEEE conference on computer vision and pattern                 Miller, Vaishaal Shankar, Rekha Bachwani, Anthony D Joseph,
+     recognition, pages 248–255. Ieee, 2009.                                     and J Doug Tygar. Better malware ground truth: Techniques for
+[10] Cynthia Dwork and Aaron Roth. The algorithmic foundations                   weighting anti-virus vendor labels. In Proceedings of the 8th
+     of differential privacy. Found. Trends Theor. Comput. Sci., 9               ACM Workshop on Artificial Intelligence and Security, pages
+     (3-4):211–407, 2014.                                                        45–56, 2015.
+[11] Cynthia Dwork, Adam Smith, Thomas Steinke, Jonathan Ull-               [28] Zico Kolter and Marcus A Maloof. Learning to detect and
+     man, and Salil Vadhan. Robust traceability from trace amounts.              classify malicious executables in the wild. Journal of Machine
+     In 2015 IEEE 56th Annual Symposium on Foundations of                        Learning Research, 7(12), 2006.
+     Computer Science, pages 650–669. IEEE, 2015.                           [29] Alex Krizhevsky, Geoffrey Hinton, et al. Learning multiple
+[12] Cynthia Dwork, Adam Smith, Thomas Steinke, and Jonathan                     layers of features from tiny images, 2009.
+     Ullman. Exposed! a survey of attacks on private data. Annual           [30] Anders Krogh and John A Hertz. A simple weight decay
+     Review of Statistics and Its Application, 4:61–84, 2017.                    can improve generalization. In Advances in neural information
+[13] Andre Esteva, Brett Kuprel, Roberto A Novoa, Justin Ko,                     processing systems, pages 950–957, 1992.
+     Susan M Swetter, Helen M Blau, and Sebastian Thrun.                    [31] Aleksandar Lazarevic, Levent Ertoz, Vipin Kumar, Aysel Ozgur,
+     Dermatologist-level classification of skin cancer with deep                 and Jaideep Srivastava. A comparative study of anomaly detec-
+     neural networks. Nature, 542(7639):115–118, 2017.                           tion schemes in network intrusion detection. In Proceedings of
+[14] Vitaly Feldman. Does learning require memorization? a short                 the 2003 SIAM international conference on data mining, pages
+     tale about a long tail. In Proceedings of the 52nd Annual ACM               25–36. SIAM, 2003.
+     SIGACT Symposium on Theory of Computing, pages 954–959,                [32] Yann LeCun, Léon Bottou, Yoshua Bengio, and Patrick Haffner.
+     2020.                                                                       Gradient-based learning applied to document recognition. Pro-
+
+
+
+                                                                       14
+     ceedings of the IEEE, 86(11):2278–2324, 1998.                                 learning with PATE. arXiv preprint arXiv:1802.08908, 2018.
+[33] Klas Leino and Matt Fredrikson. Stolen memories: Leverag-                [51] Huy Phan. huyvnphan/pytorch cifar10, January 2021. URL
+     ing model memorization for calibrated white-box membership                    https://doi.org/10.5281/zenodo.4431043.
+     inference. arXiv preprint arXiv:1906.11798, 2019.                        [52] Apostolos Pyrgelis, Carmela Troncoso, and Emiliano De Cristo-
+[34] Zheng Li and Yang Zhang. Membership leakage in label-only                     faro. Knock knock, who’s there? membership inference on
+     exposures. arXiv preprint arXiv:2007.15528, 2020.                             aggregate location data. arXiv preprint arXiv:1708.06145, 2017.
+[35] Yugeng Liu, Rui Wen, Xinlei He, Ahmed Salem, Zhikun Zhang,               [53] Alec Radford, Jeffrey Wu, Rewon Child, David Luan, Dario
+     Michael Backes, Emiliano De Cristofaro, Mario Fritz, and                      Amodei, Ilya Sutskever, et al. Language models are unsuper-
+     Yang Zhang. ML-Doctor: Holistic risk assessment of infer-                     vised multitask learners. OpenAI blog, 2019.
+     ence attacks against machine learning models. arXiv preprint             [54] Shadi Rahimian, Tribhuvanesh Orekondy, and Mario Fritz.
+     arXiv:2102.02551, 2021.                                                       Sampling attacks: Amplification of membership inference at-
+[36] Yunhui Long, Vincent Bindschaedler, and Carl A Gunter.                        tacks by repeated queries. arXiv preprint arXiv:2009.00395,
+     Towards measuring membership privacy.             arXiv preprint              2020.
+     arXiv:1712.09136, 2017.                                                  [55] Md Atiqur Rahman, Tanzila Rahman, Robert Laganière, Noman
+[37] Yunhui Long, Lei Wang, Diyue Bu, Vincent Bindschaedler,                       Mohammed, and Yang Wang. Membership inference attack
+     Xiaofeng Wang, Haixu Tang, Carl A Gunter, and Kai Chen.                       against differentially private deep learning model. Trans. Data
+     A pragmatic approach to membership inferences on machine                      Priv., 11(1):61–79, 2018.
+     learning models. In 2020 IEEE European Symposium on                      [56] Alexandre Sablayrolles, Matthijs Douze, Cordelia Schmid, Yann
+     Security and Privacy (EuroS&P), pages 521–534. IEEE, 2020.                    Ollivier, and Hervé Jégou. White-box vs black-box: Bayes
+[38] Ilya Loshchilov and Frank Hutter. SGDR: Stochastic gradient                   optimal strategies for membership inference. In International
+     descent with warm restarts. arXiv preprint arXiv:1608.03983,                  Conference on Machine Learning, pages 5558–5567. PMLR,
+     2016.                                                                         2019.
+[39] Luca Melis, Congzheng Song, Emiliano De Cristofaro, and                  [57] Ahmed Salem, Yang Zhang, Mathias Humbert, Pascal Berrang,
+     Vitaly Shmatikov. Exploiting unintended feature leakage in                    Mario Fritz, and Michael Backes. ML-Leaks: Model and
+     collaborative learning. In 2019 IEEE Symposium on Security                    data independent membership inference attacks and defenses
+     and Privacy (SP), pages 691–706. IEEE, 2019.                                  on machine learning models, 2018.
+[40] Stephen Merity, Caiming Xiong, James Bradbury, and Richard               [58] Ahmed Salem, Apratim Bhattacharya, Michael Backes, Mario
+     Socher. Pointer sentinel mixture models. arXiv preprint                       Fritz, and Yang Zhang. Updates-leak: Data set inference and
+     arXiv:1609.07843, 2016.                                                       reconstruction attacks in online learning. In 29th USENIX
+[41] Vangelis Metsis, Ion Androutsopoulos, and Georgios Paliouras.                 Security Symposium (USENIX Security 20), pages 1291–1308,
+     Spam filtering with naive Bayes–which naive Bayes? In CEAS,                   2020.
+     volume 17, pages 28–69, 2006.                                            [59] Sriram Sankararaman, Guillaume Obozinski, Michael I Jordan,
+[42] Sasi Kumar Murakonda and Reza Shokri. ML Privacy Meter:                       and Eran Halperin. Genomic privacy and limits of individual
+     Aiding regulatory compliance by quantifying the privacy risks                 detection in a pool. Nature genetics, 41(9):965–967, 2009.
+     of machine learning. arXiv preprint arXiv:2007.09339, 2020.              [60] Reza Shokri, Marco Stronati, Congzheng Song, and Vitaly
+[43] Sasi Kumar Murakonda, Reza Shokri, and George Theodor-                        Shmatikov. Membership inference attacks against machine
+     akopoulos. Ultimate power of inference attacks: Privacy risks                 learning models. arXiv preprint arXiv:1610.05820, 2016.
+     of learning high-dimensional graphical models. arXiv e-prints,           [61] Liwei Song and Prateek Mittal. Systematic evaluation of privacy
+     pages arXiv–1905, 2019.                                                       risks of machine learning models. In 30th USENIX Security
+[44] Sasi Kumar Murakonda, Reza Shokri, and George Theodor-                        Symposium (USENIX Security 21), 2021.
+     akopoulos. Quantifying the privacy risks of learning high-               [62] Liwei Song, Reza Shokri, and Prateek Mittal. Privacy risks of
+     dimensional graphical models. In International Conference on                  securing machine learning models against adversarial examples.
+     Artificial Intelligence and Statistics, pages 2287–2295. PMLR,                In Proceedings of the 2019 ACM SIGSAC Conference on
+     2021.                                                                         Computer and Communications Security, pages 241–257, 2019.
+[45] Milad Nasr, Reza Shokri, and Amir Houmansadr. Machine                    [63] Shuang Song and David Marn.                            Introducing
+     learning with membership privacy using adversarial regulariza-                a     new      privacy     testing    library    in     tensorflow.
+     tion. In Proceedings of the 2018 ACM SIGSAC Conference on                     https://blog.tensorflow.org/2020/06/introducing-new-privacy-
+     Computer and Communications Security, pages 634–646, 2018.                    testing-library.html, 2020.
+[46] Milad Nasr, Reza Shokri, and Amir Houmansadr. Comprehen-                 [64] Shuang Song, Kamalika Chaudhuri, and Anand D Sarwate.
+     sive privacy analysis of deep learning: Passive and active white-             Stochastic gradient descent with differentially private updates.
+     box inference attacks against centralized and federated learning.             In 2013 IEEE Global Conference on Signal and Information
+     In 2019 IEEE symposium on security and privacy (SP), pages                    Processing, pages 245–248. IEEE, 2013.
+     739–753. IEEE, 2019.                                                     [65] Thomas Steinke and Jonathan Ullman. The pitfalls of average-
+[47] Milad Nasr, Shuang Song, Abhradeep Thakurta, Nicolas Pa-                      case differential privacy. DifferentialPrivacy.org, 07 2020. https:
+     pernot, and Nicholas Carlini. Adversary instantiation: Lower                  //differentialprivacy.org/average-case-dp/.
+     bounds for differentially private machine learning. arXiv                [66] Stacey Truex, Ling Liu, Mehmet Emre Gursoy, Lei Yu, and
+     preprint arXiv:2101.04535, 2021.                                              Wenqi Wei. Towards demystifying membership inference at-
+[48] Jerzy Neyman and Egon Sharpe Pearson. On the problem of                       tacks. arXiv preprint arXiv:1807.09173, 2018.
+     the most efficient tests of statistical hypotheses. Philosophical        [67] David A Van Dyk and Xiao-Li Meng. The art of data augmen-
+     Transactions of the Royal Society of London., 231(694-706):                   tation. Journal of Computational and Graphical Statistics, 10
+     289–337, 1933.                                                                (1):1–50, 2001.
+[49] Patrick Pantel and Dekang Lin. SpamCop: A spam classification            [68] Lauren Watson, Chuan Guo, Graham Cormode, and Alex
+     & organization program. In Proceedings of AAAI-98 Workshop                    Sablayrolles.      On the importance of difficulty calibra-
+     on Learning for Text Categorization, pages 95–98, 1998.                       tion in membership inference attacks.              arXiv preprint
+[50] Nicolas Papernot, Shuang Song, Ilya Mironov, Ananth Raghu-                    arXiv:2111.08440, 2021.
+     nathan, Kunal Talwar, and Úlfar Erlingsson. Scalable private            [69] Jiayuan Ye, Aadyaa Maddi, Sasi Kumar Murakonda, and Reza
+                                                                                   Shokri. Enhanced membership inference attacks against ma-
+
+
+
+                                                                         15
+     chine learning models. arXiv preprint arXiv:2111.09679, 2021.
+[70] Samuel Yeom, Irene Giacomelli, Matt Fredrikson, and Somesh
+     Jha. Privacy risk in machine learning: Analyzing the connection
+     to overfitting. In 2018 IEEE 31st Computer Security Founda-
+     tions Symposium (CSF), pages 268–282. IEEE, 2018.
+[71] Sergey Zagoruyko and Nikos Komodakis. Wide residual net-
+     works. arXiv preprint arXiv:1605.07146, 2016.
+[72] Chiyuan Zhang, Samy Bengio, Moritz Hardt, Benjamin Recht,
+     and Oriol Vinyals. Understanding deep learning (still) requires
+     rethinking generalization. Communications of the ACM, 64(3):
+     107–115, 2021.
+[73] Zhun Zhong, Liang Zheng, Guoliang Kang, Shaozi Li, and                                                  100
+     Yi Yang. Random erasing data augmentation. In Proceedings
+     of the AAAI Conference on Artificial Intelligence, volume 34,                                          10−1
+
+
+
+
+                                                                                       True Positive Rate
+     pages 13001–13008, 2020.
+                                                                                                            10−2
+
+                         A PPENDIX A
+                                                                                                            10−3
+                  A DDITIONAL E XPERIMENTS                                                                                         σ = 0.0, C = 10, auc=0.674
+                                                                                                                                   σ = 0.0, C = 5, auc=0.644
+A. Attacking DP-SGD                                                                                         10−4                   σ = 0.0, C = 1, auc=0.527
+                                                                                                                                   DP upper for eps=1
+   Machine learning with differential privacy [1] is the main                                               10−5
+                                                                                                               10−5   10−4     10−3        10−2     10−1        100
+defence mechanism against privacy attacks including member-                                                                   False Positive Rate
+ship inference against machine learning models. Differential
+privacy provides an upper bound on the success of any                                                                        (a)  = ∞
+membership inference attack. Recent works [24, 47] thus used                                                 100
+
+membership attacks to empirically audit differential privacy                                                10−1
+bounds, in particular those obtained from DP-SGD [1]. In
+
+
+                                                                                       True Positive Rate
+this work, we are interested in the effect of DP-SGD on the                                                 10−2
+
+performance of our membership inference attack.
+                                                                                                            10−3
+   We consider different combinations of DP-SGD’s noise                                                                            σ = 0.2, C = 10, auc=0.517
+                                                                                                                                   σ = 0.2, C = 5, auc=0.525
+multiplier and clipping norm parameters in our evaluation.                                                  10−4                   σ = 0.2, C = 1, auc=0.527
+Table IV summarizes the average accuracy of standard CNN                                                                           DP upper for eps=1
+models trained on CIFAR-10 with DP-SGD for different pa-                                                    10−5
+                                                                                                               10−5   10−4     10−3        10−2     10−1        100
+rameter sets. We evaluate the effectiveness of our membership                                                                 False Positive Rate
+
+inference attacks for these settings in Figure 14. Even just
+                                                                                                                         (b)  > 5000
+clipping the gradient norm without adding any noise reduces
+                                                                                                             100
+the performance of our attack significantly. However, small
+clipping norms can reduce the accuracy of the models as                                                     10−1
+
+
+
+
+                                                                                       True Positive Rate
+shown in Table IV.
+                                                                                                            10−2
+TABLE IV: Accuracy of the models trained with DP-SGD on
+                                                                                                            10−3
+CIFAR10 with different noise parameters                                                                                            σ = 0.8, C = 10, auc=0.501
+                                                                                                                                   σ = 0.8, C = 5, auc=0.500
+                                                                                                            10−4                   σ = 0.8, C = 1, auc=0.503
+          Noise Multiplier (σ)   C = 10   C=5      C=1
+                                                                                                                                   DP upper for eps=1
+          0.0                    84.0%    78.5%    61.3%                                                    10−5
+          0.2                    73.9%    77.1%    62.8%                                                       10−5   10−4     10−3        10−2     10−1        100
+                                                                                                                              False Positive Rate
+          0.8                    36.9%    43.3%    61.3%
+                                                                                                                             (c)  = 8
+   For higher clipping norms, adding very small amounts of
+                                                                            Fig. 14: Effectiveness of using DP-SGD against our attack
+noise (Figure 14-b) reduces the effectiveness of the member-
+                                                                            with different privacy budgets.
+ship inference attack to chance, while resulting in models with
+higher accuracy.
+   Training models with very small amounts of noise is an
+effective defense against our membership inference attack,
+despite resulting in very large provable DP bounds .
+
+
+
+
+                                                                       16
+B. White-box Attacks                                                                                               B. Full ROC Curves for Gaussian Distribution Fitting
+   Previous works [46, 62] suggested that is possible to achieve                                                       In Figure 17, we show full (log-scale) ROC curves for the
+better membership inference if the adversary has white-box                                                         experiment in Section VI-B, where we explored the effect of
+access to the target model. In particular, previous works                                                          varying the number of shadow models on the success rate of
+showed that using the norm of the model’s gradient at a target                                                     our online attack. We vary the number of shadow models from
+point could increase the balanced accuracy of membership                                                           4 to 256 and consider two attack variants: (1) fit Gaussians for
+inference attacks. Figure 15 highlights the comparison between                                                     each example by estimating the means µin , µout and variances
+                                                                                                                     2    2
+a white-box and a black-box adversary. The results show that                                                       σin , σout   independently for each example; (2) estimate the
+using gradient norms will improve the overall AUC both for                                                         means µin , µout for each example, but estimate global variances
+                                                                                                                     2    2
+our online attack, as well as when using a global threshold                                                        σin , σout . As we observed in Section VI-B, estimating per-
+as in the LOSS attack. However, at lower false-positive rates                                                      example variances works poorly when the number of shadow
+we do not observe any improvement of using gradient norms                                                          models is small (< 64). With a global estimate of the variance,
+compared to just using model confidences.                                                                          the attack performs nearly on par with our best attack with as
+                                                                                                                   little as 16 shadow models.
+                                         100
+                                                                                                                                                    100
+
+                                         −1
+                               10
+                                                                                                                                                   10−1
+
+
+
+
+         True Positive Rate                                                                                                   True Positive Rate
+                               10−2                         Ours based on logits                                                                   10−2
+                                                            auc=0.711
+                                                            Ours based on gradient-norm
+                               10−3                         auc=0.724                                                                              10−3                           256 models
+                                                                                                                                                                                  64 models
+                                                            Global threshold based on logits
+                                                            auc=0.576                                                                                                             16 models
+                               10−4                                                                                                                10−4
+                                                                                                                                                                                  4 models
+                                                            Global threshold based on gradient norm
+                                                            auc=0.601                                                                                                             with global variance
+                               10−5                                                                                                                10−5
+                                  10−5                 10−4          10−3        10−2      10−1         100                                           10−5   10−4    10−3        10−2     10−1           100
+                                                                                                                                                                    False Positive Rate
+                                                                    False Positive Rate
+
+
+Fig. 15: Comparison of the white-box attack using our ap-                                                          Fig. 17: Effect of varying the number of models trained on
+proach to the black-box setting.                                                                                   attack success rates. It is always useful to estimate the mean
+                                                                                                                   per-example difficulty; however when only a few models are
+                                                                                                                   available, it is orders of magnitude more effective to assign
+                                             A PPENDIX B                                                           all examples the same variance.
+                                   A DDITIONAL F IGURES AND TABLES
+A. Attack Performance versus Model Accuracy
+   In Section V-D, Figure 7 we plotted the relationship between
+a model’s train-test gap and its vulnerability to membership
+inference attacks. In Figure 16, we look at the attack success
+rate as a function of the test accuracy of the same models.
+There is a clear trend where better models are more vulnerable
+to attacks. Prior work reported a similar phenomenon for data
+extraction attacks [3, 4].
+
+                                          100
+                                                       CNN1, CNN2, CNN4
+                                                       CNN8, CNN16
+                                                       CNN32, CNN64
+                                         10−1
+                                                       WRN28-1
+
+
+
+
+                        TPR @ 0.1% FPR
+                                                       WRN28-2
+                                                       WRN28-10
+                                         10−2
+
+
+
+                                         10−3
+
+
+
+                                         10−4
+                                                0.3   0.4     0.5     0.6    0.7     0.8    0.9   1.0
+                                                                     Test Accuracy
+
+
+Fig. 16: Attack true-positive rate versus model test accuracy.
+
+
+
+
+                                                                                                              17
+C. Comparison to Prior Work on Additional Datasets                                                                                          100
+   Similarly to Figure 1 for CIFAR-10, we compare our at-
+                                                                                                                                           10 1
+tack against prior membership inference attacks on additional
+
+
+                                                                                                                      True Positive Rate
+datasets: CIFAR-100 in Figure 18, WikiText-103 in Figure 19,                                                                               10 2                       Ours.
+Texas in Figure 20 and Purchase in Figure 21.                                                                                                                         Sablayrolles et al.
+                                                                                                                                           10 3                       Long et al.
+                                                                                                                                                                      Watson et al.
+                                           100                                                                                                                        Shokri et al.
+                                                                                                                                           10 4                       Song et al.
+                                                                                                                                                                      Yeom et al.
+                                   10 1                                                                                                                               Jayaraman et al.
+                                                                                                                                           10 5 5
+
+
+         True Positive Rate
+                                                                                                                                              10    10 4     10 3 10 2 10 1                 100
+                                   10 2                                      Ours.                                                                         False Positive Rate
+                                                                             Sablayrolles et al.
+                                   10 3                                      Long et al.                      Fig. 20: ROC curve of prior membership inference attacks,
+                                                                             Watson et al.
+                                                                             Shokri et al.                    compared to our attack, on the Texas dataset.
+                                   10 4                                      Song et al.
+                                                                             Yeom et al.
+                                                                             Jayaraman et al.
+                                   10 5 5                                                                                                   100
+                                      10             10 4     10 3 10 2 10 1                       100
+                                                            False Positive Rate                                                            10 1
+
+
+
+                                                                                                                      True Positive Rate
+Fig. 18: ROC curve of prior membership inference attacks,                                                                                  10 2                       Ours.
+compared to our attack, on CIFAR-100.                                                                                                                                 Sablayrolles et al.
+                                                                                                                                           10 3                       Long et al.
+                                                                                                                                                                      Watson et al.
+                                                                                                                                                                      Shokri et al.
+                                                                                                                                           10 4                       Song et al.
+                                            100                                                                                                                       Yeom et al.
+                                                                                                                                                                      Jayaraman et al.
+                                                                                                                                           10 5 5
+                                           10−1                                                                                               10    10 4     10 3 10 2 10 1                 100
+                                                                                                                                                           False Positive Rate
+
+                      True Positive Rate
+                                           10−2
+                                                                                                              Fig. 21: ROC curve of prior membership inference attacks,
+                                           10−3                                                               compared to our attack, on the Purchase dataset.
+                                                                             Ours
+                                                                             Sablayrolles et al.
+                                           10−4
+                                                                             Watson et al.
+                                                                             Yeom et al.
+                                           10−5
+                                              10−5   10−4     10−3        10−2      10−1           100
+                                                             False Positive Rate
+
+
+Fig. 19: ROC curve of prior membership inference attacks,
+compared to our attack, on WikiText-103. We omit prior
+attacks that rely on the model features z(x), as these attacks
+were not designed for sequential models.
+
+
+
+
+                                                                                                         18
+  Attack Approach                                 TPR @ 0.1% FPR           Attack Approach                                 TPR @ 0.1% FPR
+  LOSS attack [70]                                          0.0%           LOSS attack [70]                                          0.1%
+    + Logit scaling                                         0.1%             + Logit scaling                                         0.1%
+    + Multiple queries                                      0.1%
+                                                                           LOSS attack [70]                                          0.1%
+  LOSS attack [70]                                          0.0%             + Per-example thresholds (Q̃out only) [68]              8.8%
+    + Per-example thresholds (Q̃out only) [68]              5.2%             + Logit scaling                                        19.0%
+    + Logit scaling                                        14.7%             + Gaussian Likelihood (our offline attack)             24.6%
+    + Gaussian Likelihood                                  18.9%
+    + Multiple queries (our offline attack)                22.3%           LOSS attack [70]                                          0.1%
+                                                                             + Per-example thresholds (Qin & Qout ) [56]            14.9%
+  LOSS attack [70]                                          0.0%             + Logit scaling                                         8.4%
+    + Per-example thresholds (Qin & Qout ) [56]             7.4%             + Gaussian Likelihood (our attack)                     33.2%
+    + Logit scaling                                         2.8%
+    + Gaussian Likelihood                                  24.1%         TABLE VII: Breakdown of how various components build up
+    + Multiple queries (our attack)                        27.6%
+                                                                         to obtain our best attacks on the Texas dataset.
+TABLE V: Breakdown of how various components build up
+to obtain our best attacks on the CIFAR-100 dataset.
+                                                                           Attack Approach                                 TPR @ 0.1% FPR
+                                                                           LOSS attack [70]                                          0.0%
+                                                                             + Logit scaling                                         0.1%
+  Attack Approach                                 TPR @ 0.1% FPR
+                                                                           LOSS attack [70]                                          0.0%
+  LOSS attack [70]                                          0.1%
+                                                                             + Per-example thresholds (Q̃out only) [68]              1.5%
+    + Logit scaling                                         0.1%
+                                                                             + Logit scaling                                         1.3%
+  LOSS attack [70]                                          0.1%             + Gaussian Likelihood (our offline attack)              1.4%
+    + Per-example thresholds (Q̃out only) [68]              1.1%           LOSS attack [70]                                          0.0%
+    + Logit scaling                                         1.1%             + Per-example thresholds (Qin & Qout ) [56]             2.7%
+    + Gaussian Likelihood (our offline attack)              1.2%             + Logit scaling                                         0.2%
+  LOSS attack [70]                                          0.1%             + Gaussian Likelihood (our attack)                      4.1%
+    + Per-example thresholds (Qin & Qout ) [56]             1.0%
+    + Logit scaling                                         1.0%         TABLE VIII: Breakdown of how various components build up
+    + Gaussian Likelihood (our attack)                      1.4%         to obtain our best attacks on the Purchase dataset.
+TABLE VI: Breakdown of how various components build up
+to obtain our best attacks on the WikiText-103 dataset.
+                                                                         guess the architecture, optimizer and data augmentation used
+                                                                         by the target model.
+
+
+
+
+D. Attack Ablations on Additional Datasets
+   Similarly to Table II for CIFAR-10, we now perform abla-
+tions on the different components of our attack for CIFAR-100
+(Table V), WikiText-103 (Table VI), Texas (Table VII) and
+Purchase (Table VIII). Note that for WikiText-103, Texas and
+Purchase, we train models without any data augmentations and
+thus do not perform augmentations in the attack either.
+   As we observed in Section VI for CIFAR-10, a Gaussian
+Likelihood Test after logit scaling significantly boosts the per-
+formance of past attacks that rely on per-example thresholds,
+both in the offline case and in the online case.
+   In contrast to CIFAR-10, we observe that logit scaling on its
+own is often detrimental to the online attack of Sablayrolles
+et al. [56]. Similarly, we find that a Gaussian Likelihood Test
+on its own (i.e., without logit scaling) often hurts the attack
+performance. Thus, these two components necessarily have to
+be applied together to achieve a good attack performance.
+
+E. Full ROC Curves for Mismatched Training Procedures
+  In Figures 22 to 24, we plot full ROC curves for the
+experiments from Section VI-E, where the attacker has to
+
+
+
+                                                                    19
+                                       100                                                                                                                   100                                                                                                              100
+
+
+                                  10−1                                                                                                                      10−1                                                                                                             10−1
+
+
+
+
+             True Positive Rate                                                                                                        True Positive Rate                                                                                               True Positive Rate
+                                  10−2                                                                                                                      10−2                                                                                                             10−2
+
+
+                                  10−3                                                                                                                      10−3                                                                                                             10−3
+
+
+                                  10−4                                                                                                                      10−4                                                                                                             10−4
+
+
+                                  10−5                                                                                                                      10−5                                                                                                             10−5
+                                     10−5           10−4       10−3        10−2        10−1                               100                                  10−5       10−4    10−3        10−2                           10−1          100                                  10−5              10−4                     10−3        10−2         10−1         100
+                                                              False Positive Rate                                                                                                False Positive Rate                                                                                                                      False Positive Rate
+
+
+                                                (a) CNN-16 as target.                                                                                                  (b) CNN-32 as target.                                                                                              (c) CNN-64 as target.
+                                       100                                                                                                                   100                                                                                                              100
+
+
+                                  10−1                                                                                                                      10−1                                                                                                             10−1
+
+
+
+
+             True Positive Rate                                                                                                        True Positive Rate                                                                                               True Positive Rate
+                                  10−2                                                                                                                      10−2                                                                                                             10−2                                                Shadow model architecture
+                                                                                                                                                                                                                                                                                                                                          CNN-16
+                                  10−3                                                                                                                      10−3                                                                                                             10−3                                                         CNN-32
+                                                                                                                                                                                                                                                                                                                                          CNN-64
+                                                                                                                                                                                                                                                                                                                                          WRN28-1
+                                  10−4                                                                                                                      10−4                                                                                                             10−4
+                                                                                                                                                                                                                                                                                                                                          WRN28-2
+                                                                                                                                                                                                                                                                                                                                          WRN28-10
+                                  10−5                                                                                                                      10−5                                                                                                             10−5
+                                     10−5           10−4       10−3        10−2        10−1                               100                                  10−5       10−4    10−3        10−2                           10−1          100                                  10−5              10−4                     10−3        10−2         10−1         100
+                                                              False Positive Rate                                                                                                False Positive Rate                                                                                                                      False Positive Rate
+
+
+                                              (d) WRN28-1 as target.                                                                                                  (e) WRN28-2 as target.                                                                                           (f) WRN28-10 as target.
+                                                      Fig. 22: Different architectures with momentum optimizer and mirror & shift as augmentation.
+
+
+
+                                       100                                                                                                                   100                                                                                                              100
+
+
+                                  10−1                                                                                                                      10−1                                                                                                             10−1
+
+
+
+
+             True Positive Rate                                                                                                        True Positive Rate                                                                                               True Positive Rate
+                                  10−2                                                                                                                      10−2                                                                                                             10−2
+
+
+                                  10−3                                                                                                                      10−3                                                                                                             10−3
+                                                                                                                                                                                                                                                                                                                                    Shadow model optimizer
+                                                                                                                                                                                                                                                                                                                                              SGD
+                                  10−4                                                                                                                      10−4                                                                                                             10−4
+                                                                                                                                                                                                                                                                                                                                              SGDM
+                                                                                                                                                                                                                                                                                                                                              Adam
+                                  10−5                                                                                                                      10−5                                                                                                             10−5
+                                     10−5           10−4       10−3        10−2        10−1                               100                                  10−5       10−4    10−3        10−2                           10−1          100                                  10−5              10−4                     10−3        10−2         10−1         100
+                                                              False Positive Rate                                                                                                False Positive Rate                                                                                                                      False Positive Rate
+
+
+                                                    (a) SGD as target.                                                                                                (b) Momentum as target.                                                                                              (c) Adam as target.
+                                                                     Fig. 23: Different optimizers on WRN28-10 with mirror & shift as augmentation.
+
+
+
+                             100                                                                              100                                                                                             100                                                                                                100
+
+
+                     10−1                                                                                    10−1                                                                                            10−1                                                                                               10−1
+
+
+
+
+True Positive Rate                                                                      True Positive Rate                                                                              True Positive Rate                                                                                 True Positive Rate
+                     10−2                                                                                    10−2                                                                                            10−2                                                                                               10−2
+                                                                                                                                                                                                                                                                                                                                    Shadow model augmentation
+                                  −3                                                                              −3                                                                                              −3
+                     10                                                                                      10                                                                                              10                                                                                                 10−3                           None
+                                                                                                                                                                                                                                                                                                                                               +Mirror
+                     10−4                                                                                    10−4                                                                                            10−4                                                                                               10−4                           +Shift
+                                                                                                                                                                                                                                                                                                                                               +Cutout
+                                  −5                                                                              −5                                                                                              −5
+                     10                                                                                      10                                                                                              10                                                                                                 10−5
+                                   10−5      10−4    10−3        10−2     10−1   100                               10−5         10−4                 10−3        10−2     10−1   100                               10−5    10−4    10−3        10−2                   10−1          100                            10−5      10−4    10−3        10−2     10−1    100
+                                                    False Positive Rate                                                                             False Positive Rate                                                           False Positive Rate                                                                               False Positive Rate
+
+
+
+                                        (a) No augmentation.                                                                      (b) Mirror.                                                                             (c) Mirror+Shift.                                                                     (d) Mirror+Shift+Cutout16.
+                                                                          Fig. 24: Different augmentations on WRN28-10 with momentum optimizer.
+
+
+
+
+                                                                                                                                                                                   20
+

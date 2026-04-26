@@ -1,0 +1,1816 @@
+                                                                      Stealing Part of a Production Language Model
+
+
+                                              Nicholas Carlini 1 Daniel Paleka 2 Krishnamurthy (Dj) Dvijotham 1 Thomas Steinke 1 Jonathan Hayase 3
+                                                 A. Feder Cooper 1 Katherine Lee 1 Matthew Jagielski 1 Milad Nasr 1 Arthur Conmy 1 Itay Yona 1
+                                                                          Eric Wallace 4 David Rolnick 5 Florian Tramèr 2
+
+
+                                                                    Abstract                                  In this paper we ask: how much information can an adver-
+                                                 We introduce the first model-stealing attack that            sary learn about a production language model by making
+
+
+
+
+arXiv:2403.06634v2 [cs.CR] 9 Jul 2024
+                                                 extracts precise, nontrivial information from                queries to its API? This is the question studied by the field
+                                                 black-box production language models like Open-              of model stealing (Tramèr et al., 2016): the ability of an ad-
+                                                 AI’s ChatGPT or Google’s PaLM-2. Specifically,               versary to extract model weights by making queries its API.
+                                                 our attack recovers the embedding projection                 Contributions. We introduce an attack that can be applied
+                                                 layer (up to symmetries) of a transformer model,             to black-box language models, and allows us to recover
+                                                 given typical API access. For under $20 USD,                 the complete embedding projection layer of a transformer
+                                                 our attack extracts the entire projection matrix             language model. Our attack departs from prior approaches
+                                                 of OpenAI’s ada and babbage language mod-                    that reconstruct a model in a bottom-up fashion, starting
+                                                 els. We thereby confirm, for the first time, that            from the input layer. Instead, our attack operates top-down
+                                                 these black-box models have a hidden dimension               and directly extracts the model’s last layer. Specifically,
+                                                 of 1024 and 2048, respectively. We also recover              we exploit the fact that the final layer of a language model
+                                                 the exact hidden dimension size of the gpt-3.5-              projects from the hidden dimension to a (higher dimen-
+                                                 turbo model, and estimate it would cost under                sional) logit vector. This final layer is thus low-rank, and by
+                                                 $2,000 in queries to recover the entire projection           making targeted queries to a model’s API, we can extract
+                                                 matrix. We conclude with potential defenses and              its embedding dimension or its final weight matrix.
+                                                 mitigations, and discuss the implications of possi-
+                                                 ble future work that could extend our attack.                Stealing this layer is useful for several reasons. First, it
+                                                                                                              reveals the width of the transformer model, which is often
+                                                                                                              correlated with its total parameter count. Second, it slightly
+                                        1. Introduction                                                       reduces the degree to which the model is a complete “black-
+                                                                                                              box”, which so might be useful for future attacks. Third,
+                                        Little is publicly known about the inner workings of today’s
+                                                                                                              while our attack recovers only a (relatively small) part of
+                                        most popular large language models, such as GPT-4, Claude
+                                                                                                              the entire model, the fact that it is at all possible to steal any
+                                        2, or Gemini. The GPT-4 technical report states it “contains
+                                                                                                              parameters of a production model is surprising, and raises
+                                        no [...] details about the architecture (including model size),
+                                                                                                              concerns that extensions of this attack might be able to
+                                        hardware, training compute, dataset construction, training
+                                                                                                              recover more information. Finally, recovering the model’s
+                                        method, or similar” (OpenAI et al., 2023). Similarly, the
+                                                                                                              last layer (and thus hidden dimension) may reveal more
+                                        PaLM-2 paper states that “details of [the] model size and
+                                                                                                              global information about the model, such as relative size
+                                        architecture are withheld from external publication” (Anil
+                                                                                                              differences between different models.
+                                        et al., 2023). This secrecy is often ascribed to “the competi-
+                                        tive landscape” (because these models are expensive to train)         Our attack is effective and efficient, and is applicable to
+                                        and the “safety implications of large-scale models” (OpenAI           production models whose APIs expose full logprobs, or a
+                                        et al., 2023) (because it is easier to attack models when more        “logit bias”. This included Google’s PaLM-2 and OpenAI’s
+                                        information is available). Nevertheless, while these models’          GPT-4 (Anil et al., 2023; OpenAI et al., 2023); after respon-
+                                        weights and internal details are not publicly accessible, the         sible disclosure, both APIs have implemented defenses to
+                                        models themselves are exposed via APIs.                               prevent our attack or make it more expensive. We extract
+                                             1
+                                                                                                              the embedding layer of several OpenAI models with a mean
+                                              Google DeepMind 2 ETH Zurich 3 University of Washington         squared error of 10−4 (up to unavoidable symmetries). We
+                                        4
+                                            OpenAI 5 McGill University.
+                                                                                                              apply a limited form of our attack to gpt-3.5 at a cost of un-
+                                        Proceedings of the 41 st International Conference on Machine          der $200 USD and, instead of recovering the full embedding
+                                        Learning, Vienna, Austria. PMLR 235, 2024. Copyright 2024 by          layer, recover just the size of the embedding dimension.
+                                        the author(s).
+
+                                                                                                          1
+                                         Stealing Part of a Production Language Model
+
+Responsible disclosure. We shared our attack with all ser-            Section 4.2 is quite similar to their method. Others have
+vices we are aware of that are vulnerable to this attack. We          attempted to recover model sizes by correlating performance
+also shared our attack with several other popular services,           on published benchmarks with model sizes in academic
+even if they were not vulnerable to our specific attack, be-          papers (Gao, 2021).
+cause variants of our attack may be possible in other settings.
+We received approval from OpenAI prior to extracting the              3. Problem Formulation
+parameters of the last layers of their models, worked with
+OpenAI to confirm our approach’s efficacy, and then deleted           We study models that take a sequence of tokens drawn from
+all data associated with the attack. In response to our attack,       a vocabulary X as input. Let P (X ) denote the space of
+OpenAI and Google have both modified their APIs to intro-             probability distributions over X . We study parameterized
+duce mitigiations and defenses (like those that we suggest            models fθ : X N → P (X ) that produce a probability distri-
+in Section 8) to make it more difficult for adversaries to            bution over the next output token, given an input sequence
+perform this attack.                                                  of N tokens. The model has the following structure:
+
+                                                                                     fθ (p) = softmax (W · gθ (p)),                               (1)
+2. Related Work
+Model stealing attacks (Tramèr et al., 2016) aim to recover           where gθ : X N → Rh is another parameterized model that
+the functionality of a black-box model, and optimize for one          computes hidden states, W is an l × h dimensional matrix
+of two objectives (Jagielski et al., 2020):                           (the embedding projection matrix), and softmax : Rl →
+  1. Accuracy: the stolen model fˆ should match the perfor-           [0, 1]l is the softmax function applied to the resulting logits:
+     mance of the target model f on some particular data                                     "                                            #
+     domain. For example, if the target is an image clas-                                         e z1                        e zl
+     sifier, we might want the stolen model to match the                     softmax (z) = Pl                  , . . . , Pl                   .
+                                                                                                          zi                         zi
+                                                                                                  i=1 e                   i=1 e
+     target’s overall accuracy on ImageNet.
+
+  2. Fidelity: the stolen model fˆ should be functionally             Note that the hidden dimension size is much smaller
+     equivalent to the target model f on all inputs. That is,         than the size of the token dictionary, i.e., h ≪ l. For
+     for any valid input p, we want fˆ(p) ≈ f (p).                    example, LLaMA (Touvron et al., 2023) chooses h ∈
+                                                                      {4096, 5120, 6656, 8192} and l = 32,000, and there is a
+In this paper, we focus on high-fidelity attacks. Most prior          recent trend towards increasingly large token sizes; GPT-4,
+high-fidelity attacks exploit specific properties of deep neu-        for example, has a ≈100,000 token vocabulary.
+ral networks with ReLU activations. Milli et al. (2019) first
+showed that if an attacker can compute gradients of a target          Threat model. Throughout the paper, we assume that the
+two-layer ReLU model, then they can steal a nearly bit-               adversary does not have any additional knowledge about the
+for-bit equivalent model. Jagielski et al. (2020) observed            model parameters. We assume access to a model fθ , hosted
+that if the attacker only has query access to model outputs,          by a service provider and made available to users through
+they can approximate gradients with finite differences. Sub-          a query interface (API) O. We assume that O is a perfect
+sequent work extended these attacks to efficiently extract            oracle: given an input sequence p, it produces y = O (p)
+deeper ReLU models (Carlini et al., 2020; Rolnick & Kord-             without leaking any other information about fθ than what
+ing, 2020; Shamir et al., 2023). Unfortunately, none of these         can be inferred from (p, y ). For example, the adversary
+approaches scale to production language models, because               cannot infer anything about fθ via timing side-channels or
+they (1) accept tokens as inputs (and so performing finite            other details of the implementation of the query interface.
+differences is intractable); (2) use activations other than Re-
+                                                                      Different open-source and proprietary LLMs offer APIs
+LUs; (3) contain architectural components such as attention,
+                                                                      with varying capabilities, which impact the ability to per-
+layer normalization, residual connections, etc. that current
+                                                                      form model extraction attacks and the choice of attack algo-
+attacks cannot handle; (4) are orders-of-magnitude larger
+                                                                      rithm. A summary of the different APIs we study, and our
+than prior extracted models; and (5) expose only limited-
+                                                                      motivation for doing so, is presented in Table 1. The logits
+precision outputs.
+                                                                      API is a strawman threat model where the API provides log-
+Other attacks aim to recover more limited information, or             its for all tokens in the response to a given prompt. We begin
+assume a stronger adversary. Wei et al. (2020) show that              with this toy setting, as the attack techniques we develop
+an adversary co-located on the same server as the LLM can             here can be reused in subsequent sections, where we will
+recover the sizes of all hidden layers. Zanella-Beguelin et al.       first reconstruct the logits from more limited information
+(2021) assume a model with a public pretrained encoder                (e.g., log-probabilities for only the top few tokens) and then
+and a private final layer, and extract the final layer; our           run the attack.
+
+                                                                  2
+                                          Stealing Part of a Production Language Model
+
+                                                                     Lemma 4.1. Let Q (p1 , . . . pn ) ∈ Rl×n denote the matrix
+                  Table 1. Summary of APIs
+                                                                     with columns O (p1 ) , . . . , O (pn ) of query responses from
+API                          Motivation                              the logit-vector API. Then
+All Logits §4               Pedagogy & basis for next attacks
+Top Logprobs, Logit-bias §5 Current LLM APIs (e.g., OpenAI)                           h ≥ rank (Q (p1 , . . . pn )) .
+No logprobs, Logit-bias §F Potential future constrained APIs
+                                                                     Further, if the matrix with columns gθ (pi ) (i = 1, ..., n) has
+4. Extraction Attack for Logit-Vector APIs                           rank h and W has rank h, then
+
+In this section, we assume the adversary can directly view                            h = rank (Q (p1 , . . . pn )) .
+the logits that feed into the softmax function for every token
+in the vocabulary (we will later relax this assumption), i.e.,       Proof. We have Q = W · H, where H is a h × n ma-
+                                                                     trix whose columns are gθ (pi ) (i = 1, . . . , n). Thus,
+                   O (p) ← W · gθ (p) .                              h ≥ rank (Q). Further, if H has rank h (with the second
+                                                                     assumption), then h = rank (Q).
+We develop new attack techniques that allow us to perform
+high-fidelity extraction of (a small part of) a transformer.
+Section 4.1 demonstrates how we can identify the hidden              Assumptions. In Lemma 4.1, we assume that both the
+dimension h using the logits API and Section 4.2 presents            matrix with columns gθ (pi ) and the matrix W have rank
+an algorithm that can recover the matrix W.                          h. These matrices have either h rows or h columns, so both
+                                                                     have rank at most h. Moreover, it is very unlikely that they
+4.1. Warm-up: Recovering Hidden Dimensionality                       have rank < h: this would require the distribution of gθ (p)
+                                                                     to be fully supported on a subspace of dimension < h across
+We begin with a simple attack that allows an adversary to re-        all pi we query, or all h ≪ l columns of W to lie in the
+cover the size of the hidden dimension of a language model           same (h − 1) dimensional subspace of Rl (the output space
+by making queries to the oracle O (Algorithm 1). The tech-           of logits). In practice we find this assumption holds for all
+niques we use to perform this attack will be the foundation          larger models (Table 2) and when different normalization
+for attacks that we further develop to perform complete              layers are used (Appendix B.1).
+extraction of the final embedding projection matrix.
+                                                                     Practical considerations. Since the matrix Q is not com-
+Algorithm 1 Hidden-Dimension Extraction Attack                       puted over the reals, but over floating-point numbers (possi-
+Require: Oracle LLM O returning logits                               bly with precision as low as 16-bits or 8-bits for production
+ 1: Initialize n to an appropriate value greater than h
+                                                                     neural networks), we cannot naively take the rank to be the
+ 2: Initialize an empty matrix Q = 0n×l
+                                                                     number of linearly independent rows. Instead, we use a
+ 3: for i = 1 to n do
+                                                                     practical numerical rank of Q, where we order the singular
+ 4:     pi ← RandPrefix() ▷ Choose a random prompt                   values λ1 ≥ λ2 ≥ · · · ≥ λn , and identify the largest multi-
+ 5:     Qi ← O (pi )                                                 plicative gap λλi+i 1 between consecutive singular values. A
+ 6: end for                                                          large multiplicative gap arises when we switch from large
+ 7: λ1 ≥ λ2 ≥ · · · ≥ λn ← SingularValues(Q)                         “actual” singular values to small singular values that arise
+ 8: count ← arg maxi log∥λi ∥ − log∥λi+1 ∥
+ 9: return count                                                     from numerical imprecision. Figure 2 shows these gaps.
+                                                                     Algorithm 1 describes this attack.
+                                                                     Experiments. In order to visualize the intuition behind
+Intuition. Suppose we query a language model on a large
+                                                                     this attack, Figure 1 illustrates an attack against the Pythia-
+number of different random prefixes. Even though each
+                                                                     1.4b LLM. Here, we plot the magnitude of the singular
+output logit vector is an l-dimensional vector, they all actu-
+                                                                     values of Q as we send an increasing number n of queries
+ally lie in a h-dimensional subspace because the embedding
+                                                                     to the model. When we send fewer than 2048 queries it
+projection layer up-projects from h-dimensions. Therefore,
+                                                                     is impossible to identify the dimensionality of the hidden
+by querying the model “enough” (more than h times) we
+                                                                     space. This is because n < h, and so the n × l dimensional
+will eventually observe new queries are linearly dependent
+                                                                     matrix Q has full rank and n nontrivial singular values. But
+of past queries. We can then compute the dimensionality of
+                                                                     once we make more than 2048 queries to the model, and
+this subspace (e.g., with SVD) and report this as the hidden
+                                                                     thus n > h, the number of numerically significant singular
+dimensionality of the model.
+                                                                     values does not increase further; it is capped at exactly 2048.
+Formalization. The attack is based on the following                  In Figure 2 we plot the difference (in log-space) between
+straightforward mathematical result:                                 subsequent singular values. As we can see, the largest
+
+                                                                 3
+                                                            Stealing Part of a Production Language Model
+
+
+                       103                                                           Cheaper Dimension Extraction Note that l being exactly
+                                                                                     equal to the vocabulary size is not crucial. Formally, taking
+                       102                                                           only l′ < l rows of Q does not change the number of
+                       101                                                           nonzero singular values, except in the unlikely case that
+                                                                                     the resulting submatrix is of smaller rank. Hence, we can
+
+   Magnitude
+                       100                                                           choose a subset of l′ tokens and extract the dimension from
+                      10 1                   1024 queries                            logits on these tokens alone, as long as l′ > h.
+                                             1536 queries
+                      10 2                   2048 queries
+                      10 3                   2560 queries                            4.2. Full Layer Extraction (Up to Symmetries)
+                                             3072 queries                            We extend the attack from the prior section to recover the
+                      10 4
+                                    0    500 1000 1500 2000 2500 3000                final output projection matrix W that maps from the final
+                                            Sorted Singular Values                   hidden layer to the output logits.
+
+Figure 1. SVD can recover the hidden dimensionality of a model                       Method: Let Q be as defined in Algorithm 1. Now rewrite
+when the final output layer dimension is greater than the hidden                     Q = U · Σ · V⊤ with SVD. Previously we saw that the
+dimension. Here we extract the hidden dimension (2048) of the                        number of large enough singular values corresponded to the
+Pythia 1.4B model. We can precisely identify the size by obtaining                   dimension of the model. But it turns out that the matrix U
+slightly over 2048 full logit vectors.                                               actually directly represents (a linear transformation of) the
+                                                                                     final layer! Specifically, we can show that U · Σ = W · G
+                                                                                     for some h × h matrix G in the following lemma.
+
+                                                                                     Lemma 4.2. In the logit-API threat model, under the as-
+                                   101                                               sumptions of Lemma 4.1: (i) The method above recovers
+
+
+
+
+       Difference between
+                                                                                     W̃ = W · G for some G ∈ Rh×h ; (ii) With the addi-
+                                   100                                               tional assumption that gθ (p) is a transformer with residual
+                                                                                     connections, it is impossible to extract W exactly.
+                                  10 1
+
+
+   consecuitive singular values
+                                  10 2                                               Proof. See Appendix C.                                      □
+                                  10 3                                               Note that we could also use Q = W · G for n = l. The
+                                                                                     SVD construction above gains numerical precision if n > l.
+                                  10 4
+                                      2000    2020 2040 2060 2080
+                                                Sorted Singular Values
+Figure 2. Our extraction attack recovers the hidden dimension by                     Experiments. For the six models considered previously,
+identifying a sharp drop in singular values, visualized as a spike                   we evaluate the attack success rate by comparing the root
+in the difference between consecutive singular values. On Pythia-
+                                                                                     mean square (RMS) between our extracted matrix W̃ =
+1.4B, a 2048 dimensional model, the spike occurs at 2047 values.
+                                                                                     U · Σ and the actual weight matrix, after allowing for a
+                                                                                     h × h affine transformation. Concretely, we solve the least
+difference occurs at (almost exactly) the 2048th singular                            squares system W̃ · G ≈ W for G, which reduces to h
+value—the true hidden dimensionality of this model.                                  linear least squares problems, each with l equations and h
+                                                                                     unknowns. Then, we report the RMS of W and W̃ · G.
+We now analyze the efficacy of this attack across a wider
+range of models: GPT-2 (Radford et al., 2019) Small and                              The results are in Table 2. As a point of reference, the
+XL, Pythia (Biderman et al., 2023) 1.4B and 6.9B, and                                RMS between a randomly initialized model and the actual
+LLaMA (Touvron et al., 2023) 7B and 65B. The results are                             weights is 2 · 10−2 , over 100–500× higher than the error of
+in Table 2: our attack recovers the embedding size nearly                            our reconstruction.
+perfectly, with an error of 0 or 1 in five out of six cases.
+                                                                                     In Appendices C and H, we show that reconstruction is pos-
+Our near perfect extraction has one exception: GPT-2 Small.                          sible up an orthogonal transformation (approximately h2 /2
+On this 768 dimensional model, our attack reports a hidden                           missing parameters, as opposed to h2 for reconstruction up
+dimension of 757. In Appendix A we show that this “failure”                          to an affine transformation), and that this is tight under some
+is caused by GPT-2 actually having an effective hidden                               formal assumptions. However, we only have an efficient
+dimensionality of 757 despite having 768 dimensions.                                 algorithm for reconstruction up to affine transformations.
+
+                                                                                 4
+                                             Stealing Part of a Production Language Model
+
+                                                                             (or receives from) the model during the attack. Most APIs
+Table 2. Our attack succeeds across a range of open-source models,
+                                                                             charge users per-token, so this metric represents the mone-
+at both stealing the model size, and also at reconstructing the output
+projection matrix (up to invariances; we show the root MSE).                 tary cost of an attack (after scaling by the token cost).
+
+  Model                 Hidden Dim       Stolen Size    W RMS
+                                                                             Query cost: the total duration of the attack. Most APIs
+                                                                             place a limit on the number of queries an adversary can
+  GPT-2 Small (fp32)             768        757 ± 1      4 · 10−4            make in any given interval, and so some attacks may be
+  GPT-2 XL (fp32)               1600       1599 ± 1      6 · 10−4            faster but cost more (by sending more tokens per query).
+  Pythia-1.4 (fp16)             2048       2047 ± 1      3 · 10−5
+  Pythia-6.9 (fp16)             4096       4096 ± 1      4 · 10−5            In the remainder of this section we develop several attacks
+  LLaMA 7B (fp16)               4096       4096 ± 2      8 · 10−5            under varying attack assumptions and optimizing for either
+  LLaMA 65B (fp16)              8192       8192 ± 2      5 · 10−5            token cost, query cost, or both.
+
+5. Extraction Attack for Logit-Bias APIs                                     5.3. Extraction Attack for Top-5 Logit Bias APIs
+
+The above attack makes a significant assumption: that the                    We develop a technique to compute the logit vector for any
+adversary can directly observe the complete logit vector                     prefix p via a sequence of queries with varying logit biases.
+for each input. In practice, this is not true: no production                 To begin, suppose that the API returned the top K logits.
+model we are aware of provides such an API. Instead, for                     Then we could recover the complete logit vector for an
+example, they provide a way for users to get the top-K (by                   arbitrary prompt p by cycling through different choices for
+logit) token log probabilities. In this section we address this              the logit bias and measuring the top-k logits each time.
+challenge.                                                                   In particular, for an API with top-5 logits we can send a
+                                                                             sequence of queries
+5.1. Description of the API
+                                                                             O (p, bk = bk+1 = . . . = bk+4 = B ), for k ∈ {0,5,10,. . .,|X |}
+In this section we develop attacks for APIs that return log
+probabilities for the top K tokens (sorted by logits), and                   with a large enough B. Each query thus promotes five
+where the user can specify a real-valued bias b ∈ R|X | (the                 different tokens {k, k + 1, . . . , k + 4} into the top-5, which
+“logit bias”) to be added to the logits for specified tokens                 allows us to observe their logits. By subtracting the bias B
+before the softmax, i.e.,                                                    and merging answers from all of these queries, we recover
+                                                                             the entire logit vector.
+O (p, b) ← TopK (logsoftmax (Wgθ (p) + b))
+                                                             ! !             Unfortunately, we cannot use this attack directly because all
+                                   X                                         production APIs we are aware of return logprobs (the log
+ = TopK Wgθ (p)+ b−log                   exp(Wgθ (p)+ b)i ·1 .
+                                                                             of the softmax output of the model) instead of the logits zi .
+                                     i
+                                                                             The problem now is that when we apply a logit bias B to
+where TopK (z) returns the K highest entries of z ∈ Rl and                   the i-th token and observe that token’s logprob, we get the
+their indices. Many APIs (prior to this paper) provided such                 value
+an option for their state-of-the-art models (OpenAI, 2024;                                             X
+                                                                                 yiB = zi + B − log
+                                                                                                                                    
+Google, 2024). In particular, the OpenAI API supports mod-                                                 exp(zj ) + exp(zi + B )
+                                                                                                         j̸=i
+ifying logits for at most 300 tokens, and the logit bias for
+each token is restricted to the range [−100, 100] (OpenAI,                   where zi are the original logits. We thus get an additional
+2023).                                                                       bias-dependent term which we need to deal with. We pro-
+                                                                             pose two approaches.
+All that remains is to show that we can uncover the full logit
+vector for distinct prompt queries through this API. In this                 Our first approach relies on a common “reference” token that
+section, we develop techniques for this purpose. Once we                     lets us learn the relative difference between all logits (this
+have recovered multiple complete logit vector, we can run                    is the best we can hope for, since the softmax is invariant
+the attack from Section 4.2 without modification.                            under additive shifts to the logits). Suppose the top token for
+                                                                             a prompt is R, and we want to learn the relative difference
+5.2. Evaluation Methodology                                                  between the logits of tokens i and R. We add a large bias
+                                                                             B to token i to push it to the top-5, and then observe the
+Practical attacks must be efficient, both to keep the cost                   logprobs of both token i and R. We have:
+of extraction manageable and to bypass any rate limiters
+                                                                                               B
+or other filters in the APIs. We thus begin with two cost                                     yR − yiB − B = zR − zi .
+definitions that we use to measure the efficacy of our attack.
+                                                                             Since we can observe 5 logprobs, we can compare the ref-
+Token cost: the number of tokens the adversary sends to                      erence token R to four tokens per query, by adding a large
+
+                                                                         5
+                                            Stealing Part of a Production Language Model
+
+bias that pushes all four tokens into the top 5 (along with               we will be able to collect the logits on several prompts of
+the reference token). We thus issue a sequence of queries                 the form [p0 x x . . . x].
+
+           O (p, bi = bi+1 = bi+2 = bi+3 = B )                            Analysis. It is easy to see that the query cost of this attack
+                                                                              1
+                                                                          is 4m  , where m is the expansion factor. Further, since each
+                                                                          query requires 1 + m tokens, the token cost is 14m    +m . (Or,
+for i ∈ {0, 4, 8, · · · , |X |}. This recovers the logits up to the
+free parameter zR that we set to 0.                                       1 + m + ∆ if the API has an overhead of ∆ tokens.) Note
+                                                                          that if m = 1, i.e., there is no expansion, this attack reduces
+Query cost. This attack reveals the value of K-1 logits with              to our first attack and the analysis similarly gives a query
+each query to the model (the K-th being used as a reference               cost of 1/4 and a token cost of 1/2.
+point), for a cost of 1/(K − 1) queries per logit.
+In Appendix E we present a second, more sophisticated                     5.4. Extraction Attack for top-1 Binary Logit Bias APIs
+method that allows us to recover K logits per query, i.e., a
+                                                                          In light of our attacks, it is conceivable that model providers
+cost of 1/K, by viewing each logprob we receive as a linear
+                                                                          introduce restrictions on the above API. We now demon-
+constraint on the original logits.
+                                                                          strate that an attack is possible even if the API only returns
+Token cost. Recall that our attack requires that we learn                 the top logprob (K = 1 in the API from Section 5.1), and
+the logits for several distinct prompts; and so each prompt               the logit bias is constrained to only take one of two values.
+must be at least one token long. Therefore, this attack costs
+                                                                          API. We place two following further restrictions on the logit
+at least two tokens per query (one input and one output),
+                                                                          bias API (Section 5.1): first, we set K = 1, and only see
+or a cost of 1/2 for each token of output. But, in practice,
+                                                                          the most likely token’s logprob; and second, each logit bias
+many models (like gpt-3.5-turbo) include a few tokens
+                                                                          entry b is constrained to be in {−1, 0}. These constraints
+of overhead along with every single query. This increases
+                                                                          would completely prevent the attacks from the prior section.
+the token cost per logit to 2+4 ∆ where ∆ is the number of
+                                                                          We believe this constraint is significantly tighter than any
+overhead tokens; for gpt-3.5-turbo we report ∆ = 7.
+                                                                          practical implementation would define.
+An improved cost-optimal attack. It is possible to gen-                   Method. At first it may seem impossible to be able to learn
+eralize the above attack to improve both the query cost and               any information about a token t if it is not already the most
+token cost. Instead of issuing queries to the model that                  likely token. However, note that if we query the model twice,
+reveal 4 or 5 logit values for a single generated token, we               once without any logit bias, and once with a logit bias of −1
+might instead hope to be able to send a multi-token query                 for token t, then the top token will be slightly more likely
+[p0 p1 p2 . . . pn ] and then ask for the logprob vector                  with a bias of −1, with exactly how slight depending on the
+for each prefix of the prompt [p0 ], [p0 p1 ], [p0 p1 p2 ]                value of token t’s logprob. Specifically, in Appendix D we
+etc. OpenAI’s API did allow for queries of this form in                   show the logprob equals (1/e − 1)−1 (exp(ytop − ytop ′ ) − 1)
+                                                                                           ′
+                                                                          where ytop and ytop are the logprobs of the most likely token
+the past, by providing logprobs for prompt tokens as well
+as generated tokens by combining the logprob and echo                     when querying with logit bias of 0 and −1.
+parameters; this option has since been removed.                           Analysis. This attack requires 1 query and token per logprob
+Now, it is only possible to view logprobs of generated                    extracted. However, as we will show in the evaluation, this
+tokens. And since only the very last token is generated,                  attack is much less numerically stable than the previously-
+we can only view four logprobs for this single longer                     discussed attacks, and so may require more queries to reach
+query. This, however, presents a potential approach to re-                the same level of accuracy.
+duce the query and token cost: if there were some way
+to cause the model to emit a specific sequence of tokens                  6. Logprob-free attacks
+[pn+1 pn+2 . . . pn+m ], then we could inspect the log-
+prob vector of each generated token.                                      Due to space constraints, in Appendix F, we show we can
+                                                                          still extract logits without logprob access, although with a
+We achieve this as follows: we fix a token x and four other               higher cost.
+tokens, and force the model to emit [x x . . . x]. In-
+stead of supplying a logit bias of B for each of the five                 Intuitively, even without logprobs (as long as we still have
+tokens, we supply a logit bias of B for token x, and B ′ < B              logit bias) it is possible to perform binary search to increase
+for the other four tokens. If B ′ is large enough so that the             and decrease the logits for every token until increasing any
+other tokens will be brought into the top-5 outputs, we will              token by epsilon will make it the most likely. At this point,
+still be able to learn the logits for those tokens. As long as            the logit bias vector corresponds directly to the (relative)
+B ′ is small enough so that the model will always complete                logits of each token relative to every other.
+the initial prompt p0 with token x (and not any other), then
+
+                                                                      6
+                                              Stealing Part of a Production Language Model
+
+
+                                      Table 3. Attack success rate on five different black-box models
+                                                         Dimension Extraction                     Weight Matrix Extraction
+      Model                                               Size     # Queries     Cost (USD)      RMS         # Queries     Cost (USD)
+                                                                             6                         −4          7
+      OpenAI ada                                    1024 ✓         < 2 · 10               $1    5 · 10      < 2 · 10             $4
+      OpenAI babbage                                2048 ✓         < 4 · 106              $2    7 · 10−4    < 4 · 107           $12
+                                                                                                   †
+      OpenAI babbage-002                            1536 ✓         < 4 · 106              $2                < 4 · 106 †+        $12
+                                                      ∗                                            †
+      OpenAI gpt-3.5-turbo-instruct                      ✓         < 4 · 107            $200                < 4 · 108 †+     $2,000†+
+                                                      ∗                                            †
+      OpenAI gpt-3.5-turbo-1106                          ✓         < 4 · 107            $800                < 4 · 108 †+     $8,000†+
+         ✓
+           Extracted attack size was exactly correct; confirmed in discussion with OpenAI.
+         ∗
+           As part of our responsible disclosure, OpenAI has asked that we do not publish this number.
+         †
+           Attack not implemented to preserve security of the weights.
+         +
+           Estimated cost of attack given the size of the model and estimated scaling ratio.
+
+
+                                                                             are not always practical: the theoretically stronger attack
+Table 4. Average error at recovering the logit vector for each of the
+                                                                             from §E that learns 5 logprobs per query in practice re-
+logit-estimation attacks we develop. Our highest precision, and
+most efficient attack, recovers logits nearly perfectly; other attacks       quires more queries and recovers logits with lower fidelity.
+approach this level of precision but at a higher query cost.                 This is because this attack is numerically unstable: it re-
+                                                                             quires a potentially ill-conditioned matrix, and therefore can
+Attack               Logprobs Bits of precision Queries per logit            require re-querying the API after adjusting the logit bias.
+logprob-4 (§5.3)     top-5             23.0                 0.25             Our strongest logprob-free attack is highly efficient, and
+logprob-5 (§E)       top-5             11.5                 0.64             recovers 18 bits of precision at just 3.7 queries per logit. In
+logprob-1 (§5.4)     top-1              6.1                 1.0              Appendix G we theoretically analyze how far this is from
+binary search (§F.1)   ✗                7.2                10.0
+hyperrectangle (§F.2) ✗                15.7                 5.4
+                                                                             optimal, and find it is within a factor of two.
+one-of-n (§F.3)        ✗               18.0                 3.7
+                                                                             7.2. Stealing Parts of Production Models
+By performing the binary search one token at a time, we
+                                                                             We now investigate our ability to steal production language
+can develop an effective (but inefficient) attack that requires
+                                                                             models, focusing on five of OpenAI’s models available on
+N log( Bϵ ) where N is the number of logits, B is an upper
+                                                                             1 January 2024: ada, babbage, babbage-002, gpt-3.5-
+bound on the gap between any two logits and ϵ is the desired
+                                                                             turbo-instruct, and gpt-3.5-turbo-1106. We selected
+tolerance.
+                                                                             these models because these were the only production models
+An improved attack is possible by noticing that it is possible               which were able to receive advance permission to attempt an
+to perform binary search on multiple tokens in parallel.                     extraction attack; we are exceptionally grateful to OpenAI
+Because the adversary gets to view the arg-max sampled                       for allowing us to perform this research using their models.
+token, by modifying multiple tokens at the same time we
+                                                                             Given the results from the prior section, we chose to imple-
+can learn information faster and therefore improve attack
+                                                                             ment the improved 4-logprob attack (Section 5.3) because
+efficiency.
+                                                                             it is both the most query efficient attack and also the most
+                                                                             precise attack. Switching to a different attack algorithm
+7. Evaluation                                                                would increase our total experiment cost significantly, and
+                                                                             so we do not perform these ablation studies.
+We now study the efficacy of our practical stealing attack.
+                                                                             Both our hidden-dimension-stealing and entire-layer-
+7.1. Logit Validation                                                        stealing attack worked for all five of these models. The
+                                                                             size we recover from the model perfectly matches the ac-
+We begin by validating that the attacks developed in the prior               tual size of the original model, as confirmed by OpenAI.
+sections can effectively recover the full logit vector given                 For the first three models, we report in Table 3 the size we
+a limited query interface. In Table 4 we report the average                  recover because (1) the sizes of these models was never pre-
+number of bits of agreement between the true logit vector                    viously confirmed, but (2) they have now been deprecated
+and the recovered logit vector, as well as the (amortized)                   and so disclosing the size is not harmful. In discussions with
+number of queries required to recover one full logit vector.                 OpenAI, we decided to withhold disclosure of the size of
+Generally, attacks that operate under stronger threat mod-                   gpt-3.5-turbo models, but we confirmed with them that
+els have higher precision. But theoretical improvements                      the number our attack reported was accurate.
+
+
+                                                                         7
+                                         Stealing Part of a Production Language Model
+
+When running the full layer-stealing attack, we confirmed             8.2. Mitigations
+that our extracted weights are nearly identical to the ac-
+                                                                      Logit bias XOR logprobs. Our attack is 10× cheaper
+tual weights, with error < 7 · 10−4 , up to an h × h matrix
+                                                                      when an adversary can supply both a logit bias and also
+product as discussed previously. Table 3 reports the RMS
+                                                                      view output logprobs. This suggests a natural mitigation:
+between our extracted weight matrix and the actual model
+                                                                      prohibit queries to the API that make use of both logit bias
+weights, after “aligning” the two by an h × h transform.
+                                                                      and logprobs at the same time. This type of defense is com-
+                                                                      mon in both the security and machine learning community:
+8. Defenses                                                           for example, in 2023 OpenAI removed the ability to com-
+                                                                      bine both echo and logprobs, but with either alone being
+It would be possible to prevent or mitigate this attack in a
+                                                                      allowed; this defense would behave similarly.
+number of different ways, albeit with loss of functionality.
+                                                                      Noise addition. By adding a sufficient amount of noise to
+8.1. Prevention                                                       the output logits of any given query, it would be possible to
+                                                                      prevent our attack. However, logit-noise has the potential
+Remove logit bias. Perhaps the simplest defense would be              to make models less useful. We perform some preliminary
+to outright remove the logit bias parameter from the API.             experiments on this direction in Appendix I.
+Unfortunately, there are several legitimate use cases of this
+parameter. For example, several works use logit bias in               Rate limits on logit bias. Our attack requires that we are
+order to perform controlled or constrained generation (Jiang          able to learn at least h logit values for each prompt p. One
+et al., 2023; Yang & Klein, 2021), to shift generation and            defense would be to allow logit-bias queries to the model,
+mimic fine-tuning the model (Liu et al., 2024; Mitchell et al.,       but only allow T = h̃/5 logit bias queries for any given
+2024), or other reasons (Ren et al., 2023; Lee et al., 2022).         prompt p to prevent an adversary from learning if a model
+                                                                      has hidden dimension h̃ or smaller.
+Replace logit bias with a block-list. Instead of offering a
+logit bias, model developers could replace it with a block-           Unfortunately this has several significant drawbacks: the
+list of tokens the model is prohibited from emitting. This            threshold has to be independent of h (or learning the thresh-
+would support (some) of the functionality discussed in the            old would reveal h); the system would need to maintain
+prior section, but would still prevent our attack.                    state of all user queries to the API; and preventing Sybil
+                                                                      attacks requires a global pool of user queries, which can
+Architectural changes. Instead of modifying the API,                  present significant privacy risks (Debenedetti et al., 2023).
+we could instead make changes to the model. Our attack
+only works because the hidden dimension h is less than the            Detect malicious queries. Instead of preventing any
+output dimension l. This suggests a natural architectural             queries that might leak model weights, an alternate strategy
+defense: split the final layer into two layers, one that goes         could be to implement standard anti-abuse tools to detect
+from h → t and then t → l where t > l and a nonlinearity              any patterns of malicious behavior. Several proposals of
+was placed in between. This is not very efficient though,             this form exist for prior machine learning attacks, including
+as the last linear layer is large (quadratic in the vocabulary        model stealing (Juuti et al., 2019; Pal et al., 2021) and ad-
+size).                                                                versarial examples (Chen et al., 2020). Unfortunately, these
+                                                                      defenses are often vulnerable to attack (Feng et al., 2023),
+Post-hoc altering the architecture. We can also modify                and so any mitigation here would need to improve on the
+the hidden dimension h for the final layer after the model            state-of-the-art to be truly robust.
+is trained. In particular, we can expand the dimensionality
+of W by concatenating extra weight vectors that are orthog-
+onal to the original matrix. We set the singular values for           9. Future Work
+these weights to be small enough to not materially affect             We are motivated to study this problem not because we ex-
+the model’s predictions, while also being large enough to             pect to be able to steal an entire production transformer
+look realistic. Then, during the model’s forward pass, we             model bit-for-bit, but because we hope to conclusively
+concatenate a vector of random Gaussian noise to the final            demonstrate that model stealing attacks are not just of aca-
+hidden vector gθ (p) before multiplying by W. Figure 7                demic concern but can be practically applied to the largest
+shows an example of this, where we expand GPT-2 small                 production models deployed today. We see a number of
+to appear as if it was 1024 dimensional instead of 768 di-            potential directions for improving on this attack.
+mensions. This misleads the adversary into thinking that the
+model is wider than it actually is.                                   Breaking symmetry with quantized weights. Large pro-
+                                                                      duction models are typically stored “quantized”, where each
+                                                                      weight is represented in just 4 or 8 bits. In principle, this
+                                                                      quantization could allow an adversary to recover a nearly
+
+                                                                  8
+                                         Stealing Part of a Production Language Model
+
+bit-for-bit copy of the matrix W: while there exist an infi-          production language model. While there appear to be no
+nite number of matrices W · G, only one will be discretized           immediate practical consequences of learning this layer, it
+properly. Unfortunately, this integer-constrained problem is          represents the first time that any precise information about
+NP-hard in general (similar problems are the foundation for           a deployed transformer model has been stolen. Two imme-
+an entire class of public key cryptosystems). But this need           diate open questions are (1) how hazardous these practical
+not imply that the problem is hard on all instances.                  stealing attacks are and (2) whether they pose a greater threat
+                                                                      to developers and the security of their models than black-
+Extending this attack beyond a single layer. Our attack
+                                                                      box access already does via distillation or other approximate
+recovers a single layer of a transformer. We see no obvious
+                                                                      stealing attacks.
+methodology to extend it beyond just a single layer, due
+to the non-linearity of the models. But we invite further             Our attack also highlights how small design decisions in-
+research in this area.                                                fluence the overall security of a system. Our attack works
+                                                                      because of the seemingly-innocuous logit-bias and logprobs
+Removing the logit bias assumption. All our attacks re-
+                                                                      parameters made available by the largest machine learning
+quire the ability to pass a logit bias. Model providers includ-
+                                                                      service providers, including OpenAI and Google—although
+ing Google and OpenAI provided this capability when we
+                                                                      both have now implemented mitigations to prevent this at-
+began the writing of this paper, but this could change. (In-
+                                                                      tack or make it more expensive. Practitioners should strive
+deed, it already has, as model providers begin implementing
+                                                                      to understand how system-level design decisions impact the
+defenses to prevent this attack.) Other API parameters could
+                                                                      safety and security of the full product.
+give alternative avenues for learning logit information. For
+example, unconstrained temperature and top-k parame-                  Overall, we hope our paper serves to further motivate the
+ters could also leak logit values through a series of queries.        study of practical attacks on machine learning models, in
+In the long run, completely hiding the logit information              order to ultimately develop safer and more reliable systems.
+might be challenging due both to public demand for the
+feature, and ability of adversaries to infer this information         Impact Statement
+through other means.
+                                                                      This paper is the most recent in a line of work that demon-
+Exploiting the stolen weights. Recovering a model’s em-
+                                                                      strates successful attacks on production models. As such,
+bedding projection layer might improve other attacks against
+                                                                      we take several steps to mitigate the near-term potential
+that model. Alternatively, an attacker could infer details
+                                                                      harms of this research. As discussed throughout the paper,
+about a provider’s finetuning API by observing changes (or
+                                                                      we have worked closely with all affected products to ensure
+the absence thereof) in the last layer. In this paper, we fo-
+                                                                      that mitigations are in place before disclosing this work.
+cus primarily on the model extraction problem and leave
+                                                                      We have additionally sent advance copies of this paper to
+exploring downstream attacks to future work.
+                                                                      all potentially affected parties, even if we were unable to
+Practical stealing of other model information. Existing               precisely verify our attack.
+high-fidelity model stealing attacks are “all-or-nothing” at-
+                                                                      Long-term, we believe that openly discussing vulnerabilities
+tacks that recover entire models, but only apply to small
+                                                                      that have practical impact is an important strategy for ensur-
+ReLU networks. We show that stealing partial information
+                                                                      ing safe machine learning. This vulnerability exists whether
+can be much more practical, even for state-of-the-art models.
+                                                                      or not we report on it. Especially for attacks that are simple
+Future work may find that practical attacks can steal many
+                                                                      to identify (as evidenced by the concurrent work of Fin-
+more bits of information about current proprietary models.
+                                                                      layson et al. (2024) that discovered this same vulnerability),
+                                                                      malicious actors are also likely to discover the same vulner-
+10. Conclusion                                                        ability whether or not we report on it. By documenting it
+                                                                      early, we can ensure future systems remain secure.
+As the field of machine learning matures, and models tran-
+sition from research artifacts to production tools used by
+millions, the field of adversarial machine learning must also         Acknowledgements
+adapt. While it is certainly useful to understand the potential
+                                                                      We are grateful to Andreas Terzis and the anonymous re-
+applicability of model stealing to three-layer 100-neuron
+                                                                      viewers for comments on early drafts of this paper. We are
+ReLU-only fully-connected networks, at some point it be-
+                                                                      grateful to Joshua Achiam for helping to write the code for
+comes important to understand to what extent attacks can
+                                                                      post-hoc modifying the model architecture. We are also
+be actually applied to the largest production models.
+                                                                      grateful to OpenAI for allowing us to attempt our extraction
+This paper takes one step in that direction. We give an               attack on their production models.
+existence proof that it is possible to steal one layer of a
+
+
+                                                                  9
+                                         Stealing Part of a Production Language Model
+
+References                                                             Finlayson, M., Swayamdipta, S., and Ren, X. Logits of
+                                                                         api-protected llms leak proprietary information. arXiv
+Anil, R. et al. PaLM 2 Technical Report, 2023.
+                                                                         preprint arXiv:2403.09539, 2024.
+Ba, J. L., Kiros, J. R., and Hinton, G. E. Layer normalization.        Gao, L. On the sizes of OpenAI API models. https:
+  arXiv preprint arXiv:1607.06450, 2016.                                //blog.eleuther.ai/gpt3-model-sizes/,
+                                                                         2021.
+Biderman, S. Common LLM settings, 2024. URL https:
+  //rb.gy/2afqlw. Accessed February 1, 2024.                           Google.      Changelog 1.38.0, 2024. URL
+                                                                         https://cloud.google.com/python/docs/
+Biderman, S., Schoelkopf, H., Anthony, Q. G., Bradley,                   reference/aiplatform/1.38.0/changelog.
+  H., O’Brien, K., Hallahan, E., Khan, M. A., Purohit, S.,              Accessed January 30, 2024.
+  Prashanth, U. S., Raff, E., et al. Pythia: A suite for ana-
+  lyzing large language models across training and scaling.            Gurnee, W., Horsley, T., Guo, Z. C., Kheirkhah, T. R., Sun,
+  In International Conference on Machine Learning, 2023.                 Q., Hathaway, W., Nanda, N., and Bertsimas, D. Univer-
+                                                                         sal neurons in gpt2 language models, 2024.
+Cancedda, N. Spectral filters, dark signals, and attention
+  sinks, 2024.                                                         Hayase, J., Borevkovic, E., Carlini, N., Tramèr, F., and Nasr,
+                                                                         M. Query-based adversarial prompt generation. arXiv
+Carlini, N., Jagielski, M., and Mironov, I. Cryptanalytic                preprint arXiv:2402.12329, 2024.
+  extraction of neural network models. In Annual Interna-
+  tional Cryptology Conference, 2020.                                  Jagielski, M., Carlini, N., Berthelot, D., Kurakin, A., and
+                                                                         Papernot, N. High accuracy and high fidelity extraction of
+Chen, S., Carlini, N., and Wagner, D. Stateful detection                 neural networks. In USENIX Security Symposium, 2020.
+  of black-box adversarial attacks. In Proceedings of the
+                                                                       Jiang, Z., Xu, F., Gao, L., Sun, Z., Liu, Q., Dwivedi-Yu,
+ 1st ACM Workshop on Security and Privacy on Artificial
+                                                                          J., Yang, Y., Callan, J., and Neubig, G. Active retrieval
+  Intelligence, 2020.
+                                                                          augmented generation. In EMNLP, 2023.
+Chiu, J.    openlogprobs, 2024. URL https://                           Juuti, M., Szyller, S., Marchal, S., and Asokan, N. PRADA:
+  github.com/justinchiu/openlogprobs. Ac-                                protecting against DNN model stealing attacks. In Eu-
+  cessed February 1, 2024.                                               roS&P, 2019.
+Debenedetti, E., Severi, G., Carlini, N., Choquette-Choo,              Lee, K.-H., Nachum, O., Yang, M. S., Lee, L., Free-
+  C. A., Jagielski, M., Nasr, M., Wallace, E., and Tramèr, F.            man, D., Guadarrama, S., Fischer, I., Xu, W., Jang, E.,
+  Privacy side channels in machine learning systems. arXiv               Michalewski, H., and Mordatch, I. Multi-game decision
+  preprint arXiv:2309.05610, 2023.                                       transformers. In Advances in Neural Information Pro-
+                                                                         cessing Systems, 2022.
+Dettmers, T., Lewis, M., Shleifer, S., and Zettlemoyer, L.
+  8-bit Optimizers via Block-wise Quantization. ICLR,                  Liu, A., Han, X., Wang, Y., Tsvetkov, Y., Choi, Y., and
+  2022.                                                                  Smith, N. A. Tuning language models by proxy. arXiv
+                                                                         preprint arXiv:2401.08565, 2024.
+Elhage, N., Nanda, N., Olsson, C., Henighan, T., Joseph,
+  N., Mann, B., Askell, A., Bai, Y., Chen, A., Conerly,                Milli, S., Schmidt, L., Dragan, A. D., and Hardt, M. Model
+  T., DasSarma, N., Drain, D., Ganguli, D., Hatfield-                   reconstruction from model explanations. In Proceedings
+  Dodds, Z., Hernandez, D., Jones, A., Kernion, J.,                     of the Conference on Fairness, Accountability, and Trans-
+  Lovitt, L., Ndousse, K., Amodei, D., Brown, T.,                       parency, 2019.
+  Clark, J., Kaplan, J., McCandlish, S., and Olah, C.
+                                                                       Mitchell, E., Rafailov, R., Sharma, A., Finn, C., and Man-
+  A mathematical framework for transformer circuits.
+                                                                        ning, C. D. An emulator for fine-tuning large language
+  2021. URL https://transformer-circuits.
+                                                                        models using small language models. In ICLR, 2024.
+  pub/2021/framework/index.html.
+                                                                       Morris, J. X., Zhao, W., Chiu, J. T., Shmatikov, V., and
+Feng, R., Hooda, A., Mangaokar, N., Fawaz, K., Jha, S.,                 Rush, A. M. Language model inversion. arXiv preprint
+  and Prakash, A. Stateful defenses for machine learning                arXiv:2311.13647, 2023.
+  models are not yet secure against black-box attacks. In
+  Proceedings of the 2023 ACM SIGSAC Conference on                     OpenAI. Using logit bias to define token probability,
+  Computer and Communications Security, pp. 786–800,                     2023. URL https://help.openai.com/en/
+  2023.                                                                  articles/5247780-using-logit-bias-to-
+
+                                                                  10
+                                         Stealing Part of a Production Language Model
+
+  define-token-probability. Accessed Febraury                            Azhar, F., et al. LLaMA: Open and efficient founda-
+  1, 2024.                                                               tion language models. arXiv preprint arXiv:2302.13971,
+                                                                         2023.
+OpenAI.   Create chat completion, 2024. URL
+  https://platform.openai.com/docs/api-                                Tramèr, F., Zhang, F., Juels, A., Reiter, M. K., and Risten-
+  reference/chat/create. Accessed January 30,                            part, T. Stealing machine learning models via prediction
+  2024.                                                                  APIs. In USENIX Security Symposium, 2016.
+
+OpenAI et al. GPT-4 Technical Report, 2023.                            Veit, A., Wilber, M. J., and Belongie, S. J. Residual net-
+                                                                         works behave like ensembles of relatively shallow net-
+Pal, S., Gupta, Y., Kanade, A., and Shevade, S. Stateful                 works. In Advances in Neural Information Processing
+  detection of model extraction attacks. arXiv preprint                  Systems, pp. 550–558, 2016.
+  arXiv:2107.05166, 2021.
+                                                                       Wei, J., Zhang, Y., Zhou, Z., Li, Z., and Al Faruque, M. A.
+Radford, A., Wu, J., Child, R., Luan, D., Amodei, D., and               Leaky DNN: Stealing deep-learning model secret with
+  Sutskever, I. Language Models are Unsupervised Mul-                   GPU context-switching side-channel. In IEEE/IFIP In-
+  titask Learners. Technical report, OpenAI, 2019. URL                  ternational Conference on Dependable Systems and Net-
+  https://rb.gy/tm8qh.                                                  works (DSN), 2020.
+Rae, J. W., Borgeaud, S., Cai, T., Millican, K., Hoffmann, J.,         Yang, K. and Klein, D. FUDGE: Controlled text generation
+  Song, F., Aslanides, J., Henderson, S., Ring, R., Young,               with future discriminators. In Toutanova, K., Rumshisky,
+  S., Rutherford, E., Hennigan, T., Menick, J., Cassirer,                A., Zettlemoyer, L., Hakkani-Tur, D., Beltagy, I., Bethard,
+  A., Powell, R., van den Driessche, G., Hendricks, L. A.,               S., Cotterell, R., Chakraborty, T., and Zhou, Y. (eds.),
+  Rauh, M., Huang, P.-S., Glaese, A., Welbl, J., Dathathri,              ACL, 2021.
+  S., Huang, S., Uesato, J., Mellor, J., Higgins, I., Creswell,
+  A., McAleese, N., Wu, A., Elsen, E., Jayakumar, S.,                  Zanella-Beguelin, S., Tople, S., Paverd, A., and Köpf, B.
+  Buchatskaya, E., Budden, D., Sutherland, E., Simonyan,                 Grey-box extraction of natural language models. In In-
+  K., Paganini, M., Sifre, L., Martens, L., Li, X. L., Kun-              ternational Conference on Machine Learning, pp. 12278–
+  coro, A., Nematzadeh, A., Gribovskaya, E., Donato, D.,                 12286. PMLR, 2021.
+  Lazaridou, A., Mensch, A., Lespiau, J.-B., Tsimpoukelli,
+                                                                       Zhang, B. and Sennrich, R. Root mean square layer normal-
+  M., Grigorev, N., Fritz, D., Sottiaux, T., Pajarskas, M.,
+                                                                         ization. NeurIPS, 2019.
+  Pohlen, T., Gong, Z., Toyama, D., de Masson d’Autume,
+  C., Li, Y., Terzi, T., Mikulik, V., Babuschkin, I., Clark,
+  A., de Las Casas, D., Guy, A., Jones, C., Bradbury, J.,
+  Johnson, M., Hechtman, B., Weidinger, L., Gabriel, I.,
+  Isaac, W., Lockhart, E., Osindero, S., Rimell, L., Dyer, C.,
+  Vinyals, O., Ayoub, K., Stanway, J., Bennett, L., Hassabis,
+  D., Kavukcuoglu, K., and Irving, G. Scaling language
+  models: Methods, analysis and insights from training
+  gopher, 2022.
+
+Ren, J., Zhao, Y., Vu, T., Liu, P. J., and Lakshminarayanan,
+  B. Self-evaluation improves selective generation in large
+  language models. arXiv preprint arXiv:2312.09300,
+  2023.
+
+Rolnick, D. and Kording, K. Reverse-engineering deep
+  relu networks. In International Conference on Machine
+  Learning, 2020.
+
+Shamir, A., Canales-Martinez, I., Hambitzer, A., Chavez-
+  Saab, J., Rodrigez-Henriquez, F., and Satpute, N. Poly-
+  nomial time cryptanalytic extraction of neural network
+  models. arXiv preprint arXiv:2310.08708, 2023.
+
+Touvron, H., Lavril, T., Izacard, G., Martinet, X., Lachaux,
+  M.-A., Lacroix, T., Rozière, B., Goyal, N., Hambro, E.,
+
+                                                                  11
+                                           Stealing Part of a Production Language Model
+
+A. What’s Going On With GPT-2 Small?
+Our attack nearly perfectly extracts the model size of all models—except for GPT-2 Small where our extracted size of 757 is
+off by 11 from the correct 768. Why is this?
+In Figure 3 we directly inspect this model’s final hidden activation vector across 10, 000 different model queries and perform
+SVD of the resulting activation matrix. We see that despite GPT-2 actually having 768 potential hidden neurons, there
+are only 757 different activation directions. Thus, while this model is technically a 768 dimensional model, in practice it
+behaves as if it was a 757 (i.e, the rank of the embedding matrix is 757) dimensional model, and our attack has recovered
+this effective size.
+However, when running the model in higher float64 precision, we find that indeed all dimensions are used, but that the
+smallest dozen or so singular values are much smaller than the other singular values, an observation made by concurrent
+work (Cancedda, 2024).
+
+            103                                                                      102
+                                                                                     100
+            102                                                                     10 2
+
+Magnitude                                                               Magnitude   10 4
+            101                                                                     10 6
+                                                                                    10 8
+            100                                                                     10 10
+                                                                                            600 650 700 750 800 850 900
+               600   650     700 750 800 850                900                              Sorted Singular Values (computed in float64)
+                           Sorted Singular Values
+                                                                     (b). Singular values of GPT-2 Small (higher float64 precision)
+(a). Singular values of GPT-2 Small (default bfloat16 precision)
+
+                                 Figure 3. Singular values of final hidden activations of GPT-2 Small.
+
+
+B. Accounting for Normalization Layers
+B.1. LayerNorm Does Not Affect Our Rank h Assumption
+Almost all LLMs that have publicly available architecture details use LayerNorm (Ba et al., 2016) or RMSNorm (Zhang &
+Sennrich, 2019) just before applying the output projection W (Biderman, 2024). LayerNorm begins with a centering step,
+which projects its input onto a (h − 1)-dimensional subspace (and RMSNorm does not). In theory, this could break our
+assumption that the rank of the matrix with columns gθ (pi ) (i = 1, ..., n) has rank h (Lemma 4.1). In practice, all LLMs we
+surveyed (Biderman, 2024) enabled the LayerNorm bias, which means the matrices had full rank h (besides GPT-2 Small:
+see Appendix A).
+
+B.2. Stealing Architectural Details About Normalization Layers
+B.2.1. T HEORY
+The difference between LayerNorm and RMSNorm (Appendix B.1) could enable attackers to deduce whether models used
+LayerNorm or RMSNorm. If an attacker recovered an initial logit-vector API query response O (p0 ), then they could
+apply Lemma 4.1 to O (p1 ) − O (p0 ) , . . . , O (pn ) − O (p0 ).1 From the description of the API at the top of Section 4.1, it
+follows that O (pi ) − O (p0 ) = W(gθ (pi ) − gθ (p0 )). This subtraction of g terms occurs immediately after LayerNorm,
+   1
+     Throughout this appendix section, we assume the sum of logit outputs is always 0. We can calculate centered logits from logprobs by
+subtracting the mean logits across the vocab dimension.
+
+                                                                   12
+                                                                                               Stealing Part of a Production Language Model
+
+so cancels the LayerNorm bias term. Hence, if we apply the Lemma 4.1 attack with this subtraction modification to a model
+using LayerNorm, then the resultant ‘h’ output will be smaller by 1 (due to Appendix B.1). This would imply the model
+used LayerNorm rather than RMSNorm, because RMSNorm does not project onto a smaller subspace and so would not
+have a decrease in ‘h’ value if we were to use this subtraction trick.
+
+B.2.2. R ESULTS
+To confirm that the method from Appendix B.2.1 works, we test whether we can detect whether the GPT-2, Pythia and
+LLAMA architectures use LayerNorm or RMSNorm from their logit outputs alone. We found that the technique required
+two adjustments before it worked on models with lower than 32-bit precision (it always worked with 32-bit P   precision). i)
+We do not subtract O (p0 ) from logits queries, but instead subtract the mean logits over all queries, i.e. n1 ni=1 O (pi ).
+Since the average of several points in a common affine subspace still lie on that affine subspace, this doesn’t change the
+conclusions from Appendix B.2.1. ii) We additionally found it helped to calculate this mean in lower precision, before
+casting to 64-bit precision to calculate the compact SVD.
+The results are in Figure 4. We plot the singular value magnitudes (as in Figure 1) and show that there is a drop in the hth
+singular value for the architectures using LayerNorm, but not for architecture using RMSNorm:
+
+                                        LLAMA-7B (bfloat16)                                                                                                                                                              Pythia-12B (float16)
+                                                                       Normal attack
+                                                                                                                                       GPT-2 XL (float32)
+              1.8                                                      Subtracted bias                                                                   Normal attack                   1.00                                                                 Normal attack
+                                                                       h                                         2                                       Subtracted bias                                                                                      Subtracted bias
+              1.6                                                                                                                                        h                               0.75                                                                 h
+              1.4                                                                                                1                                                                       0.50
+
+log10|| i||
+              1.2                                                                                                                                                                        0.25
+                                                                                                   log10|| i||                                                             log10|| i||
+                                                                                                                 0
+              1.0                                                                                                                                                                        0.00
+              0.8                                                                                                1                                                                       0.25
+              0.6                                                                                                                                                                        0.50
+                                                                                                                 2
+              0.4                                                                                                                                                                        0.75
+                             0       5        0        5  0   5   0    5
+                          408     408      409     409 410 410 411 411                                                                                                                             0          5          0          5          0          5          0          5          0
+                                                      i                                                              1580   1585   1590   1595      0   5   0   5
+                                                                                                                                                 160 160 161 161 162
+                                                                                                                                                                     0                          510     510        511        511        512        512        513        513        514
+                  (a) LLAMA-7B (RMSNorm).                                                                                                         i                                                                                       i
+                                                                                                                 (b) GPT-2 XL (LayerNorm).                                                  (c) Pythia-12B (LayerNorm).
+
+                                             Figure 4. Detecting whether models use LayerNorm or RMSNorm by singular value magnitudes.
+
+Is this attack practical for real models? We perform the same attack on the logprobs we obtained for ada and babbage.2
+We see in Figure 5a-b that indeed the drop in the hth singular values occurs for these two models that use LayerNorm
+(GPT-3’s architecture was almost entirely inherited from GPT-2):
+
+                                                      ada                                                                                                                                                               gopher-7b (bfloat16)
+                                                                       Normal attack
+                                                                                                                                              babbage
+              0.8                                                                                                                                                                                                                                             Normal attack
+                                                                       Subtracted bias                                                                   Normal attack
+                                                                       h                                     1.5                                         Subtracted bias                 0.75                                                                 Subtracted bias
+              0.6                                                                                                                                        h                                                                                                    h
+                                                                                                             1.4
+              0.4                                                                                                                                                                        0.70
+                                                                                                             1.3
+                                                                                                             1.2
+              0.2                                                                                                                                                                        0.65
+                                                                                                             1.1
+              0.0                                                                                            1.0                                                                         0.60
+              0.2                                                                                            0.9
+                       5         0       5        0          5         0         5         0                 0.8                                                                         0.55
+                    100     101      101     102       102       103       103       104                                    0   5   0   5   0   5   0    5                                                0          5          0          5          0          5          0          5
+                                                                                                                         203 203 204 204 205 205 206 206                                               408        408        409        409        410        410        411        411
+                     (a) ada uses LayerNorm.                                                                                                                                              (c) Gopher-7B uses RMSNorm.
+                                                                                                                 (b) babbage uses LayerNorm.
+
+Figure 5. Stress-testing the LayerNorm extraction attack on models behind an API (a-b), and models using both RMSNorm and biases (c).
+
+As a final stress test, we found that all open language models that use RMSNorm do not use any bias terms (Biderman,
+2024). Therefore, we checked that our attack would not give a false positive when applied to a model with RMSNorm but
+with biases. We chose Gopher-7B (Rae et al., 2022), a model with public architectural details but no public weight access,
+              2
+                  Unfortunately, we deleted the logprobs for GPT-3.5 models before we created this attack due to security constraints.
+
+                                                                                                                                          13
+                                        Stealing Part of a Production Language Model
+
+that uses RMSNorm but also biases (e.g. on the output logits). In Figure 5c we show that indeed the hth singular value does
+not decrease for this model that uses RMSNorm.
+
+C. Proof of Lemma 4.2
+Restating the lemma from Section 4.2:
+
+Lemma 4.2 In the logit-API threat model, under the assumptions of Lemma 4.1: (i) The method from Section 4.2 recovers
+W̃ = W · G for some G ∈ Rh×h ; (ii) With the additional assumption that gθ (p) is a transformer with residual connections,
+it is impossible to extract W exactly.
+We first give a short proof of (i):
+
+Proof. (i) To show we can recover W̃ = W · G, recall Lemma 4.1: we have access to Q⊤ = W · H for some H ∈ Rh×n .
+Using the compact SVD of Q from the method in Section 4.2, W · H · V = U · Σ. We know G := H · V ∈ Rh×h , hence
+if we take W̃ = U · Σ, we have W̃ = W · G.
+
+Proving Lemma 4.2(ii) requires several steps due to the complexity of the transformer architecture: we progressively
+strengthen the proof to apply to models with no residual connections (C.1), models with residual connections (C.2), models
+with RMSNorm (C.4), LayerNorm (C.5) and normalization with an ε term (C.6).
+
+C.1. Proof of Lemma 4.2(ii) in Models With Fully-connected Layers
+Proof of Lemma 4.2(ii). As a gentle warmup, we prove (ii) under the additional assumption that the model does not use
+normalization layers (LayerNorm or RMSNorm) in its architecture. To prove (ii) we show it is possible to find a two distinct
+sets of model parameters θ, θ′ with different embedding projection matrices that result in identical API outputs.
+We begin with a simpler case where gθ does not have residual connections but a fully connected (FC) final layer. In this
+case, for any invertible h × h matrix S, we have that gθ (p) = Sgθ′ (p) where θ′ is the same as θ except that the weights of
+the final FC layer are pre-multiplied by S−1 . Hence, if gθ has a final FC layer, it is impossible to distinguish between the
+embedding projection layer W acting on gθ and the embedding projection layer W · S acting on gθ′ , given access to the
+output of the API O only.
+
+C.2. Proof of Lemma 4.2(ii) With Residual Layers
+                                                                                                     P
+More generally, if gθ is composed of residual layers but no normalization layers then gθ (p) = i Li (p), where Li (p) is
+the output of the ith residual layer in the model, ignoring the skip connection (Elhage et al., 2021; Veit et al., 2016). Assume
+also that each Li has a final layer that is a fully connected linear layer and a linear input layer (this assumption is true for
+                                                                                                        ′
+both attention and MLP modules in transformers without normalization layers). Constructing
+                                    −1
+                                                                                                    Pθ such that each Li has
+input weights pre-multiplied by S and output FC weights multiplied by S, we have gθ′ (p) = i SLi (p) = S · gθ (p) by
+linearity. Finally, by using a new embedding projection matrix (S−1 )⊤ · W⊤ and calculating
+                                          ((S−1 )⊤ · W⊤ )⊤ · gθ′ (p) = W · gθ (p),                                           (2)
+we have shown that logit outputs are identical and so again we cannot distinguish these transformers by querying O and O′
+alone.
+
+C.3. Normalization Layers and Orthogonal Matrices
+In Sections C.3-C.6 we can no longer use general invertible matrices S in our arguments, and must instead use orthogonal
+matrices, matrices U such that U⊤ U = I. In models with LayerNorm, we specialise further, too (Appendix C.5).
+Lemma C.1. The RMSNorm operation is equal to x 7→ Wn(x) + b where W is a diagonal matrix.
+
+Proof. RMSNorm is conventionally written as
+                                                          w·x
+                                                    x 7→ q P              +b                                                 (3)
+                                                          1           2
+                                                             h     i xi
+
+
+                                                              14
+                                       Stealing Part of a Production Language Model
+
+where w is multiplied elementwise by normalized x. Clearly this can be written as a diagonal matrix. Further, we can
+                                                                                                                  multiply
+                        √                                                                                           P q 2
+this diagonal matrix by h to cancel that factor in the denominator of Equation (3). Since n(x) = x/||x|| = x         i  xi
+we get the result.
+
+Intuitively, the proof in Appendix C.2 relied on pre-multiplying the input projection weight of layers by a matrix S−1 ,
+so that this cancelled the rotation S applied to the model’s hidden state (called the ‘residual stream’ in mechanistic
+               literature (Elhage et al., 2021)). Formally, if we let the input projection layer be M, we were using the fact
+interpretability
+that MS−1 (Sx) = Mx. However, since models with normalization layers use these before the linear input projection,
+the result of applying S to the hidden state, if we apply the same procedure, produces the activation
+
+
+                                                  (MS−1 )(Wn(Sx) + b)                                                      (4)
+but since in general n and S do not commute, we cannot conclude that the S transformations preserve the transformer’s
+outputs. We will show that if we take S = U an orthogonal matrix, then we still get a general impossibility result.
+To do this, we will need a simple result from linear algebra:
+
+Lemma C.2. Let x ∈ Rh . Then the normalization map n(x) := ||x||
+                                                             x
+                                                                 commutes with orthogonal matrices U.
+
+                                         Ux
+Proof of Lemma C.2. We need to show that ||x||     Ux
+                                               = ||Ux|| . This is true since x⊤ U⊤ Ux = xT x, so ||Ux|| = ||x||.
+
+C.4. Proof of Lemma 4.2(ii) in Models With RMSNorm
+In Lemma C.2, we showed that orthogonal matrices U commute with normalization. Hence if we multiply all layer output
+weights by U, but pre-multiply all layer input projection weights by WU⊤ W−1 , then the effect of the linear projection
+layer is
+
+
+               (MWU⊤ W−1 )(Wn(Ux) + b) = (MWU⊤ W−1 )(WUn(x) + b) = M(Wn(x) + b)                                            (5)
+
+which is identical to the original model. Applying this procedure to all layers added to the hidden state (using the different
+W diagonal matrices each time) gives us a model gθ′ (p) such that gθ′ (p) = Ugθ′ (p) so a different embedding projection
+matrix WU⊤ will give identical outputs to the original model gθ (p) (with embedding projection W).
+Note that we ignore what happens to b in the above arguments, since any sequence of affine maps applied to a constant
+b ∈ Rh yields a constant b′ ∈ Rh , and we can just use b′ instead of b in gθ′ .
+
+C.5. Proof of Lemma 4.2(ii) in Models With LayerNorm
+The LayerNorm operation is the composition of a centering operation x 7→ x − x̄ with RMSNorm (i.e. first centering is
+applied, then RMSNorm). Therefore the identical argument to Appendix C.4 goes through, besides the fact that we need U
+to also commute with the centering operation. Since the centering operation fixes a (h − 1) dimensional subspace defined
+by 1T x = 0 where 1 ∈ Rh is the vector of ones, it is enough to impose an additional condition that U 1 ∈ {−1, 1}.
+
+C.6. Proof of Lemma 4.2(ii) in Models With Normalization ε ̸= 0
+We now extend to realistic models where the ε in the denominator of LayerNorm is not 0. We can do this because the
+only fact we used about x 7→ n(x) was that x 7→ n(Ux) was identical    qto x 7→ Un(x). In turn Lemma C.2 relied on
+||Ux|| = ||x|| due to orthogonality. But adjusting n(x) to n′ (x) := x    1      2
+                                                                          h ||x|| + ε (i.e. normalization with an epsilon),
+
+since ||x|| = ||Ux||, n′ commutes with U, and so the proofs in Appendix C.4 and Appendix C.5 still work when using n′
+instead of n.
+Therefore finally, we have proven the impossibility result Lemma 4.2(ii) in all common model architectures (all non-residual
+networks that end with dense layers, and all transformers from Biderman (2024)).
+
+                                                                15
+                                        Stealing Part of a Production Language Model
+
+D. Derivation of Binarized Logprob Extraction (Section 5.4)
+To begin, observe that we can write
+                                                         X
+                                 ytop = logittop − log       exp(logiti )
+                                                         i
+                                                                            X
+                                  ′
+                                                                                                   
+                                 ytop = logittop − log exp(logitt − 1) +            exp(logiti )
+                                                                             i̸=t
+
+          P
+Let N =     i exp (logiti ) and p = exp (logitt ) /N. Then, we can rewrite
+
+                                         ytop = logittop − log N
+                                         ytop = logittop − log(N + (1/e − 1)pN)
+Subtracting the two, we get
+                                                    ′
+                                            ytop − ytop = log (1 + (1/e − 1)p)
+                                                                         ′ )−1
+                                                             exp(ytop − ytop
+                                                =⇒ p =                         .
+                                                                  1/e − 1
+
+Related work. Concurrent work (Morris et al., 2023) discusses a similar but weaker two-query logprob extraction. Their
+attack requires a logit bias larger than logittop − logiti and top-2 logprob access; our attack works as soon the logit bias is
+allowed to be nonzero, and with top-1 logprob access.
+
+E. Efficient Recovery of Logits From Top k Logprobs APIs
+In Section 5.3 of the main body, we presented a simple and practical method for extracting the entire logits vector via
+multiple queries to an API that only provides the top few logprobs and accepts a logit bias with each query. In this section
+we present more efficient methods.
+The method we presented earlier uses a reference token. We set this to some arbitrary value (e.g., 0) and then compare the
+logits for all other tokens to this one. This approach is numerically stable, but is slightly wasteful: of the top K logprobs
+returned by the API, one is always the reference token. Hence, we only recover K − 1 logits per query with this method.
+In this appendix, we present linear algebraic methods that are able to recover K logits per query to the top-K logprobs API.
+Setting: Recall that there is an unknown vector z = W · gθ (p) ∈ Rℓ (i.e., the logits for a given prompt p) that we want
+to recover. We can make multiple queries to the API with the same prompt O (p, b). Each query is specified by a vector
+b ∈ Rℓ (a.k.a. the logit bias). We receive answers of the form (i, ai (z, b)) ∈ N × R, where i is a token index and ai (z, b)
+is a logprob:                                                                                    
+                                                                                  ℓ
+                                                            !
+                                            exp(zi + bi )                        X
+                        ai (z, b) = log Pℓ                    = zi + bi − log      exp(zj + bj ) .                     (6)
+                                            j exp(zj + bj )                       j
+
+Each query may receive multiple answers (namely, the K largest ai (z, b) values). For notational simplicity, we denote
+multiple answers to one query the same way as multiple queries each returning one answer. Suppose queries b1 , · · · , bm
+were asked and we received m answers (i1 , ai1 (z, b1 )) ← O (p, b1 ), · · · , (im , aim (z, bm )) ← O (p, bm ).
+Our goal is to compute z from the answers ai (z, b).
+
+E.1. Warmup: Single Logprob API (K = 1)
+As a starting point, suppose the API only returns the single largest logprob (i.e., K = 1). The approach from Section 5.3
+cannot work in this setting because we cannot obtain the logprob of both the reference token and another token at the same
+time, meaning we can recover less than 1 logit per query.
+The high-level idea to overcome this problem is that, instead of normalizing logits relative toPa reference token, we shall
+normalize the logits to be logprobs. That is, we recover the logits with the normalization j exp(zj ) = 1. With this
+normalization it is no longer necessary to include a reference token in every query.
+
+                                                               16
+                                         Stealing Part of a Production Language Model
+
+Fix a token index i and let bi = B and bj = 0 for all j ̸= i. We query the API with this logit bias and assume that B is
+large enough that token i is returned:
+                                                      (i, ai (z, b)) ← O (p, b).
+
+From Equation 6,
+                                                                                                            
+                                                                                         ℓ
+                                                                                         X
+                                                      ai (z, b) = zi + bi − log             exp(zj + bj )
+                                                                                         j
+                                                                                                                       
+                                                                                                         X
+                                                                = zi + B − log exp(zi + B ) +                   exp(zj )
+                                                                                                          j̸=i
+                                                                                                                                   
+                                                                                                                      ℓ
+                                                                                                                      X
+                                                                = zi + B − log exp(zi + B ) − exp(zi ) +                    exp(zj ) ,
+                                                                                                                        j
+                                                                                                                           
+                                                                                                             ℓ
+                                                                                                             X
+                                   =⇒ zi + B − ai (z, b) = log exp(zi + B ) − exp(zi ) +                        exp(zj ) ,
+                                                                                                             j
+                                                                                                   ℓ
+                                                                                                   X
+                             =⇒ exp(zi + B − ai (z, b)) = exp(zi + B ) − exp(zi ) +                      exp(zj ),
+                                                                                                     j
+                                                                   ℓ
+                                                                   X
+=⇒ exp(zi + B − ai (z, b)) − exp(zi + B ) + exp(zi ) =                   exp(zj ),
+                                                                     j
+                                                                   ℓ
+                                                                   X
+      =⇒ exp(zi ) · (exp(B − ai (z, b)) − exp(B ) + 1) =                 exp(zj ),
+                                                                     j
+                                                                                 Pℓ
+                                                                                     j exp(zj )
+                                               =⇒ exp(zi ) =                                   ,
+                                                              exp(B − ai (z, b)) − exp(B ) + 1
+                                                                              
+                                                                    ℓ
+                                                                    X
+                                                      =⇒ zi = log    exp(zj ) − log (exp(B − ai (z, b)) − exp(B ) + 1) .
+                                                                             j
+
+                       Pℓ
+Thus if we normalize     j exp(zj ) = 1, we have
+
+
+                                       zi = − log (exp(B − ai (z, b)) − exp(B ) + 1) .                                                     (7)
+
+
+E.2. Recovering K Logits From K Logprobs
+The approach from the previous subsection extends to the setting where each API query returns the top K logprobs. In
+practice we work with K = 5. P We are able to recover K logits. Again, instead of using a reference token to normalize
+the logits, we will normalize j exp(zj ) = 1. However, in this setting we will need to solve a K-by-K system of linear
+equations.
+Fix K token indices i1 , · · · , iK and let bik = B for k ∈ {1, · · · , K} and bj = 0 for all j ∈  / {i1 , · · · , iK }. We query
+the API with this logit bias and assume that B is large enough that the logprobs for i1 , · · · , iK are returned as the top K
+logprobs:
+                               (i1 , ai1 (z, b)), (i2 , ai2 (z, b)), · · · , (iK , aiK (z, b)) ← O (p, b).
+
+Let z ∈ Rℓ be the (unknown) logits and let N =
+                                                       P
+                                                          i exp(zi ) be the normalizing constant. For each k ∈ {1, · · · , K}, we
+
+                                                                  17
+                                          Stealing Part of a Production Language Model
+
+have
+                                                                                                                                          
+                                                                              X                                      X
+                                  aik (z, b) = zik + B − log                               exp(zi + B ) +                         exp(zi )
+                                                                         i∈{i1 ,··· ,iK }                        ∈{i1 ,··· ,iK }
+                                                                                                                i/
+                                                                                                                                      
+                                                                                             X                         ℓ
+                                                                                                                       X
+                                               = zik + B − log (eB − 1)                                  exp(zi ) +        exp(zi )
+                                                                                       i∈{i1 ,··· ,iK }                 i
+                                                                                                                           
+                                                                                             X
+                                               = zik + B − log (eB − 1)                                  exp(zi ) + N ,
+                                                                                       i∈{i1 ,··· ,iK }
+                                                                                                           
+                                                                            X
+                 =⇒ zik + B − aik (z, b) = log (eB − 1)                                 exp(zi ) + N ,
+                                                                      i∈{i1 ,··· ,iK }
+                                                                   X
+                                                      B
+           =⇒ exp(zik + B − aik (z, b)) = (e − 1)                                exp(zi ) + N,
+                                                              i∈{i1 ,··· ,iK }
+
+
+
+
+And therefore we can conclude
+                                                                                         X
+                            exp(B − aik (z, b)) · exp(zk ) − (eB − 1)                                 exp(zi ) = N.
+                                                                                   i∈{i1 ,··· ,iK }
+
+
+This linear system of equations can be expressed in matrix form:
+                                                                    
+                                                    exp(zi1 )       N
+                                                   exp(zi2 )   N 
+                                                A·            =  ..  ,
+                                                                    
+                                                       ..
+                                                       .          . 
+                                                          exp(ziK )                  N
+
+
+
+where A is a K × K matrix with entries
+                                               (
+                                                   exp(B − aik (z, b)) − (eB − 1)               if j = k
+                                      Ak,j =
+                                                   − ( eB − 1 )                                 if j ̸= k.
+
+Note that A is a rank-one perturbation of a diagonal matrix, that is, if 1 is the all-ones vector, then
+
+                                  A = diag1≤k≤K (exp(B − aik (z, b))) − (eB − 1)11T ,
+
+where diag1≤k≤K (exp(B − aik (z, b))) denotes a diagonal matrix with the k-th diagonal entry being exp(B − aik (z, b)).
+Inverting a diagonal matrix is easy and thus we can use the Sherman-Morrison formula to compute the inverse of A:
+
+                 A−1 = diag1≤k≤K (exp(aik (z, b) − B )))
+                                      diag1≤k≤K (exp(aik (z, b) − B )))11T diag1≤k≤5 (exp(aik (b) − B )))
+                       + ( eB − 1 )
+                                               1 − (eB − 1)1T diag1≤k≤5 (exp(aik (b) − B )))1
+                                                           vv T
+                       = diag(v ) + (eB − 1)                            ,
+                                                    1 − ( eB − 1 ) 1T v
+
+                                                                    18
+                                          Stealing Part of a Production Language Model
+
+where v ∈ RK is the vector with entries vk = exp(aik (z, b) − B ). Hence
+                                        
+                  exp(zi1 )             N
+                 exp(zi2 )           N 
+                             = A−1 ·  .. 
+                                        
+                    ..
+                     .               . 
+                    exp(ziK )               N
+                                                                vv T
+                                                                                
+                                  = diag(v ) + (eB − 1)                              ·1·N
+                                                         1 − ( e − 1 ) 1T v
+                                                                B
+
+                                          (eB − 1)vv T 1
+                                                           
+                               = v+                           ·N
+                                        1 − (eB − 1)1T v
+                                           (eB − 1)1T v
+                                                           
+                               = 1+                           ·N·v
+                                        1 − (eB − 1)1T v
+                                            N
+                               =                       · v,
+                                 1 − ( e B − 1 ) j vj
+                                                P
+
+                        =⇒ zik = log A−1 1N k
+                                               
+                                                              !
+                                                Nvk
+                               = log
+                                       1 − ( eB − 1 ) K
+                                                     P
+                                                         j vj
+                                                                                      !
+                                                    N exp(aik (z, b) − B )
+                                  = log
+                                            1 − (e − 1) K
+                                                  B
+                                                         P
+                                                           j exp(aij (z, b) − B )
+                                                                                                                       
+                                                                                      K
+                                                                                      X
+                                  = log N + aik (z, b) − B − log 1 − (eB − 1)                    exp(aij (z, b) − B )
+                                                                                          j
+                                                                                                                
+                                                                                          K
+                                                                                          X
+                                  = log N + aik (z, b) − B − log 1 − (1 − e−B )                   exp(aij (z, b)) .
+                                                                                              j
+
+
+If we normalize N = 1, this gives us a formula for computing the logits:
+                                                                                                      
+                                                                            K
+                                                                            X
+                             zik = aik (z, b) − B − log 1 − (1 − e−B )          exp(aij (z, b)) .                           (8)
+                                                                             j
+
+
+Note that setting K = 1 yields the same result as in Equation 7.
+Recovery using Equation 8 is more efficient than the method in Section 5.3, as we recover K logits zi1 , zi2 , · · · , ziK rather
+than just K − 1 logits. However, if B is large, numerical stability may be an issue. (And, if B is small, the logit bias may
+                  force the API to output the desired tokens by placing them in the top K.) Specifically, as B → ∞, we
+be insufficient toP
+have (1 − e−B ) K   j exp(aij (z, b)) → 1 and so the logarithm in Equation 8 tends to log (1 − 1) = −∞; this means we
+may have catastrophic cancellation.
+
+Related work. Two works published during the responsible disclosure period use a similar procedure, and deal with
+numerical issues in different ways. (Chiu, 2024) start with a low B for the whole vocabulary, then increase B and ask for
+all tokens that haven’t appeared before, and repeat until all tokens are covered. (Hayase et al., 2024) use the method in
+Appendix E.1, and set B = −ẑi , where ẑi is an estimate of zi inherent to their application. It is possible variants of this
+method have been discussed before our or these works, but we are not aware of further references.
+
+E.3. General Method
+In general, we may not have have full control over which logprobs the API returns or which logit bias is provided to the API.
+Thus we generalize the linear algebraic approach above to reconstruct the logits from arbitrary logit biases and tokens.
+
+                                                               19
+                                          Stealing Part of a Production Language Model
+
+Suppose queries b1 , · · · , bm were asked and we received m answers (i1 , ai1 (z, b1 )) ← O (p, b1 ), . . . , (im , aim (z, bm )) ←
+O (p, bm ). (If a query returns multiple answers, we can treat this the same as multiple queries each returning one answer.)
+As before, rearranging Equation 6 gives the following equations.
+
+                                                   exp(zik + bkik )
+                    ∀k ∈ [m] exp(aik (z, bkik )) = Pℓ               .
+                                                                  k
+                                                    j exp(zj + bj )
+                                 ℓ
+                                 X
+                    ∀k ∈ [m]           exp(zj + bkj ) = exp(zik + bkik − aik (z, bk )).
+                                  j
+                                 ℓ
+                                 X
+                    ∀k ∈ [m]           exp(zj ) · exp(bkj ) = exp(zik ) · exp(bkik − aik (z, bk )).
+                                  j
+                                 ℓ 
+                                 X                                                       
+                    ∀k ∈ [m]            exp(bkj ) − I[j = ik ] · exp(bkik − aik (z, bk )) · exp(zj ) = 0.
+                                  j
+                                  
+                        exp(z1 )       0
+                       exp(z2 )   0 
+                    A·           =  ..  ,
+                                  
+                           ..
+                           .      . 
+                            exp(zℓ )             0
+                                                                                                 
+                    where ∀k ∈ [m] ∀j ∈ [ℓ] Ak,j = exp(bkj ) · 1 − I[j = ik ] · exp(−aik (z, bk )) .
+
+Here I[j = ik ] is 1 if j = ik and 0 otherwise. If A is invertible, then this linear system can be solved to recover the logits z.
+Unfortunately, A is not invertible: Indeed, we know that the solution cannot be unique because shifting all the logits by the
+same amount yields the exact same answers ai (z, b) = ai (z + 1, b). That is, we expect a one-dimensional space of valid
+solutions to A · exp(z ) = 0. To deal with this we simply add the constraint that z1 = 0 or, equivalently, exp(z1 ) = 1. This
+corresponds to the system                                                         
+                                                                       exp(z1 )            1
+                                                                exp(z )   0 
+                                 b · exp(z ) =     1 0 ··· 0                  2
+                                 A                               ·               =  ..  .
+                                                                                  
+                                                       A                   ..
+                                                                           .      . 
+                                                                         exp(zℓ )            0
+
+(We could also normalize ℓi exp(zi ) = 1. This corresponds to the first row of A
+                           P                                                   b being all 1s instead of one 1.) This is
+solvable as long as the augmented matrix has a nonzero determinant
+                                                               
+                                         b = det 1 0 · · · 0
+                                        
+                                   det A                           = det(A1:m,2:ℓ ).                                 (9)
+                                                          A
+
+Here A1:m,2:d denotes A with the first column removed. Note that we are setting m = ℓ − 1. This is the minimum number
+of query-answer pairs that we need. If we have more (i.e., m ≥ ℓ), then the system is overdetermined. Having the system be
+overdetermined is a good thing; the extra answers can help us recover the logprobs with more precision. The least squares
+solution to the overdetermined system is given by
+                                                                       
+                                                    exp(z1 )                1
+                                                 exp(z2 )              0 
+                                          AbT A
+                                              b·
+                                                        ..   =A
+                                                                    bT 
+                                                                         ..  .
+                                                                              
+                                                                                                                      (10)
+                                                         .             . 
+                                                    exp(zℓ )                0
+
+This provides a general method for recovering the (normalized) logits from the logprobs API.
+
+Related work. (Zanella-Beguelin et al., 2021) have an almost identical method, although they operate in the setting of a
+publicly known encoder and reconstructing the last layer.
+
+
+                                                                 20
+                                        Stealing Part of a Production Language Model
+
+F. Extraction From Logprob-free APIs
+A more conservative API provider may remove access to the combination of logit bias and logprobs entirely. Indeed, after
+disclosing our attack to OpenAI, they removed the ability for logit bias to impact the top logprobs—thus preventing the
+attacks from the prior sections. To exploit situations such at this, we further develop several logprob-free attacks that recover
+the complete logit vector by performing binary search on the logit bias vector, albeit at increased cost. 3
+
+API: Some APIs provide access to a logit bias term, but do not provide any information about the logprobs. Thus, we
+have,
+                              O (p, b) = ArgMax (logsoftmax (W · gθ (p) + b)) .
+where ArgMax (z) returns the index of the highest coordinate in the vector z ∈ Rl . In this section, we will use the notation
+b = {i : z} to denote that the bias is set to z for token i and 0 for every other token. We also use b = {} to denote that no
+logit bias is used. Finally, we assume that the bias is restricted to fall within the range [−B, B ].
+
+What can be extracted? The attacks developed in this Section reconstruct the logit vector up to an additive (∞-norm)
+error of ε.
+
+F.1. Warm-up: Basic Logprob-free Attack
+Method. We make one simple insight for our logprob-free attacks: sampling with temperature 0 produces the token with
+the largest logit value. By adjusting the logit bias for each token accordingly, we can therefore recover every token’s logit
+value through binary search. Formally, let p be the prompt, and relabel tokens so that the token with index 0 is the most
+likely token in the response to p, given by O (p, b = {}). For each token i ̸= 0, we run a binary search over the logit bias
+term to find the minimal value xi ≥ 0 such that the model emits token i with probability 1. This recovers all logits (like all
+prior attacks, we lose one free variable due to the softmax).
+
+Algorithm 2 Learning logit differences
+  αi ← −B, βi ← 0
+  while βi− αi > ε do          
+     if O p, b = {i : − αi + βi
+                           2 } = 0 then
+         βi ← αi +2
+                    βi
+
+     else
+         αi ← αi +2
+                    βi
+
+     end if
+     Return αi +
+               2
+                 βi
+
+  end while
+
+
+Analysis. This attack, while inefficient, correctly extracts the logit vector.
+Lemma F.1. For every token i such that logiti − logit0 ≥ −B, Algorithm 2 outputs a value that is at most ε away from the
+logiti − logit0 in at most log Bε API queries.
+
+Proof. The API returns the (re-ordered) token 0 as long as the logit bias added is smaller than logiti − logit0 . By the
+assumption, we know that logiti − logit0 ∈ [−B, 0]. The algorithm ensures that βi ≥ logiti − logit0 ≥ αi at each iteration,
+as can be seen easily by an inductive argument. Further, βi − αi decreases by a factor of 2 in each iteration, and hence at
+                                                   i − logit0 is sandwiched in an interval of length ε. Furthermore, it is clear
+termination, we can see that the true value of logit
+that the number of iterations is at most log2 Bε and hence so is the query cost of this algorithm.
+
+Limitations of the approach. If logiti − logit0 < −2B it is easy to see there is no efficient way to sample the token i,
+hence no way to find information about logiti without logprob access. There is a way to slightly increase the range for
+  3
+    We release supplementary code that deals with testing these attacks without direct API queries at https://github.com/
+dpaleka/stealing-part-lm-supplementary.
+
+                                                               21
+                                               Stealing Part of a Production Language Model
+
+−2B ≤ logiti − logit0 ≤ −B by adding negative logit biases to the tokens with the largest logit values, but we skip the
+details since for most models, for the prompts we use, the every token satisfies logiti − logit0 > −B.
+
+Related work.         Concurrent work (Morris et al., 2023) has discussed this method of extracting logits.
+
+F.2. Improved Logprob-free Attack: Hyperrectangle Relaxation Center
+We can improve the previous attack by modifying the logit bias of multiple tokens at once.
+
+API: We use the same API as in the previous section, with the additional constraint that the O accepts at most N + 1
+tokens in the logit bias dictionary. We again first run a query O (p, b = {}) to identify the most likely token and set its index
+to 0. Our goal is to approximate logiti − logit0 for N different tokens. If N < l − 1, we simply repeat the same algorithm
+for different batches of N tokens l−1N times.
+
+
+
+Algorithm 3 Learning logit differences with multi-token calls
+  αi ← −B, βi ← 0 ∀i = 1, . . . , N
+  C = {logit : logiti − logit0 ≤ B ∀i = 1, . . . , N }
+  for T rounds do
+      bi ← − α i +
+                 2
+                   βi
+                        for i = 0, . . . , N
+      k ← O (p, b = {0 : b0 , 1 : b1 , . . . , N : bN })
+      for j ̸= k do
+          C ← C ∩ {logit : logitk + bk ≥ logitj + bj }
+      end for
+      for i = 0, . . . , N do
+          αi ← min logiti − logit0
+                 logit∈C
+          βi ← max logiti − logit0
+                 logit∈C
+     end for
+  end for
+  Return [αi , βi ]     ∀i ∈ {0, . . . , N }
+
+Method. Our approach queries the API with the logit bias set for several tokens in parallel. The algorithm proceeds in
+rounds, where each round involves querying the API with the logit bias set for several tokens.
+Suppose that the query returns token k as output when the logit bias was set to {i : bi } for i = 1, . . . , l and the prompt is p.
+Then, we know that logitk + bk ≥ logitj + bj for all j ̸= k by the definition of the API.
+This imposes a system of linear constraints on the logits. By querying the model many times, and accumulating many such
+systems of equations, we can recover the logit values more efficiently. To do this, we accumulate all such linear constraints
+in the set C, and at the end of each round, compute the smallest and largest possible values for logiti − logit0 by solving
+a linear program that maximizes/minimizes this value over the constraint set C. Thus, at each round, we can maintain an
+interval that encloses logiti − logit0 , and refine the interval at each round given additional information from that round’s
+query. After T rounds (where T is chosen based on the total query budget for the attack), we return the tightest known
+bounds on each logit.
+Lemma F.2. Suppose that logiti − logit0 ∈ [−B, 0] for all i = 1, . . . , l. Then, Algorithm 3 returns an interval [αi , βi ] such
+that logiti − logit0 ∈ [αi , βi ] for each i such that logiti − logit0 ∈ [−B, 0]. Furthermore, each round in the algorithm can
+be implemented in computation time O (N 3 ) (excluding the computation required for the API call).
+
+Proof. Algorithm 3 maintains the invariant that logiti − logit0 ∈ [αi , βi ] in each round. We will prove by induction that
+this is true and that the true vector of logits always lies in C. Note that by the assumption stated in the Lemma, this is
+clearly true at the beginning of the first round. Suppose that this is true after K < T rounds. Then, in the K + 1-th round,
+the constraints added are all valid constraints for the true logit vector, since the API returning token k guarantees that
+logitk + bk ≥ logitj + bj for all j ̸= k. Hence, by induction, the algorithm always ensures that logiti − logit0 ∈ [αi , βi ].
+
+                                                                   22
+                                         Stealing Part of a Production Language Model
+
+In Appendix F.2.1, we show the LP to compute αi , βi for all i can be seen as an all-pairs shortest paths problem on graph
+with edge weights cjk = minrounds bj − bk where the minimum is taken over all rounds where the token returned was k.
+This ensures the computation complexity of maintaining the logit difference intervals is O (N 3 ).
+
+F.2.1. S HORTEST- PATH F ORMULATION OF THE L OGPROB - FREE ATTACK LP
+It is actually possible to improve the computational efficiency of the hyperrectangle relaxation of the polytope C. Here we
+show how to formulate this problem as a shortest path problem on a weighted graph. This enables us to quickly compute the
+exact [αi , βi ] for all i ∈ {1, . . . , N } after each query.
+Lemma F.3. Let G = ({0, 1, . . . , N }, E ) be a weighted directed graph without negative cycles. Let P ⊂ Rn+1 be the
+solution set of a system of linear inequalities:
+                                                                         cji
+                                           logiti − logitj ≤ cji    ∀ j −−→ i        ∈E
+
+Then if logit0 = 0, we have
+
+                                            max logiti = distance in G from 0 to i.
+                                            x∈C
+
+
+Proof. Let e0j1 , ej1 j2 , . . . , ejm−1 i be the edges of the minimum distance path from 0 to i in G. We have
+
+                                         logiti ≤ logitjm−1 + cjm−1 i ≤ . . .
+                                                            m−1
+                                                            X                  m−1
+                                                                               X
+                                               ≤ logit0 +         cjt+1 jt =         cjt+1 jt ,
+                                                            t=1                t=1
+
+hence the shortest path is an upper bound on logiti . To prove feasibility, we claim that setting logiti to be the distance from 0
+to i satisfies all the inequalities. Assume some inequality logiti − logitj ≤ cji is violated. Then we can go from 0 → j → i
+in G with a total weight of logitj + cji < logiti , which contradicts the assumption that logiti is the distance from 0 to i.
+
+To apply this to our setting, note that (1) all constraints, even the initial αi ≤ logiti ≤ βi , are of the required form; (2) the
+graph has no negative cycles because the true logits give a feasible solution. (3) we can get the lower bounds by applying the
+same procedure to the graph induced by inequalities on −logiti .
+We can find the distances from 0 to all other vertices using the Bellman-Ford algorithm in O (N 3 ) time. If N = 300, this is
+at most comparable to the latency of O. Since only N edges of the graph update at each step, we note that the heuristic of
+just updating and doing a few incremental iterations of Bellman-Ford gets [αi , βi ] to high precision in practice. The number
+of API queries and the token cost, of course, remains the same.
+
+F.3. Improved Logprob-free Attack: Better Queries on Hyperrectangles
+The main issue of the previous approach is that some tokens are sampled more often than others, even in the case our prior
+for the logit vector is uniform over [−B, 0]. This is because the "centering of the hyperrectangle" logit bias does not partition
+the hyperrectangle into equally-sized parts labeled by the argmax coordinate. For example, if βi − αi ≪ βj − αj , under an
+uniform prior over [αi , βi ] × [αj , βj ], j will be much more likely to be the output token than i. Hence, in Algorithm 3 we
+rarely get constraints lower-bounding logiti in terms of other logits, which makes for weaker relaxations of C.
+Our solution is to bias tokens so that the output token distribution is closer to uniform; in particular, biasing the token with
+the smallest βt − αt (the 0 token) to have probability exactly 1/(N + 1) given an uniform prior over the hyperrectangle.
+One logit bias that satisfies this is:
+
+                                                bi = −(1 − c)αi − cβi          ∀i = 0, . . . , N
+                                       where      c = exp(− log(N + 1)/N ).                                                  (11)
+
+We now run Algorithm 3, with one simple modification: we replace bi = − α+    β
+                                                                            2 with b = −(1 − c)α − cβ. As can be seen
+in Table 4, the modified algorithm outperforms the method in F.2 significantly.
+
+                                                               23
+                                           Stealing Part of a Production Language Model
+
+The goal of balanced sampling of all output tokens can be approached in many ways. For example, we could tune c in
+the above expression; bias tokens which O hasn’t returned previously to be more likely; or solve for the exact logit bias
+that separates C (or some relaxation) into equal parts. However, we show in Appendix G that, under some simplifying
+assumptions, the queries/logit metric of this method in Table 4 is surprisingly close to optimal.
+
+G. How Far Are Our Logprob-Free Attacks From Optimal?
+In the logprob-free API, we have produced attacks capable of recovering logits and ultimately the embedding hidden
+dimension and embedding matrix up to a similarity transform. We now provide lower bounds on the minimum number of
+queries required by any attacker attempting model stealing under the logprob-free API threat model.
+Lemma G.1. Assume the entries of logit ∈ Rl are i.i.d. uniform over [−B, 0]. To recover the vector logit up to ∞-norm
+error ε, the number of queries to O (p, ·) we need is at least:
+
+                                                           l log2 (B/ε)
+                                                                         .
+                                                               log2 (l )
+
+
+Proof. The information content of a single logit value in [−B, 0] up to ∞-norm error ε is log2 (B/ε), assuming a uniform
+prior over ε-spaced points in the interval. Since the logits are independent, the information encoded in l logit values up to
+∞-norm error ε is l log2 (100/ε).
+Any single query to O, no matter how well-crafted, yields at most log2 (l ) bits, because the output is one of l distinct values.
+The minimum number of queries required is at least the total information content divided by the information per query,
+yielding the lower bound l log2 (B/ε)/ log2 (l ).
+
+
+The restriction of biasing at most N tokens at a time gives us a lower bound of
+
+                                                           l log2 (B/ε)
+                                                              log2 (N )
+
+queries, which is a factor of log2 (l )/ log2 (N ) worse. For N = 300 and l ≈ 100,000, this is only a factor of 2.
+For B = 100 and N = 300, we thus need at least
+
+                                              log2 (B/ε)
+                                                         ≈ 0.81 + 0.12 log2 (1/ε)
+                                               log2 (N )
+
+queries per logit. If we want between 6 and 23 bits of precision, the lower bound corresponds to 1.53 to 3.57 queries per
+logit. We see that the best logprob-free attack in Table 4 is only about 1 query per logit worse than the lower bound.
+The main unrealistic assumption in Lemma G.1 is that the prior over the logit values is i.i.d. uniform over an interval. A
+better assumption might be that most of the logit values come from a light-tailed unimodal distribution. We leave more
+realistic lower bounds and attacks that make use of this better prior to future work.
+
+H. Recovering W up to an orthogonal matrix
+In this section, we present an algorithm for extracting W up to an orthogonal h × h matrix, instead of a non-singular h × h
+matrix as in Appendix C. This algorithm requires solving a system of O (h2 ) linear equations and is hence prohibitive for
+large models in production, some of which have h > 1000. However, we present proof that this technique works in practice
+in a notebook4 on Pythia-14M, despite the assumptions bellow (Appendix H.1).
+
+H.1. Assumptions
+We make a few simplifying assumptions:
+   4
+       See here: Recovering W up to an orthogonal matrix (Colab notebook)
+
+                                                                 24
+                                          Stealing Part of a Production Language Model
+
+  1. We merge the final normalization layer weights γ into W by linearity.5
+
+  2. We assume that the output matrix always outputs 0-centered logits (as in Appendix B.2.1). This isn’t a restrictive
+     assumption since model logprobs are invariant to a bias added to the logit outputs.
+
+  3. We assume the numerical precision is high enough that during the final normalization layer, the hidden states are on a
+     sphere.
+
+  4. There is no degenerate lower-dimensional subspace containing all gθ (p) for all our queries p.
+
+  5. We assume the ε in RMSNorm/LayerNorm is negligible.
+
+H.2. Methodology
+Intuition. The main idea is to exploit the structure imposed by the last two layers of the model: LayerNorm/RMSNorm,
+which projects model internal activations to a sphere, and the unembedding layer. The model’s logits lie on an ellipsoid of
+rank h due to Lemma H.1:
+Lemma H.1. The image of an ellipsoid under a linear transformation (such as the unembedding layer) is itself an ellipsoid.
+
+Thus, we can project the model’s logits outputs to that subspace using U the truncated SVD matrix; X = U⊤ Q. An
+ellipsoid is defined with the quadratic form as in Lemma H.2:
+Lemma H.2. An ellipsoid is defined by a single semipositive-definite symmetric matrix A and a center by the following
+equation: (x − c)⊤ A(x − c) = 1.
+
+By expanding this formula x⊤ Ax − 2Acx + c⊤ Ac = 1, substituting d = Ac we end up with a system that all (projected)
+model outputs should satisfy. This system is linear in (h+    1
+                                                             2 ) entries of A (as A is symmetric), and the h + 1 entries
+of d. The system doesn’t constrain the free term c⊤ Ac, and we can get rid of it by subtracting x0 from other outputs
+of the model, effectively forcing the ellipsoid to pass through the origin, and thus satisfy c⊤ Ac = 1. Using Cholesky
+decomposition on the PSD symmetric matrix A = MM⊤ , we would end up with M a linear mapping from the unit-sphere
+to the (origin-passing) ellipsoid, which is equivalent to W up to an orthogonal projection (see Lemma H.3). This should be
+centered at Wb = c − x0 .
+
+Procedure. The procedure we took in order to recover W up to an orthogonal matrix as implemented in the notebook ??
+is described as follows at a high level (we expand in detail on several of the steps below):
+
+  1. Collect (h+ 1
+               2 ) + (h + 1) logits and store them in a matrix Q.
+
+  2. Shift to origin: Q ← Q − Q[0].
+
+  3. Perform SVD on Q: UΣV⊤ = Q.
+
+  4. Find the model’s hidden dimension h (e.g. using Section 4.2) and truncate U
+
+  5. Solve x⊤ Ax − 2dx = 0 using SVD/QR to find the nullspace, such that
+         • d = Ac
+         • c⊤ Ac = 1
+         • A is symmetric.
+       This process has time complexity: O (h6 ) (in many cases much faster in practice).
+
+  6. Find c = A−1 d, and scale c and A to satisfy c⊤ Ac = 1.
+
+  7. Use Cholesky decomposition to find M s.t. M⊤ M = A.
+   5
+    For a full explanation of this method of rewriting the unembedding matrix, see Appendix A.1, ‘Folding LayerNorm’ in Gurnee et al.
+(2024). The intution is that γ is another linear transformation applied just before W (a diagonal matrix). Therefore together they are
+together one matrix multiplication.
+
+                                                                 25
+                                       Stealing Part of a Production Language Model
+
+ 8. Obtain W = U · M−1 · O for some orthogonal matrix O.
+
+In steps 3-4, we use the compact SVD on the query output matrix Q = U · Σ · V⊤ . Here Q ∈ Rl×n , U ∈ Rl×h , Σ ∈ Rh×h ,
+and V⊤ ∈ Rh×n . Note that the points gθ (p) lie on a sphere in Rh , and U⊤ · W ∈ Rh×h , hence U⊤ · W · gθ (p) lie
+on an ellipsoid in Rh . From now on, it is convenient to work with the points X = U⊤ · Q; As centered-ellipsoids are
+equivalently defined by x⊤ Ax = 1 for some positive semidefinite (symmetric) matrix A ∈ Rh×h , this implies that we can
+write A = M⊤ · M for some M (step 7 of the procedure) which will work since A is positive semidefinite and symmetric
+since the system is non-degenerate because the ellipse is rank. Importantly, to motivate step 8 of the procedure, we use
+Lemma H.3.
+Lemma H.3. W = U · M−1 · O for some orthogonal matrix O.
+
+Proof. We know that gθ (pi ) lie on a sphere. The equation (xi − c)⊤ A(xi − c) = 1 is equivalent to (xi − c)⊤ M⊤ M(xi −
+c) = 1, which is equivalent to ∥M(xi − c)∥ = 1. This means that M(xi − c) lie on a sphere. Because M(xi − c) =
+M · U⊤ · W · gθ (pi ), we have that M · U⊤ · W is a norm-preserving transformation on the points gθ (pi ). By the assumption
+that gθ (pi ) are not in a degenerate lower-dimensional subspace, we have that M · U⊤ · W =: O is a norm-preserving
+endomorphism of Rh , hence an orthogonal matrix. This directly implies W = U · M−1 · O as claimed.
+
+I. Quantization and Noise
+I.1. Quantization
+Quantization is a popular strategy for decreasing a model’s memory footprint and speeding up inference. In addition to these
+benefits, using lower-precision number representations also effectively adds noise. As noted in Section 8.2, adding noise to
+the output logits could prevent our attack. A natural question that follows is, does quantization add sufficient noise to make
+our attack ineffective or more difficult to carry out?
+For a simple test, we quantize Llama-7B at both 8-bits and 4-bits, and compare our baseline attack (Section 4.1) to the
+default 16-bit implementation. We quantize using bitsandbytes (Dettmers et al., 2022), which HuggingFace supports
+for out-of-the-box quantization of model weights and lower-precision inference (Figure 6). We observe no meaningful
+differences at different levels of quantization; querying each model results in recovering the same same embedding matrix
+dimension h in the same number of queries. Given that 8-bit and 4-bit quantization are generally observed to not have a
+large impact on performance, this is perhaps an unsurprising result; any noise from quanitization does not seem to have a
+meaningful impact on the logits (in the context of our attack).
+
+I.2. Noise
+One natural defense to our attacks is to obfuscate the logits by adding noise. This will naturally induce a tradeoff between
+utility and vulnerability—more noise will result in less useful outputs, but increase extraction difficulty. We empirically
+measure this tradeoff in Figure 5(c). We consider noise added directly to the logits, that is consistent between different
+queries of the same prompt. To simulate this, we directly add noise to our recovered logits, and recompute the extracted
+embedding matrix. For GPT-2, we measure the RMSE between the true embedding matrix and the embedding matrix
+extracted with a specific noise level; for ada and babbage, we measure the RMSE between the noisy extracted weights
+and the weights we extracted in the absence of noise. We normalize all embedding matrices (to have ℓ2 norm 1) before
+measuring RMSE.
+
+
+
+
+                                                             26
+                                                              Stealing Part of a Production Language Model
+
+
+
+
+                 104
+                                                                                                  10       llama-7B
+                                                                                                                                                                                    10 4          ada
+
+
+
+                                                                       Difference between
+                                                                                                           llama-7B-8bit                                                                          babbage
+                 102                                                                              8        llama-7B-4bit                                                                          GPT-2
+
+
+
+
+                                                                                                                                                             Embedding Matrix MSE
+Magnitude
+                                                                                                  6                                                                                 10 5
+
+
+
+                                                                    consecutive singular values
+                 100
+                                                                                                  4
+            10 2               llama-7B                                                                                                                                             10 6
+                               llama-7B-8bit                                                      2
+                               llama-7B-4bit
+            10 4                                                                                  0                                                                                 10 7
+                       0   1000 2000 3000 4000 5000 6000                                          4070     4080     4090       4100             4110
+                               Sorted Singular Values                                                       Sorted Singular Values                                                         10 4    10 3      10 2     10 1   100
+                                                                                                                                                                                                             Noise Scale
+
+
+(a). Sorted   singular   values   for                               (b). Differences between consecutive                                                             (c). RMSE of extracted embeddings at
+{1024, 2048, 4096, 8192}      queries.                             sorted singular values.                                                                          various noise variances.
+
+
+Figure 6. In (a, b), recovering the embedding matrix dimension h for Llama-7B at different levels of precision: 16-bit (default), 8-bit, and
+4-bit. We observe no meaningful differences, with respect to our attack, at different levels of quantization. In (c), the RMSE between
+extracted embeddings as a function of the standard deviation of Gaussian noise added to the logits.
+
+
+
+
+                 1000                                                                                    Original                    1000                                                                   With Spoofed Dimension
+
+
+                  800                                                                                                                 800
+
+
+
+Singular Value                                                                                                      Singular Value
+                  600                                                                                                                 600
+
+                  400                                                                                                                 400
+
+                  200                                                                                                                 200
+
+                       0                                                                                                                0
+                           0            200     400        600        800                                1000                               0          200            400        600        800                              1000
+                                               Sorted Singular Values                                                                                                Sorted Singular Values
+Figure 7. On the left, we plot the singular values that are extracted using our attack on GPT-2 small—the estimated hidden dimension is
+near 768. On the right, we post-hoc extend the dimensionality of the weight matrix to 1024, as described in Section 8. This misleads the
+adversary into thinking the model is wider than it actually is.
+
+
+
+
+                                                                                                                    27
+

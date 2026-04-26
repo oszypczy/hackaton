@@ -1,0 +1,9 @@
+{
+  "model": "sonnet",
+  "env": {
+    "MAX_THINKING_TOKENS": "10000",
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "70",
+    "USE_BUILTIN_RIPGREP": "0",
+    "DISABLE_NON_ESSENTIAL_MODEL_CALLS": "1"
+  }
+}

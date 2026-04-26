@@ -1,0 +1,1820 @@
+                                                             CDI: Copyrighted Data Identification in Diffusion Models
+
+                                                                        Jan Dubiński * †                              Antoni Kowalczuk *
+                                                        Warsaw University of Technology, IDEAS NCBR         CISPA Helmholtz Center for Information Security
+                                                             jan.dubinski.dokt@pw.edu.pl                          antoni.kowalczuk@cispa.de
+
+                                                                     Franziska Boenisch                                   Adam Dziedzic
+                                                        CISPA Helmholtz Center for Information Security     CISPA Helmholtz Center for Information Security
+
+
+
+
+arXiv:2411.12858v3 [cs.LG] 23 Jun 2025
+                                                                    boenisch@cispa.de                               adam.dziedzic@cispa.de
+
+
+
+                                                                     Abstract                              1. Introduction
+                                             Diffusion Models (DMs) benefit from large and diverse         In recent years, large diffusion models (DMs) [56] have
+                                         datasets for their training. Since this data is often scraped     rapidly gained popularity as a new class of generative models,
+                                         from the Internet without permission from the data own-           surpassing the performance of prior approaches, such as
+                                         ers, this raises concerns about copyright and intellectual        Generative Adversarial Networks [23]. DMs now power
+                                         property protections. While (illicit) use of data is easily de-   several state-of-the-art image generators including Stable
+                                         tected for training samples perfectly re-created by a DM at       Diffusion [47], Midjourney [60], Runway [47], Imagen [50],
+                                         inference time, it is much harder for data owners to verify       and DALL-E 2 [41, 42].
+                                         if their data was used for training when the outputs from            To reach their powerful performance, DMs need to be
+                                         the suspect DM are not close replicas. Conceptually, mem-         trained on large amounts of high-quality and diverse data.
+                                         bership inference attacks (MIAs), which detect if a given         This data is usually scraped from the Internet, often without
+                                         data point was used during training, present themselves           respecting the copyrights of the data owners. Especially
+                                         as a suitable tool to address this challenge. However, we         since it has been shown that DMs are capable of generating
+                                         demonstrate that existing MIAs are not strong enough to           verbatim copies of their training data at inference time [11],
+                                         reliably determine the membership of individual images in         this represents a violation of intellectual property rights. Re-
+                                         large, state-of-the-art DMs. To overcome this limitation,         cently, Getty Images, a leading visual media company, filed
+                                         we propose Copyrighted Data Identification                        a lawsuit against Stability AI, the creators of Stable Diffu-
+                                         (CDI), a framework for data owners to identify whether            sion, alleging the unauthorized use of copyright-protected
+                                         their dataset was used to train a given DM. CDI relies on         images [5, 46]. This case has sparked a wave of addi-
+                                         dataset inference techniques, i.e., instead of using the mem-     tional lawsuits, with many more now addressing intellectual
+                                         bership signal from a single data point, CDI leverages the        property infringement by generative AI companies [44, 45].
+                                         fact that most data owners, such as providers of stock pho-       Unfortunately, as it becomes obvious during the lawsuits—
+                                         tography, visual media companies, or even individual artists,     particularly for training data points that are not output in a
+                                         own datasets with multiple publicly exposed data points           verbatim form during inference time—verifying that these
+                                         which might all be included in the training of a given DM.        data points have been illegitimately used for training the
+                                         By selectively aggregating signals from existing MIAs and         DMs is a challenging task.
+                                         using new handcrafted methods to extract features from these
+                                                                                                               Membership inference attacks [55] that aim at identifying
+                                         datasets, feeding them to a scoring model, and applying rig-
+                                                                                                           whether a specific data point was used to train a given model,
+                                         orous statistical testing, CDI allows data owners with as
+                                                                                                           in theory, present themselves as a solution to the problem.
+                                         little as 70 data points to identify with a confidence of more
+                                                                                                           Unfortunately, prior work [17] indicates that performing a re-
+                                         than 99% whether their data was used to train a given DM.
+                                                                                                           alistic MIA on large DMs is a very challenging task. One of
+                                         Thereby, CDI represents a valuable tool for data owners to
+                                                                                                           the practical challenges lies in the prohibitive costs of train-
+                                         claim illegitimate use of their copyrighted data. We make our
+                                                                                                           ing state-of-the-art DMs (e.g., $600.000 for Stable Diffusion)
+                                         code available at https://github.com/sprintml/
+                                                                                                           which renders potent MIAs utilizing multiple shadow model
+                                         copyrighted_data_identification.
+                                                                                                           copies [10, 55] infeasible. To further explore the practicality
+                                            * Equal contribution.                                          of MIAs for identifying copyrighted samples used to train
+                                            † Work done while the author was at CISPA.                     large DMs, we perform an extensive study, evaluating the
+                 Prepare data
+                                    Extract features                   Fit model and score samples            Perform statistical test
+                  and model
+             `
+                                  Feature Extractor                          Scoring Model                      Statistical Testing
+
+         P
+                                                                  fit and
+
+                                      Diffusion
+                                                                  score
+                                       Model                                                                                             decision
+         U
+
+
+
+                    samples                            features                                      scores
+
+
+
+
+Figure 1. Overview of our Dataset Inference method for Diffusion Models from our previous work. Our approach consists of the
+following stages: 1 Prepare the query data to verify if the published suspect samples P were used to train the DM. The unpublished
+samples U from the same distribution as P serve as the validation set. 2 Run inference on all the inputs {P, U} to extract their membership
+features. Use current MIAs and our handcrafted features. 3 Find useful features and learn a discriminator. P and U sets are split into Pctrl ,
+Ptest and Uctrl , Utest . The features for Pctrl and Uctrl are used to train a scoring model to selectively combine features and differentiate between
+the samples from Ptest and Utest . 4 Apply a statistical t-test to verify if the scores obtained for public suspect data point P are statistically
+significantly higher than scores for U, in which case, P is marked as being a part of the DM’s training set. Otherwise, the test is inconclusive
+and the DM’s training set is resolved as independent of P. The method
+
+success of existing MIAs against DMs’ training data for                         produce signals that are too weak to achieve highly confi-
+various open DMs. Our findings demonstrate that current                         dent DI, rendering the approach impractical. Instead, we
+MIAs for DMs are limited in confidently identifying DMs’                        firstly, extend the feature extraction methods by our newly
+training data points in case of models trained on large                         proposed features. Secondly, we design a scoring function
+datasets—showcasing that individual MIAs cannot reliably                        which maps the extracted information into sample member-
+support copyright claims.                                                       ship probability, learning the features relevant for each DM.
+    In light of this result, we, however, observe that in most                  Finally, in contrast to MIAs which usually refer to metrics
+cases, data owners, such as stock photography, visual me-                       like True Positive Rate (TPR) or Area Under Curve (AUC)
+dia companies, or even individual artists, typically seek to                    which do not give any confidence estimate, we equip CDI
+verify the use of not just a single data point but a collection                 with rigorous statistical testing as the final component.
+of their work as training data for a given DM. This moves                           We demonstrate the success of our method on diverse
+the idea of dataset inference [38] (DI) into focus. DI was                      large-scale DM architectures (LDM [47], DiT [39], U-
+first proposed to detect stolen copies of supervised classifier                 ViT [6]), including unconditioned, class-conditioned and
+models and then subsequently extended to self-supervised                        text-conditioned models, trained on various image resolu-
+models [18]. It leverages the observation that, while MIAs                      tions. Our results show that CDI achieves a confident de-
+on individual data points do not produce a strong signal,                       tection rate of data (illegitimately) used for training DMs.
+selectively aggregating signals across a subset of the training                 CDI remains effective when only a part of the investigated
+dataset and applying statistical testing can reveal a distinct                  data was actually used in DM training. Moreover, we
+signature of the model. This dataset-based signature allows                     demonstrate that CDI does not yield false positives, making
+for the detection of stolen model copies with a confidence                      it a reliable tool for detecting and confidently claiming the
+level exceeding 95%. Yet, to date, it remains unexplored                        use of copyrighted data in DMs.
+whether the principles of DI actually transfer to DMs and                           In summary, we make the following contributions:
+are suitable to identify subsets of their training data rather
+than resolving model ownership—given the vast amount of                         • We demonstrate that existing MIAs for DMs show limited
+heterogeneous data DMs are initially trained on. Addition-                        effectiveness in confidently identifying the training data
+ally, it is unclear how large the required training data subsets                  points of large, state-of-the-art models.
+for verification would have to be. Finally, we do not know                      • To address this issue, we propose CDI, a method that em-
+the specific features needed to extract a strong signal over                      powers data owners to identify whether their data has been
+the training data.                                                                (illegitimately) used to train a DM, incorporating rigorous
+    To close these gaps, we propose Copyrighted Data                              statistical testing to ensure confidence in the results.
+Identification, designed to answer the critical ques-
+tion: Was this DM trained on a copyrighted collection of                        • We perform thorough feature engineering to amplify the
+images? The overall schema of our method is illustrated                           signal in CDI, proposing novel feature extraction methods
+in Fig. 1. To design CDI, we move beyond simply aggre-                            and enabling data owners even with smaller datasets to
+gating features extracted by existing MIAs, as these often                        benefit from our method.
+• We evaluate CDI on a wide range of DMs and their pre-            (t > 300), the noisy image resembles random noise, mak-
+  training datasets and provide a unified open-source code-        ing the task overly challenging. Among the recent MIA
+  base1 with a common interface to all prior MIAs and our          approaches targeting DMs, the Step-wise Error Comparing
+  new CDI, serving as a valuable evaluation testbed for the        Membership Inference (SecMI) attack [16] infers member-
+  community.                                                       ship by estimating errors between the sampling and inverse
+                                                                   sampling processes applied to the input x also at timestep
+2. Background                                                      t = 100. Following the same overfitting principle, the Prox-
+                                                                   imal Initialization Attack (PIA) [27] enhances SecMI by
+Diffusion Models [24, 58] are generative models trained            assessing membership based on the difference in the model’s
+by progressively adding noise to the data and then learning        noise prediction for a clean sample x at timestep t = 0 and
+to reverse this process. The forward diffusion process adds        a noised sample xt at t = 200, where the method was found
+Gaussian noise ϵ ∼ N (0, I) to a clean image
+                                           √       x in order      to be most discriminative.
+                                  √
+to obtain a noised image xt ← αt x + 1 − αt ϵ, where
+t ∈ [0, T ] is the diffusion timestep, and αt ∈ [0, 1] is a        Protecting Intellectual Property in DMs Protecting intel-
+decaying parameter such that α0 = 1 and αT = 0. The                lectual property (IP) in DMs involves safeguarding against
+diffuser fθ is trained to predictP
+                                 the ϵ for various timesteps,      unauthorized usage of trained models and attributing gener-
+by minimizing the objective N1 i Et,ϵ L(xi , t, ϵ; fθ ), where     ated data to their source models, while also protecting the
+N is the training set size, and                                    IP of the data used for training. Several attribution methods
+              L(x, t, ϵ; fθ ) = ∥ϵ − fθ (xt , t)∥22 .       (1)    focus on watermarking at both the model and input lev-
+                                                                   els, embedding invisible watermarks into generated images
+    The generation iteratively removes the noise prediction        or subtly influencing the sampling process to create model
+fθ (xt , t) from xt for t = T, T − 1, ..., 0, starting from xT ∼   fingerprints [19, 33]. Other techniques explore fingerprint-
+N (0, I), and obtaining a generated image xt=0 . To guide          ing methods, where unique patterns or signals are embed-
+this process, for conditional image generation the diffuser        ded into generated data for identification purposes [68, 71].
+fθ receives an additional input y, which represents a class        However, those methods protect the IP in trained models
+label for the class-conditional DMs [24] or a text embedding,      and generated data, leaving the IP of training data out of
+obtained from a pretrained language encoder like CLIP [40],        scope. To solve this issue, various approaches aim to protect
+for the text-to-image DMs [42, 47, 50].                            against style mimicry and unauthorized data usage by adding
+    Latent diffusion models [47] (LDMs) improve DMs by             perturbations to images or detecting unauthorized data us-
+conducting the diffusion process in the latent space, which        age through injected memorization or protective perturba-
+significantly reduces computational complexity, making             tions [22, 54, 63, 66, 67, 69]. However, existing methods
+training scalable and inference more efficient. For the LDMs,      have important drawbacks, such as limiting the data usage
+the encoder E transforms the input x to the latent representa-     for consensual applications and providing no protection if the
+tion z = E(x) and Equation 1 becomes                               data IP has already been breached. Moreover, a malicious
+                                                                   party may attempt to overcome the safety mechanism by
+              L(z, t, ϵ; fθ ) = ∥ϵ − fθ (zt , t)∥22 .       (2)
+                                                                   image purification methods [7]. Our proposed method fills
+                                                                   in those gaps by enabling data owners to identify whether
+Membership Inference Attacks. MIAs aim to determine
+                                                                   their data has been illegitimately used for training, without
+whether a specific data point was used to train a given
+                                                                   any requirements to modify the protected content. While
+machine learning model [55]. Extensive research has ex-
+                                                                   the previous work showed the possibility of computing the
+plored MIAs against supervised machine learning mod-
+                                                                   influence of the training data points on the generated out-
+els [10, 49, 62, 70]. On the high level, MIAs operate on
+                                                                   puts [73], we propose to go a step further and exactly detect
+the premise of overfitting, assuming that training data points
+                                                                   which data points are used for training.
+(members) exhibit smaller training loss compared to data
+points not encountered during training (non-members). Ini-
+tial MIAs against DMs [9] focus on assessing the member-           3. Limitations of MIAs in Member Detection
+ship of samples by evaluating the model’s noise prediction         We rigorously evaluate existing MIAs to test their ability to
+loss. Their findings establish that the loss value at the diffu-   detect training members in large, complex DMs. Prior stud-
+sion timestep t = 100 proves most discriminative between           ies [16, 27] reported success with MIAs in accurately identi-
+member and non-member samples. Intuitively, if t is too            fying DMs training members; however, these results were
+small (t < 50), the noisy image resembles the original, mak-       often based on toy models or datasets (e.g., CIFAR100 [29])
+ing the noise prediction too easy. Otherwise, if t is too large    that do not reflect the complexity of high-dimensional, di-
+  1 https://github.com/sprintml/copyrighted_data_                  verse DM setups. Our analysis on state-of-the-art DMs
+identification                                                     trained on extensive datasets (i.e., ImageNet-1k [14] or
+COCO [64]) reveals significant performance limitations of       3.3. Performance of MIAs in Member Detection
+existing MIAs and key factors that contributed to overesti-
+mated effectiveness in previous work. Full details are pro-     Our results indicate that the existing MIAs achieve perfor-
+vided in Appendix D.                                            mance comparable to random guessing. We present the
+                                                                aggregated max and average TPR@FPR=1% across 8 DMs
+3.1. Evaluated MIAs                                             in Tab. 1, and defer the full evaluation to App. U. For com-
+1. Denoising Loss [11]: The loss is computed from Equa-         pleteness, we provide AUC (Table 14), accuracy (Table 13),
+   tion 2 five times for the diffusion timestep t = 100, as     and ROC curves (Fig. 17) of MIAs there.
+   indicated in the original paper. The final membership
+   score is the average loss, where a lower value indicates     Table 1. TPR@FPR=1% for MIAs. Performance of existing
+   that the sample is a member.                                 MIAs in identifying training members is limited.
+
+2. SecMIstat [16]: The membership score extracted by                    Attack          Max TPR@FPR=1%    Mean TPR@FPR=1%
+   SecMI aims to approximate the posterior estimation error       Denoising Loss [10]        2.24                1.61
+   of fθ on the latent z (obtained from the image encoder          SecMIstat [16]            2.44                1.50
+                                                                       PIA [27]              5.57                2.18
+   part), claiming it should be lower for members than for            PIAN [27]              1.53                1.03
+   non-members.
+3. PIA [27]: The score extracted by PIA aims at capturing
+   the discrepancy between the noise prediction on a clean      4. Our CDI Method
+   sample’s latent z and the noise prediction on its noised
+   version zt at time t. This discrepancy should be lower for   Recognizing the limitations of MIAs on large, state-of-the-
+   members.                                                     art DMs, we shift our focus to DI and introduce our CDI
+                                                                method. To achieve reliable and confident detection of data
+4. PIAN [27]: This MIA is an adaptation of the original PIA     collections used in model training, we go beyond simply
+   to further strengthen the membership signal. The noise       aggregating features from existing MIAs. Our CDI consists
+   prediction on z is normalized, so it follows the Gaussian    of four stages: (1) data and model preparation, (2) feature
+   distribution. Similar to PIA, the scores returned from       engineering and extraction, extended by our three newly pro-
+   PIAN are expected to be lower for members than for           posed detection methods (3) a scoring function that maps
+   non-members.                                                 these features to scores, and (4) a rigorous statistical hypothe-
+3.2. Experimental Setup                                         sis testing, enabling high-confidence decisions. We visualize
+                                                                and describe CDI in Figure 1.
+Models. We evaluate class-conditioned, as well as text-
+conditioned state-of-the-art DMs of various architectures,
+namely LDM [47], U-ViT [6], and DiT [39]. We employ             Dataset Inference. DI was initially introduced as a tool for
+already trained checkpoints provided by the respective pa-      detecting model stealing attacks [61]. In the context of su-
+pers [1, 2, 4]. For class-conditioned generative tasks, LDM     pervised models [38], DI involves crafting features for a set
+offers one model checkpoint with the resolution of 256x256      of training data points, inputting them into a binary classifier,
+(LDM256). For U-ViT and DiT, we have access to mod-             and applying statistical testing to establish model ownership.
+els operating on resolutions of 256x256 and 512x512 (U-         The features of supervised learning are based on the fact that
+ViT256, U-ViT512, DiT256, DiT512). Additionally, we             classifiers are trained to maximize the distance of training
+conduct experiments on text-conditioned models based on         examples from the model’s decision boundaries while test
+U-ViT architecture (U-ViT256-T2I, U-ViT256-T2I-Deep)            examples typically lie closer to these boundaries, as they
+and a newly trained unconditional U-ViT256-Uncond model         do not influence the model’s weights during training. DI
+(see App. I).                                                   was extended to self-supervised learning (SSL) [18] by ob-
+                                                                serving that training data representations exhibit a markedly
+Datasets. For the class-conditional evaluation, we use          different distribution from test data representations. Building
+models trained on ImageNet-1k [14]. This dataset con-           on this intuition, we design specific features based on the
+tains large-sized colored images with 1000 classes. There       DM’s behavior for a set of data points that we want to test
+are 1,281,167 training images and 50,000 test images. For       for potential (illegitimate) use in training the DM. We then
+text-conditional task evaluation, we use models trained on      map those features to scores on which we apply statistical
+COCO-Text dataset [64], a large-scale object detection, seg-    testing. Unlike traditional DI, which focuses on ownership
+mentation, and captioning dataset which contains 80,000         resolution for the entire model, our approach is tailored for
+training images and 40,000 test images, each with 5 cap-        data verification, allowing owners of small subsets of the
+tions.                                                          DM’s training data to verify their use in model training.
+Notation and Setup. We denote P as a set of samples that               the highest influence on the loss. Therefore, we create a
+we suspect to be (illegitimately) used for training the DM.            binary mask M for the top 20% values in g. This mask
+Those are published samples provided by the data owner                 indicates significant regions of the latent representation zt .
+who wants to make a claim for their intellectual property.             Next, we obtain zˆt = ϵ · M + zt · ¬M, with the signifi-
+Further, we refer to U as a set of unpublished samples, from           cant values of zt destroyed by replacing them with random
+the same distribution as P, that serves as the validation set.         noise ϵ ∼ N (0, I), and the rest left unchanged. Finally,
+In real scenarios, U might come from a creator’s unpublished           we compute ||(ϵ − zt ) · M − fθ (zˆt , t) · M||22 as the feature.
+data or sketches of their released work. We assume P to be             This feature expresses the reconstruction loss over the se-
+i.i.d. with U.                                                         mantically most relevant regions and should be lower for
+                                                                       members. We calculate the feature at multiple diffusion
+Data Preparation and Processing. We split P and U into                 timesteps t, to further strengthen the signal. Note that we
+Pctrl , Ptest , and Uctrl , Utest . We extract the final full set of   differ in our feature computation from Fu et al. [20] in two
+features for Pctrl and Uctrl and train the scoring model s to          significant aspects. (1) While their DRC employs powerful
+tell apart members from non-members, such that s eventually            third-party self-supervised vision encoders like DINO [12] to
+outputs higher values when presented with a member. Then,              identify semantically significant regions, we utilize only the
+we apply s to the features extracted from Ptest and Utest .            information from within the DM to obtain the mask M. (2)
+Finally, we perform statistical testing to find whether the            Additionally, we utilize the model’s loss as our final signal,
+scores returned by s on Ptest are significantly higher than            instead of computing cosine similarity between representa-
+those on Utest , which would indicate that P was, indeed, used         tions returned from DINO for clean and restored samples,
+to train the DM.                                                       rendering our method more self-contained and independent
+                                                                       of the signal from other models.
+Threat Model. We design CDI as a tool for use in legal
+proceedings. Consequently, the CDI procedure is carried                Multiple Loss (ML). To increase the membership signal
+out by a third trusted party, referred to as an arbitrator. The        from the model prediction loss, we compute Eq. 2 at multiple
+arbitrator is approached by a victim, whose private data               (10) diffusion timesteps t = 0, 100, ..., 900 to provide more
+might have been potentially used in a training of a DM. The            information to train the scoring function s.
+arbitrator executes CDI either in the gray-box model access,
+(can only obtain outputs, i.e., noise predictions, for given           Noise Optimization (NO). We leverage an insight ini-
+inputs to a DM at an arbitrary timestep t) or in the white-box         tially observed in supervised classifiers, namely that the dif-
+model access (where DM’s internals and parameters can be               ficulty of changing the predicted label of a sample through
+inspected). The access type depends on the requirements                adversarial perturbations differs between members and non-
+of the features used in CDI (we provide more details in                members [32]. In particular, it takes a stronger perturbation
+App. N).                                                               to change the prediction for members. The reason is that
+                                                                       ML models return more confident predictions on training
+4.1. Features                                                          samples (members). To craft our feature, we adapt this in-
+We utilize MIAs (Sec. 3.1) as the source of features for CDI.          tuition to DMs. We note that perturbing a noised sample
+Additionally, to increase the discriminative capabilities of           zt to minimize the model noise prediction loss expressed in
+our CDI, we propose the following three novel features that            Equation 2 achieves better results, i.e., lower loss values for
+can be extracted from a DM to provide additional infor-                member samples. Specifically, we conduct an unbounded
+mation on a sample’s membership score. Our final feature               optimization of the perturbation δ applied to the noised la-
+extractor implements a function fe : RC×H×W → Rk , with                tent representation zt at timestep t = 100. Our objective
+C, H, W denoting the channels, height, and width of an                 function is defined as: arg minδ ||ϵ − fθ (zt + δ, t)||22 . To
+input sample, respectively, and k being the dimensionality             optimize this objective, we employ the 5-step L-BFGS algo-
+of the extracted feature vector.                                       rithm [74] (which is commonly used to generate adversarial
+                                                                       perturbations [8, 59]). We use the resulting values of the
+Gradient Masking (GM). This feature aims at capturing                  noise prediction error ||ϵ − fθ (zt + δ, t)||22 and the amount
+the difference in the ability to restore destroyed semantic in-        of perturbation ||δ||22 as features.
+formation between members and non-members. It is inspired                  We provide further analysis of our features in App. T.
+by the Degrade, Restore, Compare (DRC) idea from Fu et al.
+                                                                       4.2. Scoring Model
+[20] who identify that for members, a restoration is more
+successful. To compute the feature, we first capture the gra-          Based on the set of features extracted for Pctrl and Uctrl , we
+dient g = |∇zt L(zt , t, ϵ; fθ )|. Intuitively, g indicates the        train a logistic regression model, s : Rk → [0, 1]. We then
+influence each feature value in the latent zt has on the loss          apply s to the features extracted for Ptest and Utest and use the
+L. We are interested in the features from zt that exhibit              resulting logits s(fe (Ptest )) and s(fe (Utest )) as membership
+                        100
+                                                                                                       Model
+                       10 1                                                                 LDM256         U-ViT256-Uncond
+
+             p-value
+                                                                                            U-ViT256       U-ViT256-T2I
+                                                                                            DiT256         U-ViT256-T2I-Deep
+                       10 2                                                                 U-ViT512       p-value: 0.05
+                                                                                            DiT512         p-value: 0.01
+
+                       10 3
+                              101           102              103             104
+                                           Number of samples in P
+Figure 2. Results of CDI on various DMs. Solid lines indicate p-values aggregated over 1000 randomized trials for each size of P, shaded
+areas around the lines are 95% confidence intervals. CDI confidently rejects H0 with as low as 70 suspect samples from the data owner.
+CDI’s performance increases with larger model sizes and smaller training sets.
+
+confidence scores, with higher values referring to higher             for P and U that CDI requires to confidently reject H0 is
+confidence that the given input sample is a member.                   much lower and depends on the targeted model (see Fig. 2).
+   The motivation behind relying on the feature vector ex-               To maximize the use of both P and U while minimizing
+tracted by fe is that a single feature-based score is prone           the number of samples required for our method, we imple-
+to high variance [10], in turn making it more difficult to            ment a k-fold cross-validation with k = 5. The features
+perform successful data detection. In contrast, combining             extracted from the public samples (P) and unpublished sam-
+multiple features should amplify the signal and improve the           ples (U) are divided into 5 folds. In each iteration, one fold is
+performance. Our experiments confirm this intuition, as we            designated as the test set, containing Ptest and Utest features,
+show in Sec. 3.3 and 5.1. Moreover, the scoring model ad-             while the remaining k − 1 folds form the control set, com-
+dresses the challenge of determining which features provide           prising Pctrl and Uctrl features, which are used to train the
+the strongest membership signal for a given model. By ag-             scoring model s. This process is repeated across all splits,
+gregating information across multiple features, s highlights          ensuring that each sample in P and U is used exactly once in
+the most relevant signals for detecting membership.                   the test set as part of Ptest and Utest .
+                                                                         This procedure ensures that the statistical testing is per-
+4.3. Statistical Testing
+                                                                      formed with |Ptest | = |P| and |Utest | = |U|, allowing us to
+Finally, we perform a two-sample single-tailed Welch’s t-             extract signals that identify training data from the entirety of
+test. Our null hypothesis expresses that mean scores for              the P and U sets.
+Ptest are not significantly higher than the ones for Utest , i.e.,
+H0 : s(fe (Ptest )) ≤ s(fe (Utest )), where s(fe (Ptest )) and        5.1. Our CDI Confidently Identifies Collection of
+s(fe (Utest )) are the mean of scores returned from s on the               Data Samples as Training Data
+features of Ptest and Utest , respectively. Rejecting H0 at a
+significance level α = 0.01, i.e., obtaining p-value < 0.01,          We summarize the success of our CDI for diverse DMs and
+confirms that samples from Ptest has been (illegitimately)            datasets in Fig. 2 (following the standard evaluation of DI
+used to train the queried DM.                                         as proposed in [38]). We report p-values as the confidence
+   Our choice of such a low α parameter is motivated by the           in the correct verification for different sizes of suspect data
+TPR@FPR=1% metric established for MIAs [10], based                    sets P. Our results highlight that CDI already enables a con-
+on the intuition that the false positives are more harmful than       fident (p < 0.01) dataset identification with as little as 70
+false negatives in real-world applications, e.g., court cases.        samples (for instance, for U-ViT256-T2I-Deep DM trained
+To improve the soundness of our statistical tests, we perform         on the COCO dataset) provided by the data owner. For DMs
+CDI 1000 times on randomly sampled subsets of P and U,                trained on larger datasets like ImageNet, we observe the
+and aggregate the obtained p-values [28, 65] (we provide              need to increase the size of P to confidently reject the null
+more details in App. E).                                              hypothesis. More details on the impact of the size of P on
+                                                                      the confidence of CDI can be found in App. F. In general,
+5. Empirical Evaluation                                               in our results, we identify the following trends: (1) For a
+                                                                      given DM architecture, trained on given dataset, the num-
+Our CDI Setup. We use the diffusion models and datasets               ber of samples required for the confident identification of
+as specified in Sec. 3.2. To instantiate our CDI, we draw             the training data decreases with increasing input resolution
+samples from the train sets to represent P and samples from           (see App. J). (2) The larger the overall training set of the
+the test sets to represent U. We set |P| = |U| for all experi-        model, the more samples are needed for a confident claim
+ments. The maximum total size of |P| + |U| we use for our             (see also App. J). (3) The higher the number of model train-
+experiments is 40,000 samples. Note, that this number is              ing steps the stronger the signal for identifying training data
+chosen only as a starting point and the number of data points         as shown in Fig. 6 in App. K.
+Table 2. Impact of the statistical testing. The values in the table are TPR@FPR=1% and are in %. Results represent the set-level MIA
+(without the statistical testing) vs CDI with the statistical testing. The size of P is 1000. Statistical testing is essential for CDI.
+
+                                          LDM256             U-ViT256             DiT256         U-ViT512        DiT512             U-ViT256-Uncond               U-ViT256-T2I        U-ViT256-T2I-Deep
+      Set-level MIA (no t-test)            10.20              22.90               10.50           6.50           0.00                      33.40                        23.20              32.50
+            CDI (Ours)                     24.92              62.74               93.00           74.43          93.76                     100.00                       100.00             100.00
+
+
+
+                      LDM256 20000          7000 7000 8000 6000 7000 8000 7000 6000 7000 6000 6000 7000 7000 6000
+                                                                                                                                                                                            104
+                     U-ViT256     3000 4000 3000 4000 3000 3000 3000 3000 3000 3000 2000 2000 2000 3000 3000
+
+
+
+
+                                                                                                                                                                                              Number of samples in P
+                       DiT256     2000 2000 3000 7000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000 2000
+                     U-ViT512 20000         3000 6000 3000 4000 4000 3000 2000 2000 2000 3000 2000 2000 2000 2000                                                                           103
+                       DiT512     8000 1000 2000 4000 1000 2000 4000 1000 1000 2000 1000 1000 2000 1000 1000
+              U-ViT256-Uncond      400      600         600       2000      300        400       400      400    500          600       300       300       300       400       300
+                  U-ViT256-T2I     200      500         600       2000      200        200       200      400    500          600       200       200       200       400       200         102
+
+             U-ViT256-T2I-Deep     70       200         300       500       60         70        80       200    200          300       60        60        70        200       70
+                             MIAs        (GM)      L)
+                                                  (M          (NO)       GM        ML        NO         L
+                                                                                                       +M
+                                                                                                                 O
+                                                                                                                +N      +N
+                                                                                                                          O          ML       NO        NO        NO        urs)
+                                                  ss                    +          +         +     GM       GM        ML            +         +         +        L+      I (O
+                         isting      ing      Lo         tim      MI        MI         MI                                      GM         GM       ML        +M
+                                  tM        le          Op          As        As         As                                   +         +         +         GM
+                                                                                                                                                                      CD
+                       Ex           ask    ltip        ise    ist        ist       ist                                  MI          MI        MI                   es:
+                             ien         Mu        No            ing        ing       ing                                 As          As        As                tur
+                          Gr                                 Ex        Ex         Ex                                 ist       ist       ist                  Fe a
+                            ad                                                                                          ing       ing       ing             All
+                                                                                                                 Ex           Ex        Ex
+
+Figure 3. Impact of feature selection. The values in the cells indicate the minimum size of P needed to reject H0 . Blue vertical lines
+separate results by the complexity of the feature set used to fit s: (left) our novel individual features from Sec. 4.1 and a joint existing MIAs
+feature, (second from left) all possible combinations of two, and of three features (second from right), and (right) all available features.
+
+5.2. Analysis of the Success of CDI                                                                                  A direct comparison between CDI’s p-values and
+                                                                                                                 TPR@FPR=1% for set-level MIA is challenging due to
+We perform multiple ablations on CDI’s building blocks
+                                                                                                                 the differing metrics. To align them, we compute the
+to deepen understanding of its success. First, we show the
+                                                                                                                 power of the t-test with α = 0.01, which is equivalent to
+importance of statistical testing as a core component of CDI.
+                                                                                                                 TPR@FPR=1% (see App. Q). This approach allows us to
+Then, we show that our features indeed boost the perfor-
+                                                                                                                 directly compare set-level MIA to CDI without altering its
+mance of CDI. Next, we demonstrate that our method re-
+                                                                                                                 methodology. The results in Tab. 2 underscore the critical
+mains effective even when not all samples from the suspect
+                                                                                                                 role of statistical testing in CDI. Set-level MIA without sta-
+set were used in the DM’s training set. Finally, we show that
+                                                                                                                 tistical testing underperforms, while CDI with its rigorous
+CDI does not return false positives. We include additional
+                                                                                                                 testing achieves near-perfect performance for most of the
+evaluation of CDI in App. R and S, analysis of scoring model
+                                                                                                                 models.
+s in App. P, and time complexity in App. I.2. In Appendix H
+we evaluate CDI on additional DMs and showcase how CDI
+can be extended with additional feature extraction methods.                                                      Our Novel Features Significantly Decrease the Number of
+                                                                                                                 Samples Required for Verification. Our results in Fig. 3
+Statistical Testing is Crucial for DI. In this ablation study,                                                   indicate that introducing our new features improves the effi-
+we assess the impact of removing the t-test from CDI and                                                         ciency of CDI substantially in comparison to the joint fea-
+demonstrate that simply aggregating the MIA results for mul-                                                     tures extracted by the MIAs from Sec. 3.1, in the following
+tiple samples is insufficient to reliably identify data collec-                                                  referred to as existing MIAs. Applying our new features
+tions used in DM training. To conduct this comparison, we                                                        in CDI leads to a remarkable reduction of the number of
+aggregate membership scores across a set of samples to de-                                                       samples needed to reject the null hypothesis with p < 0.01,
+termine if any members are present in the set. We define a set                                                   especially in the initially most challenging cases of models
+membership score as the highest membership score within a                                                        trained on higher-resolution large datasets. For instance,
+subset, hypothesizing that sets composed of members will                                                         for U-ViT512 the number of samples required from a data
+yield higher scores than non-member sets. For evaluation,                                                        owner for confident verification decreases from 20000 to
+we sample 1000 subsets each from U (non-members) and                                                             2000. This makes CDI more practical and applicable to
+P (members). We refer to this approach as set-level MIA,                                                         more users who have smaller datasets that they would like
+and execute this procedure for scores obtained from the scor-                                                    to verify.
+ing model component of CDI. We report TPR@FPR=1%                                                                    Regarding our novel features, the most influential one
+in Tab. 2.                                                                                                       is GM. We note that utilizing only existing MIAs + GM,
+Table 3. Robustness of CDI against false positives. We depict averaged p-values returned by our method based on the data used within P
+with |P| = 10000. We sample 1000 P and U sets. The results show that when testing non-members (both P and U contain only nonmembers),
+we obtain high p-values, significantly above the significance level (α = 0.01), i.e., we cannot reject the null hypothesis and do not identify
+the data from P as members. In contrast, when testing with member data points (P contains members and U contains nonmembers), our
+results are always significant, i.e., p < 0.01, and we correctly identify the given set as members.
+
+          Data in Ptest   LDM256    U-ViT256    DiT256    U-ViT512   DiT512          U-ViT256-Uncond              U-ViT256-T2I         U-ViT256-T2I-Deep
+           Members         10−6      10−21      10−59      10−31      10−66                    10−266                 0.00                       0.00
+         Non-members        0.40      0.39       0.39       0.39       0.40                     0.40                  0.39                       0.38
+
+
+
+
+we are able to obtain performance very close to CDI. The                                                     DiT512                                Number of samples
+extension of the feature set only with NO yields the smallest                                                                                           50
+                                                                                  10 1                                                                  100
+improvement over the alternatives in most cases, however,                                                                                               300
+                                                                                  10 2                                                                  500
+                                                                        p-value
+discarding it entirely (see: existing MIAs + GM + ML vs                                                                                                 1000
+All Features) results in worse performance in the case of                         10 3                                                                  3000
+                                                                                                                                                        5000
+U-ViT512, highlighting the need for a diverse source of                           10 4                                                                  10000
+the signal to obtain confident predictions. Our ML feature                                                                                              p-value: 0.05
+                                                                                  10 5                                                                  p-value: 0.01
+                                                                                         0.0       0.2      0.4       0.6        0.8       1.0
+succeeds in capturing a better membership signal than its                                                Non-members ratio
+existing MIAs-based counterpart (Denoising Loss), striking
+a middle ground between GM and NO.                                         Figure 4. Impact of non-members ratio in P on CDI. The lines
+                                                                           represent p-values for a given non-member ratio while varying sizes
+                                                                           of P.
+CDI is Effective Even When Not All Data Samples Were
+Used as Training Data. We investigate CDI ’s behavior
+in cases where only a part of the samples in the suspect                   more samples in P compared to the white-box access (where
+set P was used to train the DM, i.e., P contains a certain                 all features can be used). We refer to App. O for a detailed
+ratio of non-members, while the remaining samples in P                     comparison.
+are members. Practically, this corresponds to the situation
+where a data owner has a set of publicly exposed data points
+and suspects that all of them might have been used to train               CDI is Robust Against False Positives. While CDI can
+the DM, whereas, in reality, some were not used. This can                 correctly identify suspect datasets even when not all samples
+happen, e.g., due to internal data cleaning on the side of the            were used as training data, it raises the concern of false pos-
+party who trained the DM. In particular, the data owner does              itives, i.e., reporting data as used for training a DM when
+not know which of their samples and how many of them                      it was not. In particular, CDI should only reject the null
+have not been included into training. In Fig. 4 (extended                 hypothesis if P contains (some) members and yield incon-
+by Fig. 7 in App. L), we present the success of CDI under                 clusive results otherwise. To show that CDI is robust against
+different ratios of non-member samples in P. Note that our                false positives, we instantiate P only with non-member sam-
+evaluation is the result of 1000 randomized experiments for               ples. Our results in Table 3 highlight CDI ’s reliability in
+each non-members ratio, model, and P size. We observe that                distinguishing between non-member and member sets with-
+CDI remains effective when the non-member ratio is over                   out false positives.
+0.5 and 0.8 for some models, i.e., it still correctly identifies
+P as training data of the model. Overall CDI’s robustness is
+                                                                           6. Conclusions
+higher when the data owner provides larger suspect datasets
+P. This is reflected in the p-value at the same non-member                We introduce CDI as a method for data owners to verify
+ratio decreasing as the number of samples in P increases.                 if their data has been (illegitimately) used to train a given
+                                                                          DM. While existing MIAs alone are insufficient to confi-
+CDI is Effective Even Under Gray-box Model Access.                        dently determine whether a specific data point was used dur-
+We analyze the effectiveness of performing CDI in the gray-               ing training, CDI overcomes this limitation. By selectively
+box model access scenario, as defined in the threat model                 combining features extracted from MIAs with novel hand-
+(Sec. 4). Therefore, we include only the original MIA fea-                crafted features and applying them across a larger data set,
+tures and Multiple Loss in CDI. Even in this case, CDI re-                we achieve a reliable discriminator for identifying datasets
+mains effective under gray-box model access and can reject                used in DM training. Our rigorous feature engineering am-
+the null hypothesis. In this more difficult scenario, across              plifies the signal in CDI, enabling individual artists even
+the eight tested DMs, CDI requires on average one-third                   with smaller collections of art to benefit from our method.
+Acknowledgments                                                       [14] Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li, and Li
+                                                                           Fei-Fei. Imagenet: A large-scale hierarchical image database.
+This work was supported by the German Research Founda-                     In 2009 IEEE conference on computer vision and pattern
+tion (DFG) within the framework of the Weave Programme                     recognition, pages 248–255. Ieee, 2009. 3, 4
+under the project titled ”Protecting Creativity: On the Way           [15] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov,
+to Safe Generative Models” with number 545047250. This                     Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner,
+research was also supported by the Polish National Sci-                    Mostafa Dehghani, Matthias Minderer, Georg Heigold, Syl-
+ence Centre (NCN) grant no. 2023/51/I/ST6/02854 and                        vain Gelly, Jakob Uszkoreit, and Neil Houlsby. An image is
+2020/39/O/ST6/01478 and by the Warsaw University of                        worth 16x16 words: Transformers for image recognition at
+                                                                           scale, 2021. 15
+Technology within the Excellence Initiative Research Uni-
+                                                                      [16] Jinhao Duan, Fei Kong, Shiqi Wang, Xiaoshuang Shi, and
+versity (IDUB) programme. Responsibility for the content
+                                                                           Kaidi Xu. Are diffusion models vulnerable to membership
+of this publication lies with the authors.                                 inference attacks? In Proceedings of the 40th International
+                                                                           Conference on Machine Learning, pages 8717–8730. PMLR,
+References                                                                 2023. 3, 4, 12, 13, 17, 24
+                                                                      [17] Jan Dubiński, Antoni Kowalczuk, Stanisław Pawlak, Prze-
+ [1] Code repository for latent diffusion models., 2021. 4
+                                                                           myslaw Rokita, Tomasz Trzciński, and Paweł Morawiecki.
+ [2] Code repository for dit models, 2022. 4                               Towards more realistic membership inference attacks on large
+ [3] Stability diffusion vae checkpoint, 2022. 14                          diffusion models. In Proceedings of the IEEE/CVF Winter
+ [4] Code repository for u-vit models ., 2023. 4                           Conference on Applications of Computer Vision, pages 4860–
+ [5] Getty Images (US), Inc. v. Stability AI, Inc.     In 1:23-cv-         4869, 2024. 1, 13
+     00135-JLH, 2023. 1, 12                                           [18] Adam Dziedzic, Haonan Duan, Muhammad Ahmad Kaleem,
+ [6] Fan Bao, Shen Nie, Kaiwen Xue, Yue Cao, Chongxuan Li,                 Nikita Dhawan, Jonas Guan, Yannis Cattan, Franziska
+     Hang Su, and Jun Zhu. All are worth words: A vit backbone             Boenisch, and Nicolas Papernot. Dataset inference for self-
+     for diffusion models. In Proceedings of the IEEE/CVF Con-             supervised models. Advances in Neural Information Process-
+     ference on Computer Vision and Pattern Recognition, pages             ing Systems, 35:12058–12070, 2022. 2, 4
+     22669–22679, 2023. 2, 4, 15                                      [19] Pierre Fernandez, Guillaume Couairon, Hervé Jégou, Matthijs
+ [7] Bochuan Cao, Changjiang Li, Ting Wang, Jinyuan Jia, Bo Li,            Douze, and Teddy Furon. The stable signature: Rooting
+     and Jinghui Chen. IMPRESS: Evaluating the resilience of im-           watermarks in latent diffusion models. In Proceedings of
+     perceptible perturbations against unauthorized data usage in          the IEEE/CVF International Conference on Computer Vision
+     diffusion-based generative AI. In Thirty-seventh Conference           (ICCV), pages 22466–22477, 2023. 3
+     on Neural Information Processing Systems, 2023. 3                [20] Xiaomeng Fu, Xi Wang, Qiao Li, Jin Liu, Jiao Dai, and
+                                                                           Jizhong Han. Model will tell: Training membership inference
+ [8] Nicholas Carlini and David Wagner. Towards evaluating the
+                                                                           for diffusion models. arXiv preprint arXiv:2403.08487, 2024.
+     robustness of neural networks. In 2017 ieee symposium on
+                                                                           5, 12, 13
+     security and privacy (sp), pages 39–57. Ieee, 2017. 5
+                                                                      [21] Shanghua Gao, Pan Zhou, Ming-Ming Cheng, and Shuicheng
+ [9] Nicholas Carlini, Florian Tramer, Eric Wallace, Matthew               Yan. Masked diffusion transformer is a strong image synthe-
+     Jagielski, Ariel Herbert-Voss, Katherine Lee, Adam Roberts,           sizer. In Proceedings of the IEEE/CVF International Confer-
+     Tom Brown, Dawn Song, Ulfar Erlingsson, et al. Extracting             ence on Computer Vision (ICCV), pages 23164–23173, 2023.
+     training data from large language models. In USENIX Security          14
+     Symposium, 2021. 3, 12
+                                                                      [22] Aditya Golatkar, Alessandro Achille, Ashwin Swaminathan,
+[10] Nicholas Carlini, Steve Chien, Milad Nasr, Shuang Song,               and Stefano Soatto. Training data protection with composi-
+     Andreas Terzis, and Florian Tramer. Membership inference              tional diffusion models, 2024. 3
+     attacks from first principles. In IEEE Symposium on Security     [23] Ian J. Goodfellow, Jean Pouget-Abadie, Mehdi Mirza, Bing
+     and Privacy. IEEE, 2022. 1, 3, 4, 6, 12, 17, 24                       Xu, David Warde-Farley, Sherjil Ozair, Aaron Courville, and
+[11] Nicolas Carlini, Jamie Hayes, Milad Nasr, Matthew Jagielski,          Yoshua Bengio. Generative adversarial networks, 2014. 1
+     Vikash Sehwag, Florian Tramer, Borja Balle, Daphne Ippolito,     [24] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffu-
+     and Eric Wallace. Extracting training data from diffusion             sion probabilistic models. Advances in Neural Information
+     models. In 32nd USENIX Security Symposium (USENIX                     Processing Systems, 2020. 3
+     Security 23), pages 5253–5270, 2023. 1, 4, 12                    [25] Minguk Kang, Jun-Yan Zhu, Richard Zhang, Jaesik Park, Eli
+[12] Mathilde Caron, Hugo Touvron, Ishan Misra, Hervé Jégou,             Shechtman, Sylvain Paris, and Taesung Park. Scaling up gans
+     Julien Mairal, Piotr Bojanowski, and Armand Joulin. Emerg-            for text-to-image synthesis. In Proceedings of the IEEE Con-
+     ing properties in self-supervised vision transformers. In Pro-        ference on Computer Vision and Pattern Recognition (CVPR),
+     ceedings of the IEEE/CVF international conference on com-             2023. 12
+     puter vision, pages 9650–9660, 2021. 5                           [26] Diederik P Kingma and Max Welling. Auto-encoding varia-
+[13] Jacob Cohen. Statistical Power Analysis for the Behavioral            tional bayes, 2022. 14
+     Sciences. Lawrence Erlbaum Associates, Hillsdale, NJ, 2nd        [27] Fei Kong, Jinhao Duan, RuiPeng Ma, Heng Tao Shen, Xi-
+     edition, 1988. 17                                                     aoshuang Shi, Xiaofeng Zhu, and Kaidi Xu. An efficient
+     membership inference attack for the diffusion model by prox-       [42] Aditya Ramesh, Prafulla Dhariwal, Alex Nichol, Casey Chu,
+     imal initialization. In The Twelfth International Conference            and Mark Chen. Hierarchical text-conditional image gener-
+     on Learning Representations, 2024. 3, 4, 12, 13, 17, 24                 ation with CLIP latents. arXiv preprint arXiv:2204.06125,
+[28] James T Kost and Michael P McDermott. Combining depen-                  2022. 1, 3
+     dent p-values. Statistics & Probability Letters, 60(2):183–190,    [43] Ali Razavi, Aaron van den Oord, and Oriol Vinyals. Generat-
+     2002. 6, 13                                                             ing diverse high-fidelity images with vq-vae-2. In Advances
+[29] Alex Krizhevsky. Learning multiple layers of features from              in Neural Information Processing Systems. Curran Associates,
+     tiny images. Technical report, 2009. 3                                  Inc., 2019. 14
+[30] Alex Krizhevsky et al. Learning multiple layers of features        [44] Reuters. Lawsuits accuse ai content creators of misus-
+     from tiny images. 2009. 13                                              ing copyrighted work. https://www.reuters.com/
+[31] Alina Kuznetsova, Hassan Rom, Neil Alldrin, Jasper Uijlings,            legal/transactional/lawsuits- accuse- ai-
+     Ivan Krasin, Jordi Pont-Tuset, Shahab Kamali, Stefan Popov,             content - creators - misusing - copyrighted -
+     Matteo Malloci, Alexander Kolesnikov, et al. The open im-               work-2023-01-17/, 2023. 1
+     ages dataset v4: Unified image classification, object detection,   [45] Reuters. Artists take new shot at stability, midjourney in up-
+     and visual relationship detection at scale. International jour-         dated copyright lawsuit. https://www.reuters.com/
+     nal of computer vision, 128(7):1956–1981, 2020. 14                      legal/litigation/artists- take- new- shot-
+[32] Zheng Li and Yang Zhang. Membership leakage in label-                   stability - midjourney - updated - copyright -
+     only exposures. In Proceedings of the 2021 ACM SIGSAC                   lawsuit-2023-11-30/, 2023. 1
+     Conference on Computer and Communications Security, page           [46] Reuters. Getty images lawsuit says stability ai misused pho-
+     880–895, New York, NY, USA, 2021. Association for Com-                  tos to train AI. https://www.reuters.com/legal/
+     puting Machinery. 5                                                     getty- images- lawsuit- says- stability- ai-
+[33] Guan-Horng Liu, Tianrong Chen, Evangelos Theodorou, and                 misused-photos-train-ai-2023-02-06/, 2023.
+     Molei Tao. Mirror diffusion models for constrained and                  1
+     watermarked generation. In Thirty-seventh Conference on
+                                                                        [47] Robin Rombach, Andreas Blattmann, Dominik Lorenz,
+     Neural Information Processing Systems, 2023. 3
+                                                                             Patrick Esser, and Björn Ommer. High-resolution image
+[34] Qihao Liu, Zhanpeng Zeng, Ju He, Qihang Yu, Xiaohui Shen,
+                                                                             synthesis with latent diffusion models. In IEEE/CVF Confer-
+     and Liang-Chieh Chen. Alleviating distortion in image genera-
+                                                                             ence on Computer Vision and Pattern Recognition, 2022. 1,
+     tion via multi-resolution diffusion models and time-dependent
+                                                                             2, 3, 4, 13, 14, 15
+     layer normalization. In Advances in Neural Information Pro-
+                                                                        [48] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-
+     cessing Systems (NeurIPS) 37, 2024. 14
+                                                                             net: Convolutional networks for biomedical image segmenta-
+[35] Ilya Loshchilov and Frank Hutter. Decoupled weight decay
+                                                                             tion. In Medical Image Computing and Computer-Assisted
+     regularization, 2019. 15
+                                                                             Intervention – MICCAI 2015, pages 234–241, Cham, 2015.
+[36] Scott M Lundberg and Su-In Lee. A unified approach to in-
+                                                                             Springer International Publishing. 15
+     terpreting model predictions. Advances in neural information
+     processing systems, 30, 2017. 17                                   [49] Alexandre Sablayrolles, Matthijs Douze, Cordelia Schmid,
+[37] Nanye Ma, Mark Goldstein, Michael S. Albergo, Nicholas M.               Yann Ollivier, and Hervé Jégou. White-box vs black-box:
+     Boffi, Eric Vanden-Eijnden, and Saining Xie. SiT: Exploring             Bayes optimal strategies for membership inference. In Inter-
+     Flow and Diffusion-Based Generative Models with Scalable                national Conference on Machine Learning, pages 5558–5567.
+     Interpolant Transformers. In Proceedings of the 18th Euro-              PMLR, 2019. 3
+     pean Conference on Computer Vision (ECCV), pages 23–40.            [50] Chitwan Saharia, William Chan, Saurabh Saxena, Lala Li, Jay
+     Springer, 2024. 14                                                      Whang, Emily Denton, Seyed Kamyar Seyed Ghasemipour,
+[38] Pratyush Maini, Mohammad Yaghini, and Nicolas Papernot.                 Burcu Karagol Ayan, S Sara Mahdavi, Rapha Gontijo Lopes,
+     Dataset inference: Ownership resolution in machine learning.            et al. Photorealistic text-to-image diffusion models with deep
+     In Proceedings of ICLR 2021: 9th International Conference               language understanding. arXiv preprint arXiv:2205.11487,
+     on Learning Representationsn, 2021. 2, 4, 6, 17                         2022. 1, 3
+[39] William Peebles and Saining Xie. Scalable diffusion models         [51] Ahmed Salem, Yang Zhang, Mathias Humbert, Pascal
+     with transformers. In Proceedings of the IEEE/CVF Inter-                Berrang, Mario Fritz, and Michael Backes. Ml-leaks: Model
+     national Conference on Computer Vision, pages 4195–4205,                and data independent membership inference attacks and de-
+     2023. 2, 4, 15                                                          fenses on machine learning models. In Proceedings 2019
+[40] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya                      Network and Distributed System Security Symposium. Inter-
+     Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry,                   net Society, 2019. 12
+     Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning         [52] Axel Sauer, Tero Karras, Samuli Laine, Andreas Geiger, and
+     transferable visual models from natural language supervision.           Timo Aila. StyleGAN-t: Unlocking the power of GANs for
+     In International Conference on Machine Learning, 2021. 3                fast large-scale text-to-image synthesis. In Proceedings of the
+[41] Aditya Ramesh, Mikhail Pavlov, Gabriel Goh, Scott Gray,                 40th International Conference on Machine Learning, pages
+     Chelsea Voss, Alec Radford, Mark Chen, and Ilya Sutskever.              30105–30118. PMLR, 2023. 12
+     Zero-shot text-to-image generation. In International Confer-       [53] Christoph Schuhmann, Romain Beaumont, Richard Vencu,
+     ence on Machine Learning, 2021. 1                                       Cade Gordon, Ross Wightman, Mehdi Cherti, Theo Coombes,
+     Aarush Katta, Clayton Mullis, Mitchell Wortsman, Patrick       [68] Yuxin Wen, John Kirchenbauer, Jonas Geiping, and Tom
+     Schramowski, Srivatsa Kundurthy, Katherine Crowson, Lud-            Goldstein. Tree-rings watermarks: Invisible fingerprints for
+     wig Schmidt, Robert Kaczmarczyk, and Jenia Jitsev. Laion-           diffusion images. In Advances in Neural Information Process-
+     5b: An open large-scale dataset for training next generation        ing Systems, pages 58047–58063. Curran Associates, Inc.,
+     image-text models, 2022. 14                                         2023. 3
+[54] Shawn Shan, Jenna Cryan, Emily Wenger, Haitao Zheng,           [69] Haotian Xue, Chumeng Liang, Xiaoyu Wu, and Yongxin
+     Rana Hanocka, and Ben Y. Zhao. Glaze: Protecting artists            Chen. Toward effective protection against diffusion-based
+     from style mimicry by Text-to-Image models. In 32nd                 mimicry through score distillation. In The Twelfth Interna-
+     USENIX Security Symposium (USENIX Security 23), pages               tional Conference on Learning Representations, 2024. 3
+     2187–2204, Anaheim, CA, 2023. USENIX Association. 3            [70] Samuel Yeom, Irene Giacomelli, Matt Fredrikson, and
+[55] Reza Shokri, Marco Stronati, Congzheng Song, and Vitaly             Somesh Jha. Privacy risk in machine learning: Analyzing
+     Shmatikov. Membership inference attacks against machine             the connection to overfitting. In IEEE Computer Security
+     learning models. In IEEE Symposium on Security and Privacy,         Foundations Symposium (CSF), 2018. 3, 13
+     2017. 1, 3, 12                                                 [71] Ning Yu, Vladislav Skripniuk, Sahar Abdelnabi, and Mario
+[56] Jascha Sohl-Dickstein, Eric Weiss, Niru Maheswaranathan,            Fritz. Artificial fingerprinting for generative models: Rooting
+     and Surya Ganguli. Deep unsupervised learning using                 deepfake attribution in training data. In IEEE International
+     nonequilibrium thermodynamics. In International Conference          Conference on Computer Vision (ICCV), 2021. 3
+     on Machine Learning, 2015. 1                                   [72] Shengfang Zhai, Huanran Chen, Yinpeng Dong, Jiajun Li,
+[57] Jiaming Song, Chenlin Meng, and Stefano Ermon. Denoising            Qingni Shen, Yansong Gao, Hang Su, and Yang Liu. Mem-
+     diffusion implicit models. In International Conference on           bership inference on text-to-image diffusion models via con-
+     Learning Representations, 2020. 12                                  ditional likelihood discrepancy. In Advances in Neural In-
+[58] Yang Song and Stefano Ermon. Improved techniques for train-         formation Processing Systems, pages 74122–74146. Curran
+     ing score-based generative models. In Advances in Neural            Associates, Inc., 2024. 14
+     Information Processing Systems, 2020. 3                        [73] Xiaosen Zheng, Tianyu Pang, Chao Du, Jing Jiang, and Min
+[59] Christian Szegedy, Wojciech Zaremba, Ilya Sutskever, Joan           Lin. Intriguing properties of data attribution on diffusion mod-
+     Bruna, Dumitru Erhan, Ian Goodfellow, and Rob Fergus.               els. In International Conference on Learning Representations
+     Intriguing properties of neural networks. 2014. 5                   (ICLR), 2024. 3
+[60] Midjourney Team. https://www.midjourney.com/,                  [74] Ciyou Zhu, Richard H. Byrd, Peihuang Lu, and Jorge Nocedal.
+     2022. 1                                                             Algorithm 778: L-bfgs-b: Fortran subroutines for large-scale
+[61] Florian Tramèr, Fan Zhang, Ari Juels, Michael K Reiter, and        bound-constrained optimization. ACM Transactions on Math-
+     Thomas Ristenpart. Stealing machine learning models via             ematical Software, 23(4):550–560, 1997. 5
+     prediction {APIs}. In 25th USENIX security symposium
+     (USENIX Security 16), pages 601–618, 2016. 4
+[62] Stacey Truex, Ling Liu, Mehmet Emre Gursoy, Lei Yu, and
+     Wenqi Wei. Demystifying membership inference attacks in
+     machine learning as a service. IEEE transactions on services
+     computing, 14(6):2073–2089, 2019. 3
+[63] Thanh Van Le, Hao Phung, Thuan Hoang Nguyen, Quan Dao,
+     Ngoc N. Tran, and Anh Tran. Anti-dreambooth: Protecting
+     users from personalized text-to-image synthesis. In Proceed-
+     ings of the IEEE/CVF International Conference on Computer
+     Vision (ICCV), pages 2116–2127, 2023. 3
+[64] Andreas Veit, Tomas Matera, Lukas Neumann, Jiri Matas, and
+     Serge Belongie. Coco-text: Dataset and benchmark for text
+     detection and recognition in natural images. arXiv preprint
+     arXiv:1601.07140, 2016. 4, 13
+[65] Vladimir Vovk and Ruodu Wang. Combining p-values via
+     averaging. 2019. 6, 13
+[66] Feifei Wang, Zhentao Tan, Tianyi Wei, Yue Wu, and Qidong
+     Huang. Simac: A simple anti-customization method for
+     protecting face privacy against text-to-image synthesis of
+     diffusion models, 2024. 3
+[67] Zhenting Wang, Chen Chen, Lingjuan Lyu, Dimitris N.
+     Metaxas, and Shiqing Ma. DIAGNOSIS: Detecting unau-
+     thorized data usages in text-to-image diffusion models. In
+     The Twelfth International Conference on Learning Represen-
+     tations, 2024. 3
+A. Broader Impact                                                 SecMIstat by Duan et al. [16]. The feature is based on
+                                                                  the assumption that the effect of the denoising process
+Our research addresses the pressing issue of verifying the        should restore member samples better than non-member
+ownership of data used for training large image generation        samples. Duan et al. [16] formalizes this idea by introducing
+models, as highlighted by recent legal disputes [5]. By in-       t-error, a metric that aims to approximate the estimation er-
+troducing CDI, we aim to enable data owners to verify if          ror of fθ on a given z. More specifically, t-error is defined as
+their data was (illegitimately) used for training DMs. Our        ∥ψ (ϕ (z̃ , t), t) − Φθ (z0 , t)∥22 , where ψθ (zt , t) = zt−1 =
+work contributes to a more transparent and accountable ML         √ θ θˆ t               √
+                                                                     ᾱt−1 fθ (zt , t) + 1 − ᾱt−1 fθ (zt ) is the DDIM [57] de-
+ecosystem, aligning with broader societal values of fair-                                                         √
+                                                                  noising step, ϕθ (zt , t) = zt+1 =
+                                                                  √                                                   ᾱt+1 fˆθ (zt , t) +
+ness and respect for data ownership. We anticipate CDI
+                                                                     1 − ᾱt+1 fθ (zt , t), is the DDIM sampling inverse step,
+will have a positive impact on both the ML community                                     √
+                                                                  fˆθ (zt , t) = zt − 1−      ᾱ f (z ,t)              Qt
+                                                                                            √ t θ t , ᾱt =
+and society, promoting responsible and fair development                                        ᾱt                        k=0 αk , and
+of ML models. We make our code available at https:                Φθ (zs , t) = ϕθ (· · · ϕθ (ϕθ (zs , s), s + 1), · · · , t − 1) is the
+//github.com/sprintml/copyrighted_data_                           deterministic reverse. t-error, intuitively, should hold lower
+identification.                                                   values for member samples.
+
+B. Limitations                                                    PIA by Kong et al. [27]. PIA builds on the notion that,
+                                                                  under DDIM sampling settings, given z and any zt , one can
+In this paper, we assess the effectiveness of CDI for image
+                                                                  determine the ground truth trajectory consisting of inter-
+generation DMs. Although we believe that our methodology
+                                                                  mediate zs , s ∈ (0, t). Subsequently, fθ learns to reflect
+extends well to other modalities such as text or video, we do
+                                                                  this trajectory and is more competent in it for members.
+not perform an experimental evaluation in these areas. Our
+                                                                  Capturing that difference can   √ act as√a membership signal,
+research focuses on diffusion models as the current state-of-
+                                                                  defined as ∥f  θ (z, 0) − f θ (  ᾱt z +  1 − ᾱt fθ (z, 0), t)∥5 ,
+the-art image generators widely employed in commercial                         Qt
+                                                                  where ᾱt = k=0 αk , and t = 200. The feature should be
+applications. While acknowledging the existence of alter-
+                                                                  lower for members.
+native generative image models, which have recently been
+shown to demonstrate comparable capabilities [25, 52], we
+choose to focus on DMs within the scope of our research.          PIAN by Kong et al. [27]. An important consideration
+We note that CDI requires at least gray-box access, i.e. DM’s     in PIA is that fθ (z, 0) follows a Gaussian, i.e., fθ (z, 0) ∼
+predictions at an arbitrary timestep t to be effective. This      N (0, I), as it should make the attack more performant. To
+limitation stems from the lack of reliable, strictly black-box    assure that, Kong et al. [27] propose PIAN (normalized PIA),
+MIA methods for DMs, i.e., methods that leverage only the         as an extension of their method. Formally, fˆθ (z, 0) = C ·
+                                                                  H · W π2 ∥ffθθ(z,0)∥
+                                                                                   (z,0)
+                                                                          p
+final generated image, while avoiding the pitfalls described                             1
+                                                                                           with C, H, W denoting the channels,
+in App. D.                                                        height, and width of the input sample, respectively. However,
+                                                                  our experiments in App. U and Sec. 5.1 indicate that this
+C. Additional Background                                          intuition does not translate to latent DMs, which is in line
+                                                                  with findings from the original paper [27].
+C.1. Previous Membership Inference Attacks
+     against DMs                                                  D. On the Mismatch in MIAs Results
+We present the previous MIAs against DM that provide the          Contrary to the promising results of SecMIstat , PIA, and
+initial set of features we use for our CDI.                       PIAN, our evaluation in App. U shows that these attacks
+                                                                  fail to reach performance significantly higher than random
+Denoising Loss by Carlini et al. [11]. The common intu-           guessing. The following is a methodological analysis of
+ition for utilizing the loss function of the model is that its    issues in the experimental setup proposed in [16, 20, 27].
+values should be lower for the training set (members) than        We identify three pitfalls in their experimental settings: (1)
+validation or test set (non-members). Formally, we follow         usage of toy models, (2) overfitting to the evaluation set,
+LiRA [10], and its extension to DMs [9], and for each sam-        and (3) distribution mismatch between members and non-
+ple, we compute ∥ϵ − fθ (zt , t)∥22 at t = 100. Note, that        members sets.
+zt is obtained by adding ϵ ∼ N (0, I) to the original z, a
+                                                                  D.1. Pitfall 1: Toy Models
+process which, by its stochasticity, introduces noise to ob-
+tained scores. Carlini et al. [9] suggest to address this issue   MIAs performance is directly correlated with the level of
+by computing the loss for five zt noised using different ϵ.       overfitting in the attacked model [51, 55]. Unfortunately, it
+The final feature is the mean of these five measurements.         is a common approach to evaluate the MIAs against DMs
+                                                                           KDE plots for DiT256 model with CDI (Ours)
+                16
+                         Size: 10, p-value: 8e-01                   Size: 100, p-value: 7e-02           Size: 1000, p-value: 4e-06                       Size: 10000, p-value: 4e-73
+                                                                                                    3.0                                            2.5
+                14                                        4
+                12                                                                                  2.5
+                                                                                                                                                   2.0
+                10                                        3                                         2.0
+
+      Density
+                                                                                                                                                   1.5
+                 8                                                                                  1.5
+                                                          2
+                 6                                                                                                                                 1.0
+                                                                                                    1.0
+                 4                                        1
+                                                                                                    0.5                                            0.5
+                 2
+                 0                                        0                                         0.0                                            0.0
+                     0.35 0.40 0.45 0.50 0.55 0.60 0.65       0.3      0.4    0.5   0.6       0.7      0.1 0.2 0.3   0.4   0.5   0.6   0.7   0.8           0.2    0.4     0.6    0.8
+                                   Score                                                  Members      Non-members
+
+                                                    Figure 5. KDE plots for varying |Ptest |. We use the DIT256 model.
+
+
+on very small toy models, trained or fine-tuned on small-                                                 t-tests 1000 times on features obtained from randomly sam-
+scale datasets like CIFAR10 [30], as it speeds up the infer-                                              pled subsets of P and U, aggregating the resulting p-values.
+ence. This in turn can lead to elevated performance which                                                 We consider various p-value aggregation methods as re-
+is further reported in published works [16, 20, 27], e.g., the                                            viewed by [28, 65], and make our final decision based on the
+TPR@FPR=1% at the level of 10% for SecMIstat and 30%                                                      specific context in which we apply CDI.
+for PIAN. We argue that evaluating any type of MIA in                                                         In our framework, we assume that CDI is executed by an
+such setting is flawed, and provides incorrect insight on the                                             arbitrator approached by a victim whose private data might
+performance of the proposed MIA.                                                                          have been used in the training of a DM. Each execution of
+    In contrast to previous works, we focus only on evaluating                                            the t-test represents data verification for a single data owner,
+success of CDI on non-overfitted large DMs from official                                                  with each p-value corresponding to the test outcome for an
+repositories, trained on high-scale datasets like ImageNet.                                               individual case. To appropriately represent the performance
+                                                                                                          of our method in this setting, we report p-values aggregated
+D.2. Pitfall 2: Overfitting to the Evaluation Set
+                                                                                                          using an arithmetic mean over the success for all data owners.
+SecMINNs [16] in its official implementation uses the evalua-                                                 This aggregation method is a conservative approach for
+tion set for selection of the best-performing classifier2 .                                               reporting our results (comparing to e.g., harmonic mean).
+                                                                                                          This is due to the vulnerability of the arithmetic mean to out-
+D.3. Pitfall 3: Mismatch in Distribution of Member
+                                                                                                          liers as the p-values are strictly positive, and the mean can be
+      and Non-Member Sets
+                                                                                                          saturated easily by a single large value. In contrast, harmonic
+Dubiński et al. [17] highlight the importance of members and                                             mean can be too easily brought down to almost zero by a
+non-members sets being indistinguishable from each other                                                  single good result which would overstate the success of our
+in order for the results of MIAs being reliable. Indeed, the                                              method.
+mismatch between these can be enough for any classification-
+based method to succeed, without the context of attacked                                                  F. Impact of the size of the Ptest on CDI confi-
+model. More importantly, a simple Loss attack [70] also                                                       dence
+benefits from this pitfall, as out-of-distribution (incorrect
+non-members) samples usually achieve significantly higher                                                 We present a visualization of the impact of the size of
+values of model loss objective than in-distribution samples                                               the Ptest on the confidence of CDI in Fig. 5. We sample
+(members, or correct non-members, e.g., test set). Unfortu-                                               n = 10, 100, 1000, 10000 samples randomly from Ptest and
+nately, Duan et al. [16] for evaluation of their SecMI, as well                                           Utest , and apply CDI. We observe that when we increase
+as Kong et al. [27] for PIA on SOTA Stable Diffusion [47]                                                 the size of Ptest the method becomes more stable and more
+utilize an external dataset, namely COCO [64], as their non-                                              confident. This is an inherent feature of statistical testing, a
+members set. In effect, it casts doubt on the reported success                                            core element of CDI.
+of their methods.
+    In our work we avoid this problem by using validation                                                 G. Additional Features
+sets of the DMs as the source of non-members samples.
+                                                                                                          As noted previously, Latent Diffusion Models represent the
+E. On Reporting p-values                                                                                  state-of-the-art in high-resolution image generation for DMs.
+                                                                                                          Such models are two-stage architectures, where the diffusion
+To ensure the reliability of the statistical test results reported                                        process occurs in the latent space of an autoencoder. This
+for CDI, we adopt the following approach. We repeat the                                                   observation introduces another potential angle for MIA on
+  2 https://github.com/jinhaoduan/SecMI/blob/main/                                                        latent DMs. We note that CDI can be extended by incor-
+mia_evals/secmia.py#L358                                                                                  porating signal from features specifically tailored for the
+autoencoder part of the model. However, it is important         tion method within CDI. First, in Table 4, we show that
+to recognize that the diffusion backbone and the autoen-        the performance of CLiD MIA remains limited for models
+coder are separate models, which can be trained on different    trained on ImageNet (first five columns). While it signifi-
+datasets. This necessitates caution when deciding whether       cantly outperforms previous MIAs, as compared to Tab. 12,
+to incorporate features extracted from the encoder. Nonethe-    it still does not allow reliable membership identification for
+less, in cases where both the autoencoder and the DM are        ImageNet-trained models. Note that we do not evaluate
+trained on the same dataset, we claim that the performance      CLiD on U-ViT256-Uncond, as it requires both conditional
+of CDI can be further boosted by incorporating membership       and unconditional inputs to the DM.
+signals from the autoencoder. To this end, we propose an
+additional feature that can be utilized in such scenarios.      Table 4. CLiD [72] MIA results at a TPR@FPR=1%. Values in
+    Autoencoder Reconstruction Loss (ARL). The goal             the table are in %.
+of this feature is to extract differences in the autoencoder
+reconstruction errors between members and non-members,              Model       LDM      U-ViT256       DiT-256   U-ViT512      DiT512    U-ViT256-T2I   U-ViT256-T2I-Deep
+
+where members should exhibit significantly lower errors.        TPR@FPR=1%      1.52       2.18          2.74       2.03         2.00         10.91            24.11
+
+
+To obtain the features, we first note that the current state-
+of-the-art DMs consist of the pixel and latent spaces [47].        Next, we employ features from CLiD in CDI and present
+For our ARL feature, we leverage the two-stage structure        in Table 5 that it further improves our method. This confirms
+of DMs and extract the membership signal directly in the        our premise from Section 4.2, that more meaningful features
+pixel space, which contains an autoencoder with the encoder     improve our method. It also demonstrates how CDI benefits
+part E and decoder D. Given an input image x, the encoder       from advancements in MIAs. When we extend CDI with
+E encodes x into a latent representation z = E(x). The          CLiD, the method needs as few as 30 samples to identify
+decoder D reconstruct the image from the latent z, yielding     data collections used in DM training.
+x̃ = D(z) = D(E(x)). The autoencoder reconstruction loss
+serves as the ARL feature computed as ||x − D(E(x))||22 .       Table 5. Effect of extending CDI with features extracted using
+    However, for all the models on which we perform our ex-     CLiD. We report the minimal sample size of P needed to confi-
+periments, the autoencoder was trained on different dataset     dently reject the null hypothesis with CDI.
+than the diffusion backbone. The LDM model utilizes VQ-
+VAE[43] trained by Rombach et al. [47] on the Open Images          Model      LDM      U-ViT256     DiT256      U-ViT512   DiT512       U-ViT256-T2I   U-ViT256-T2I-Deep
+
+Dataset V4 [31] dataset. All other models use KL autoen-          Base CDI
+                                                                  With CLiD
+                                                                              6000
+                                                                              4000
+                                                                                         3000
+                                                                                         700
+                                                                                                     2000
+                                                                                                     400
+                                                                                                                  2000
+                                                                                                                  2000
+                                                                                                                               1000
+                                                                                                                               700
+                                                                                                                                            200
+                                                                                                                                             50
+                                                                                                                                                              70
+                                                                                                                                                              30
+coder [26, 47] provided by Stablility AI [3]. This model
+was first trained on the Open Images Dataset V4 and then
+finetuned on subsets of LAION-Aesthetics [53] and LAION-
+Humans [53] datasets. To keep compatibility with existing       H.2. Extending CDI to novel DMs
+models trained by Stability AI, only the decoder part was
+                                                                With new DM architectures introduced, CDI can be applied
+finetuned. Accounting for the difference between the under-
+                                                                to a broader range of DMs. In Table 6, we evaluate the
+lying autoencoder and diffuser training datasets present in
+                                                                performance of CDI on SiT [37], MDT [21], and DiMR [34],
+all models on which we evaluate CDI we do not employ the
+                                                                and show that it successfully identifies the data collections
+ARL feature in our framework in this paper. However, we
+                                                                used in DM training.
+note that it constitutes another source of membership signal
+applicable in cases when both stages of the latent DM were
+                                                                Table 6. Performance of CDI on additional DMs. We report
+trained on the same dataset.
+                                                                the minimal sample size of P needed to confidently reject the null
+                                                                hypothesis with CDI.
+H. Extending CDI
+CDI provides an inherently flexible framework for identi-       Model SiT-XL/2 MDTv2-XL/2 MDTv1-XL/2 DiMR-XL/2R DiMR-G/2R
+
+fying data collections used in the training of DMs. In this      |P|          300                 300                    200                  2000                 2000
+section, we discuss how CDI can be extended with addi-
+tional feature extraction methods and applied to a broader
+range of DM architectures and data modalities.
+                                                                H.3. Extending CDI to other data modalities
+H.1. Extending CDI with features from novel MIAs
+                                                                CDI framework is inherently flexible and can be applied
+As the field advances, CDI can be extended with additional      to data modalities beyond images, such as text or audio.
+feature extraction methods based on novel MIAs. We demon-       This extension is straightforward due to the use of feature
+strate this by incorporating CLiD [72] as a feature extrac-     extraction methods that operate in the latent space of DMs.
+Table 7. Model details. We report the training details for the models used in this paper in the context of the minimal sample size of P needed
+to confidently reject the null hypothesis with CDI.
+
+                              LDM256 U-ViT256                 DiT256   U-ViT512     DiT512     U-ViT256-Uncond U-ViT256-T2I U-ViT256-T2I-Deep
+             Model parameters   395M     500M     675M     500M     676M                            44M            45M             58M
+              Training steps    178k     500k     400k     500k     400k                             1M             1M             1M
+                Batch size      1200     1024      256     1024      256                            256            256             256
+                 Dataset      ImageNet ImageNet ImageNet ImageNet ImageNet                         COCO           COCO            COCO
+               Dataset size     1.2M     1.2M     1.2M     1.2M     1.2M                            83k            83k             83k
+                Min. P size     6000           3000            2000       2000       1000            300           200             70
+
+
+Table 8. Feature extraction time for different features. Time in seconds is given for processing 1 batch of 64 samples on an A100 GPU.
+
+                                    LDM256 U-ViT256 DiT256 U-ViT512 DiT512 U-ViT256-Uncond U-ViT256-T2I U-ViT256-T2I-Deep
+                Denoising Loss         4.06           10.55       12.87      9.64     40.77           2.01          2.28            2.69
+                  SecMIstat            8.41           23.22       22.16     26.35     96.02           3.27          4.09            4.90
+                      PIA              5.21            6.45        6.87      8.77     26.04           1.72          2.24            2.56
+                     PIAN              5.58            6.93        7.22      9.21     28.04           1.94          2.42            2.78
+            Gradient Masking (GM)      31.90          81.67       72.42     90.33     110.57          9.14          11.56           15.49
+              Multiple Loss (ML)       7.11           20.28       18.42     22.55     70.28           2.92          3.45            4.26
+              Noise Optim (NO)         94.64          64.12       64.17     78.14     181.33         182.23        205.78          120.26
+
+
+
+I. Experimental Setup                                                                  ture differs from U-ViT256-T2I by having a larger number
+                                                                                       of transformer blocks (16 instead of 12). U-ViT256-T2I
+I.1. Models                                                                            and U-ViT256-T2I-Deep have 45M and 58M parameters
+We evaluate the effectiveness of CDI on publicly available                             respectively.
+state-of-the-art DMs. This section provides an overview of                                U-ViT256-Uncond - an unconditioned U-ViT-Small/4
+the models used in our experiments. For more detailed in-                              checkpoint trained on COCO dataset in 256x256 resolution.
+formation about these models and their training procedure,                             We train the model for 1.000.000 training steps, following the
+readers are encouraged to consult the original papers. Addi-                           configuration used by Bao et al. [6] for U-ViT256-T2I check-
+tionally, we make the model checkpoints readily accessible                             point. Namely, we use AdamW[35] optimizer (lr 2 × 10−5 ,
+for download to facilitate the replication of our results.                             weight decay 0.03, betas (0.99,0.99)) and batch size 256.
+   All models, with the exception of LDM256 utilize                                    U-ViT256-Uncond has 44M parameters.
+ViT[15] as the diffusion backbone. LDM256 uses the UNet
+architecture [48] instead, being prior work in the area of                             I.2. Compute Resources and Feature Extraction
+latent DMs.                                                                                 Time
+   LDM256 - a class-conditioned LDM checkpoint provided                                We compute our experiments on A100 80GB NVIDIA GPUs
+by Rombach et al. [47], trained on ImageNet dataset in                                 on an internal cluster, amounting to 150 GPU-hours. Train-
+256x256 resolution. The diffuser backbone of this model is                             ing the U-ViT256-Uncond model requires additional 80
+a UNet architecture with 395M parameters.                                              GPU-hours. We provide the time needed to extract features
+   DiT256, DiT512 - class-conditioned DiT-XL/2 check-                                  from a batch of 64 samples in Tab. 8. Fitting the scoring
+points provided by Peebles and Xie [39], trained on Ima-                               model s of CDI does not require GPU utilization and can be
+geNet dataset in 256x256 and 512x512 resolutions respec-                               executed in a negligible time (<10 seconds) on a CPU.
+tively. DiT256 has 675M parameters and DiT512 has 676M
+parameters.
+                                                                                       J. Model Details and CDI Effectiveness
+   U-ViT256, U-ViT512 - class-conditioned U-ViT-Huge/4
+checkpoints provided by Bao et al. [6], trained on ImageNet                            Based on Table 7 we make the following observations. (1)
+dataset in 256x256 and 512x512 resolutions respectively. U-                            For a given DM architecture, trained on a given dataset, the
+ViT256 has 500.8M parameters and U-ViT512 has 500.9M                                   number of samples required for the confident identification
+parameters.                                                                            of the training data decreases with increasing input resolu-
+   U-ViT256-T2I - a text-conditioned U-ViT-Small/4 check-                              tion. This phenomenon is clearly visible when comparing the
+point provided by Bao et al. [6], trained on COCO dataset in                           required number of samples for U-ViT256 and U-ViT512
+256x256 resolution.                                                                    and for DiT256 and DiT512 which differ only in the in-
+   U-ViT256-T2I-Deep - a text-conditioned U-ViT-Small/4-                               put image resolution (2) Models trained on smaller datasets
+Deep checkpoint provided by Bao et al. [6], trained on                                 exhibit stronger signal for identifying training data, as ev-
+COCO dataset in 256x256 resolution. The model architec-                                ident when contrasting the results on models trained with
+                                  100
+
+                                 10 1
+
+                       p-value
+                                 10 2
+
+                                 10 3
+                                                    101                              102                            103                              104
+                                                                                    Number of samples in P
+                                                                                          Model
+                                              100k               300k                 500k             700k                 900k                p-value: 0.05
+                                              200k               400k                 600k             800k                 1kk                 p-value: 0.01
+
+Figure 6. Results of CDI for U-ViT256-Uncond for different number of model’s training steps Solid lines indicate aggregated p-values
+aggregated over 1000 randomized trials for each size of P, shaded areas around the lines are 95% confidence intervals. The higher the
+number of the model’s training steps the fewer suspect samples are required from the data owner to confidently reject H0 .
+
+                                        LDM256                                       DiT512                                     U-ViT256-T2I                 Number of samples
+                                                                                                                                                                  50
+                10 1                                             10 1                                        10 1                                                 100
+                                                                                                                                                                  300
+                10 2                                             10 2                                        10 2                                                 500
+      p-value
+                                                                                                                                                                  1000
+                10 3                                             10 3                                        10 3                                                 3000
+                                                                                                                                                                  5000
+                10 4                                             10 4                                        10 4                                                 10000
+                                                                                                                                                                  p-value: 0.05
+                10 5                                             10 5                                        10 5                                                 p-value: 0.01
+                       0.0       0.2    0.4   0.6    0.8   1.0          0.0   0.2    0.4   0.6   0.8   1.0          0.0   0.2     0.4   0.6    0.8     1.0
+                                   Non-members ratio                            Non-members ratio                           Non-members ratio
+
+Figure 7. Impact of non-members ratio in P on CDI, and resilience against false positives. The lines represent p-values for a given
+non-member ratio while varying sizes of P. Note that for the non-members ratio of 1 (all samples in P are non-members), the p-values are
+always significantly above the significance level (α = 0.01), which means CDI does not return false positive answers.
+
+
+ImageNet (LDM, U-ViT256, U-ViT512, DiT256, DiT512)                                                  LDM256 and U-ViT256-T2I. CDI remains effective even
+and COCO dataset (U-ViT256-T2I, U-ViT256-T2I-Deep,                                                  when not all data samples are used as training data. i.e.,, P
+U-ViT256-Uncond).                                                                                   contains a certain ratio of non-members, while the remaining
+                                                                                                    samples in P are members. We observe that CDI demon-
+K. Number of Model Training Steps and CDI                                                           strates greater robustness in cases when part of P contains
+    Effectiveness                                                                                   non-members if the data owner supplies larger P. This is
+                                                                                                    evident in the decreasing p-value at a given non-members
+To assess the effect of the number of DM’s training steps                                           ratio as the size of P increases. Importantly, for the non-
+on CDI, we conduct the following experiment. We measure                                             members ratio of 1, the p-values are significantly above the
+the effectiveness of CDI for U-ViT256-Uncond model after                                            significance level (α = 0.01), which means CDI does not
+every 100,000 training steps. The results in Fig. 6 confirm                                         return false positive answers.
+that CDI is effective even for models trained for a limited
+number of steps. With enough samples provided by the
+data owner |P| = 2,000, CDI confidently rejects H0 for U-                                           M. Results under |P| and |U| imbalance
+ViT256-Uncond after just 100,000 training steps.
+                                                                                                    In practice, the training-to-test set ratio (|U |/|P |) is often
+L. More Results for the Non-members in P and                                                        much smaller than one. We analyze CDI’s performance in
+                                                                                                    such scenarios and find it remains effective even when the
+    False Positives
+                                                                                                    victim has access to fewer test samples (|U | < |P |). We
+We present the additional results on CDI’s robustness in                                            report the number of samples in P needed to reject H0 for
+cases when P contains (some) non-member samples in Fig. 7.                                          given ratios (|U | = ratio × |P |). Notably, an extreme set
+We expand Fig. 4 for DiT512 with experimental results for                                           imbalance can be mitigated by increasing P .
+Table 9. Performance of CDI under |U| and |P| imbalance. We report the minimal sample size of P needed to confidently reject the null
+hypothesis with CDI.
+
+                           |U|/|P| ratio LDM256 U-ViT256 DiT256 U-ViT512 DiT512 U-ViT256-T2I U-ViT256-T2I-Deep
+                           1.00               6000      3000   2000    2000   1000          200                 70
+                           0.90               6000      3000   2000    2000   2000          200                 70
+                           0.75               6000      3000   2000    3000   2000          200                 70
+                           0.50               6000      3000   2000    3000   2000          300                 90
+                           0.25               7000      4000   2000    4000   2000          400                200
+                           0.10               8000      5000   4000    6000   5000          800                300
+
+
+Table 10. Performance of CDI in gray- vs white-box model access. We depict the number of samples required from the data owner in Qtest
+to reject the null hypothesis for different model access scenarios. Our CDI framework remains effective when assuming the more restrictive
+gray-box model access, provided with larger P.
+
+                 Access Type      LDM256 U-ViT256 DiT256 U-ViT512 DiT512 U-ViT256-Uncond U-ViT256-T2I U-ViT256-T2I-Deep
+              Gray-Box Model        8000       3000     2000    4000   2000          400          200                70
+              White-Box Model       6000       3000     2000    2000   1000          300          200                70
+
+
+
+N. MIAs and their Model Access Types                                      function by SHAPley [36] summary plots in Fig. 8. The
+                                                                          results illustrate the model-specific nature of feature impor-
+We group features, which we use in CDI, into two categories,              tance. This highlights the necessity of a scoring function
+based on their respective access type. Because Gradient                   that can agnostically learn the optimal feature utilization for
+Masking and Noise Optimization utilize gradient calcula-                  each dataset and DM, leading to more confident and adapt-
+tions they require white-box access to the DM’s network                   able membership estimations, ultimately enhancing CDI’s
+weights. To execute the remaining feature extraction method               effectiveness.
+CDI needs only gray-box access, i.e., the ability to predict
+the noise added to a clean sample at an arbitrary timestep t.
+We specify the model access type per each feature in Tab. 11.
+                                                                          Q. From p-value to TPR@FPR=1%.
+                                                                          The ablation study on the importance of the statistical test-
+      Table 11. Each feature with its Model Access Type.                  ing in CDI we conduct in Sec. 5.2 requires us to transform
+                                                                          p-values returned by CDI to TPR@FPR=1% to directly
+                       MIA              Model Access Type
+                                                                          compare CDI with set-level MIA in Tab. 2. We note that the
+                Denoising Loss [10]         gray-box                      TPR of a statistical test is equivalent to its power. We esti-
+                  SecMIstat [16]            gray-box
+                      PIA [27]              gray-box                      mate the power by computing the effect size, using Cohen’s
+                     PIAN [27]
+                Multiple Loss (ML)
+                                            gray-box
+                                            gray-box
+                                                                          d [13], which is defined as d = x¯1 − s
+                                                                                                                   x¯2
+                                                                                                                       . x1 and x2 are the
+                                                                                                       q
+              Gradient Masking (GM)         white-box                                                    (n1 −1)s21 +(n2 −1)s22
+              Noise Optimization (NO)       white-box
+                                                                          observed scores, and s =            n1 +n2 −2         . n1 and n2
+                                                                          are the sizes of the population (here: the number
+                                                                                                                         Pnj of samples2
+                                                                          in P and U, respectively), and s2j = nj1−1 i=1       (x1,j − x¯j )
+                                                                          for j = 1, 2. After we obtain the effect size, we compute the
+O. Gray-box vs. White-box comparison
+                                                                          power of the t-test using a solver, setting α = 0.01 to get
+CDI remains effective even in a gray-box model access sce-                TPR@FPR=1%.
+nario. We assess the effectiveness of CDI within a gray-
+box model access scenario, as specified in our threat model               R. ROC curves of CDI
+(Sec. 4). In this setup, only the original MIA features and
+Multiple Loss are included, whereas the white-box model                   In Sec. 5.1, we evaluate CDI following the evaluation
+access setup leverages the full set of features. Our results in           methodology proposed for DI by [38]. In this section, we ad-
+Tab. 10 show that CDI maintains effectiveness under gray-                 ditionally extend this evaluation by analyzing CDI through
+box access, successfully rejecting the null hypothesis, though            ROC curves and true positive rates (TPR).
+it requires a larger sample size in P.                                       We build on Sec. 5.2 and Appendix Q, and obtain TPR
+                                                                          at varying FPR by sweeping over α values from 0 to 1. To
+P. Analysis of the scoring function                                       ensure stability of our results, for each size of P we sample
+                                                                          1000 subsets from P and U, compute the TPR, and finally
+Fig. 3 demonstrates the varying impact of features on CDI                 average the TPR to get the final value. We visualize our
+performance. We further aid our analysis of the scoring                   results in Fig. 9. Key takeaways from the figure are: (1) CDI
+               LDM256                                                U-ViT256                                           DiT256                                U-ViT512
+
+
+
+
+               DiT512                                             U-ViT256-Uncond                                    U-ViT256-T2I                         U-ViT256-T2I-Deep
+
+
+
+
+Figure 8. SHAPley plots for all models and features. The scoring functions have been trained using 5,000 members as Pctrl and 5,000
+non-members in Uctrl , The resulting plots are evaluated on 20,000 members in Ptest and 20,000 non-members in Utest to provide the most
+accurate results.
+
+                        |P| = 100                                                          |P| = 500                                                   |P| = 5000
+ 100                                                               100                                                                  100
+
+
+
+10 1                                Model: TPR@FPR=1%             10 1                                 Model: TPR@FPR=1%               10 1                          Model: TPR@FPR=1%
+                                       LDM256: 0.08                                                       LDM256: 0.19                                                    LDM256: 0.89
+                                       U-ViT256: 0.16                                                     U-ViT256: 0.53                                                  U-ViT256: 1.00
+                                       DiT256: 0.29                                                       DiT256: 0.85                                                    DiT256: 1.00
+                                       U-ViT512: 0.20                                                     U-ViT512: 0.59                                                  U-ViT512: 1.00
+10 2                                   DiT512: 0.29               10 2                                    DiT512: 0.85                 10 2                               DiT512: 1.00
+                                       U-ViT256-Uncond: 0.79                                              U-ViT256-Uncond: 1.00                                           U-ViT256-Uncond: 1.00
+                                       U-ViT256-T2I: 0.92                                                 U-ViT256-T2I: 1.00                                              U-ViT256-T2I: 1.00
+                                       U-ViT256-T2I-Deep: 1.00                                            U-ViT256-T2I-Deep: 1.00                                         U-ViT256-T2I-Deep: 1.00
+                                       Random: 0.01                                                       Random: 0.01                                                    Random: 0.01
+10 3 3                                                            10 3 3                                                               10 3 3
+   10         10 2                  10 1                    100      10             10 2               10 1                      100      10    10 2                  10 1                     100
+
+
+Figure 9. ROC curves of CDI. CDI achieves perfect performance with sufficiently large |P|. Resulting TPR@FPR=1% align with p-values
+we report in Fig. 2.
+
+achieves perfect performance given large enough |P|, even                                        ample, LDM256 for |P | = 5000 achieves p-values close
+at FPR=0%. (2) CDI is not over-confident. P-values we                                            to 0.01, and TPR@FPR=1% of 0.89. (3) In effect, CDI
+report in Fig. 2 align with the resulting TPR@FPR=1%,                                            is not susceptible to p-value hacking, i.e., the improvement
+thanks to the careful choice of α (ref. Sec. 4.3). Intuitively,                                  in CDI’s performance observed in CDI’s higher confidence
+low p-values correspond to high TPR@FPR=1%. For ex-                                              (lower p-value) signifies higher TPR at lower FPR.
+S. MIAs Fail on DI Task                                            models. For the ViT-based models we observe distortions
+                                                                   that are spread out throughout the image, while for the LDM
+In this experiment, we compare CDI to MIAs on the task of          (UNet-based model) the distortions are more local.
+DI. Similarly to set-level MIA we introduce in Sec. 5.2, we
+follow this procedure: We apply a MIA to each sample in the
+                                                                   Features. In Fig. 10 we analyze the distributions of the
+suspect set, returning Positive prediction if the score for any
+                                                                   features (reconstruction errors) throughout various timesteps,
+sample exceeds a certain threshold. Repeating this process
+                                                                   and then we compare them with the distribution obtained
+for every suspect set and varying the threshold yields a ROC
+                                                                   by aggregating these features with our scoring function. We
+curve for each MIA. Finally, we compare these ROC curves
+                                                                   note that the difference between members and non-members
+against the ROC curve for CDI, obtained as in App. R.
+                                                                   is negligible for singular features. However, after we aggre-
+   We sample 1000 P containing only member samples
+                                                                   gate them we observe a significant difference.
+(Positive) and 1000 P containing only non-member sam-
+ples (Negative). U remains unchanged, i.e., contains only          T.2. Noise Optim and Multiple Loss
+non-members. We vary the size of P for a more thorough
+                                                                   For these two features our findings are in line with the find-
+analysis and compute ROC curves.
+                                                                   ings for Gradient Masking. In Fig. 11 and Fig. 12 we visual-
+   We demonstrate in Fig. 16 that CDI achieves TPR orders
+                                                                   ize the distributions of singular features and the distributions
+of magnitude higher than MIAs on the DI task. Applying
+                                                                   after aggregation.
+single-sample MIAs to DI is challenging. Our experiments
+show MIAs are unstable, with high FPR due to set-wise confi-       T.3. Effect of aggregation on MIA and CDI perfor-
+dence swayed by a single high score. Notably, increasing the             mance
+size of P does not improve the performance. CDI’s statistical
+testing is robust by comparing distributions of membership         We compare the metrics for MIA and CDI when we use a
+scores and capturing subtle differences. Then, the applica-        singular feature vs when we aggregate the features. In Fig. 13
+tion of the t-test in CDI quantifies these differences, with the   we observe that while some singular features barely cross
+p-value serving as a reliable confidence measure.                  the threshold of random guessing (TPR=1%), the aggregate
+                                                                   provides better results (although the effectiveness is limited).
+                                                                   For CDI, in Fig. 14 we observe that aggregation allows us
+T. Further Applicability of Our Novel Features
+                                                                   to lower the p-value by orders of magnitude lower than the
+One of our contributions is the new features introduced            best singular feature can.
+in Sec. 4.1. As we use these features to fit our scoring func-
+tion, we can also use them to perform the default threshold        U. Further Evaluation of MIAs
+MIA. We introduce the detailed results of that experiment
+                                                                   The following summarizes an extensive evaluation effort for
+in App. U. Here, we analyze the characteristics of our fea-
+                                                                   MIAs utilizing existing, and, for completeness, our proposed
+tures.
+                                                                   novel features used as MIA. We follow identical setting as
+T.1. Gradient Masking                                              described in App. U, and extend the results by Area Under
+                                                                   the Curve (AUC) score (Table 14), and accuracy (Table 13).
+Recall, to obtain this feature we: (1) distort 20% of the input    To perform MIA on novel features we do the following: (1)
+image’s latent based on the absolute gradient values. (2) Use      Fit s on the features extracted from |Pctrl | = 5000 and |Uctrl |
+the DM to reconstruct the distorted part by performing a           = 5000. (2) Obtain predictions on Ptest and Utest . Importantly,
+single denoising step. (3) Compute L2 reconstruction loss          Ptest ∩Pctrl = ∅ and Utest ∩Uctrl = ∅. (3) Use these scores to
+over the distorted region.                                         run MIA. We include accuracy and AUC to better understand
+                                                                   the differences between the proposed features, as well as
+Visualization. We visualize the reconstruction effect              their impact on the CDI. In Fig. 17 we visualize the behavior
+in Fig. 15. We observe that: (1) the reconstructed mem-            of the Receiver Operating Characteristic (ROC) curve for all
+bers resemble semantics of the original images better than         features under MIA setting.
+the reconstructed non-members do. (2) For members and                 We note that, similarly to Fig. 3, Gradient Masking pro-
+non-members there is a notable decrease in the level of detail     vides stronger signal than Multiple Loss and Noise Opti-
+in the images after reconstruction, e.g., for U-ViT256-T2I-        mization, resulting in higher values of TPR@FPR=1%
+Deep we observe that for the member sample the details of          (Table 12), AUC, and accuracy in almost all cases. GM
+the painting and the table are gone. (3) The crude elements of     underperforms compared to ML only for U-ViT256 and
+the reconstructed images stay unchanged, e.g., for ImageNet        U-ViT512.
+models we can see that the reconstructed image contains a             We observe higher performance of MIAs for models
+dog (for the member sample), or a turtle in the grass (the         trained on smaller datasets, i.e., U-ViT256-Uncond, U-
+non-member). (4) Distortion is not uniform between the             ViT256-T2I, U-ViT256-T2I-Deep.
+                                                    KDE plots for U-ViT256-T2I-Deep model with Gradient Masking
+         Timestep: 0                           Timestep: 100                              Timestep: 200                                                 Aggregated
+                                        0.08                                                                                                                                       Members
+0.06                                                                               0.08                                                                                            Non-members
+                                        0.06                                       0.06
+0.04                                                                                                                           1.2
+                                        0.04                                       0.04
+0.02                                    0.02                                       0.02
+0.00                                    0.00                                       0.00                                        1.0
+              40             60                20                  40                      20                  40
+        Timestep: 300                          Timestep: 400                              Timestep: 500
+                                        0.08
+0.08                                                                               0.06                                        0.8
+0.06                                    0.06
+
+                                                                                                                     Density
+                                        0.04                                       0.04
+0.04
+0.02                                    0.02                                       0.02                                        0.6
+0.00                                    0.00                                       0.00
+             20         30         40               20         30                             20     30         40
+        Timestep: 600                          Timestep: 700                              Timestep: 800                        0.4
+
+0.06                                    0.06                                       0.06
+0.04                                    0.04                                       0.04                                        0.2
+
+0.02                                    0.02                                       0.02
+
+0.00                                    0.00                                       0.00                                        0.0
+        20                   40                      30        40            50                30    40        50                    0.0         0.2         0.4           0.6   0.8      1.0
+                                                                                                                                                                   Score
+
+Figure 10. KDEplots of the Gradient Masking features for timesteps, and after aggregation. The model used is U-ViT256-T2I-Deep.
+
+                                                         KDE plots for U-ViT256-T2I-Deep model with Multiple Loss
+             Timestep: 0                        Timestep: 100                             Timestep: 200                                                  Aggregated
+                                        0.06                                       0.06                                        1.6                                                 Members
+ 0.20                                                                                                                                                                              Non-members
+ 0.15                                   0.04                                       0.04
+                                                                                                                               1.4
+ 0.10
+                                        0.02                                       0.02
+ 0.05
+ 0.00                                   0.00                                       0.00                                        1.2
+                   65              70                30       40        50                20              40
+        Timestep: 300                   0.08
+                                                Timestep: 400                             Timestep: 500
+                                                                                                                               1.0
+ 0.06                                                                              0.08
+                                        0.06
+
+                                                                                                                     Density
+ 0.04                                                                              0.06
+                                        0.04                                                                                   0.8
+                                                                                   0.04
+ 0.02                                   0.02                                       0.02
+ 0.00                                   0.00                                       0.00                                        0.6
+              20                  40                     20        30                     10        20         30
+        Timestep: 600                           Timestep: 700                             Timestep: 800
+0.125                                                                              0.25                                        0.4
+0.100                                   0.15
+                                                                                   0.20
+0.075                                   0.10                                       0.15
+                                                                                                                               0.2
+0.050                                                                              0.10
+                                        0.05
+0.025                                                                              0.05
+0.000                                   0.00                                       0.00                                        0.0
+             10              20                       10           15         20          5              10                                0.2         0.4             0.6       0.8            1.0
+                                                                                                                                                                   Score
+
+  Figure 11. KDEplots of the Multiple Loss features for timesteps, and after aggregation. The model used is U-ViT256-T2I-Deep.
+                                           KDE plots for U-ViT256-T2I-Deep model with Noise Optimization
+                                     Error                               Norm                            Aggregated
+                      Members                                              0.07                                                                 2.5
+          0.10        Non-members
+                                                                           0.06                                                                 2.0
+          0.08                                                             0.05
+
+Density
+                                                                           0.04                                                                 1.5
+          0.06
+                                                                           0.03                                                                 1.0
+          0.04
+                                                                           0.02
+          0.02                                                                                                                                  0.5
+                                                                           0.01
+          0.00                                                             0.00                                                                 0.0
+                 30            35             40             45                     10            20        30          40           50                0.0         0.2     0.4     0.6        0.8
+                                     Score
+
+Figure 12. KDEplots of the Noise Optim features, and after aggregation. The model used is U-ViT256-T2I-Deep. Error refers to the
+reconstruction error obtained after optimization, and Norm is the L2 norm of added perturbation.
+
+                                                                                     TPR=0.01           Singular        Aggregated
+                               Gradient Masking                                                        Multiple Loss                                                Noise Optimization
+         0.014                                                                                                                                                                           0.014
+                                                                  0.013                                                              0.013
+         0.012
+
+         0.010
+
+         0.008
+TPR                                                                        TPR                                                                TPR
+         0.006
+
+         0.004
+
+         0.002
+
+         0.000
+                 0    0
+                     10   0
+                          20   0
+                               30   0
+                                    40   0
+                                         50   0
+                                              60   0
+                                                   70   0
+                                                        80    0
+                                                             90   eg
+                                                                       d            0    0
+                                                                                        10   0
+                                                                                             20    0
+                                                                                                  30    0
+                                                                                                       40   0
+                                                                                                            50   60 0 700  800   0
+                                                                                                                                90   eg
+                                                                                                                                          d                  ror           rm            eg
+                                                                                                                                                                                              d
+                                                                    ate                                                                ate                   Er           No               ate
+                                                                  gr                                                               gr                                                    gr
+                                                              Ag                                                                 Ag                                                  Ag
+
+
+Figure 13. TPR@FPR=1% (↑) for singular features, and after aggregation The model used is LDM256. For Gradient Masking and
+Multiple Loss the numerical values correspond to the timestep at which the feature is computed.
+
+                                                                                    pvalue=0.01          Singular           Aggregated
+                               Gradient Masking                                                        Multiple Loss                                                Noise Optimization
+          10 1
+
+          10 3
+
+          10 5
+
+
+pvalue                                                                     pvalue                                                             pvalue
+          10 7
+
+          10 9                                                    3e-10
+         10 11
+                                                                                                                                     1e-11                                               1e-11
+
+         10 13
+
+         10 15
+                                                                                                                                                             ror          No
+                 10
+                 20
+                 300
+                   0
+                   00                                                  d            10
+                                                                                    20
+                                                                                    300
+                                                                                      0
+                                                                                      00                                                  d                                                   d
+                 40
+                 50
+                 60
+                 70
+                 80
+                 900
+                   0
+                   0
+                   0
+                   0
+                   0                                              egate
+                                                                                    40
+                                                                                    50
+                                                                                    60
+                                                                                    70
+                                                                                    80
+                                                                                    900
+                                                                                      0
+                                                                                      0
+                                                                                      0
+                                                                                      0
+                                                                                      0                                              egate                   Er             rm           egate
+                                                                  gr                                                               gr                                                    gr
+                                                              Ag                                                                 Ag                                                  Ag
+
+
+Figure 14. P-values (↓) for singular features, and after aggregation The model used is LDM256. For Gradient Masking and Multiple
+Loss the numerical values correspond to the timestep at which the feature is computed.
+                      0
+                               Original (Members)            0
+                                                                     Distorted (Members)            0
+                                                                                                            Reconstructed (Members)           0
+                                                                                                                                                      Original (Non-members)           0
+                                                                                                                                                                                               Distorted (Non-members)           0
+                                                                                                                                                                                                                                         Reconstructed (Non-members)
+
+                     50                                     50                                     50                                        50                                       50                                        50
+
+
+                    100                                    100                                    100                                       100                                      100                                       100
+
+LDM256              150                                    150                                    150                                       150                                      150                                       150
+
+
+                    200                                    200                                    200                                       200                                      200                                       200
+
+
+                    250                                    250                                    250                                       250                                      250                                       250
+                          0   50   100   150   200   250         0   50   100   150   200   250         0    50    100   150   200    250         0    50   100   150   200    250         0    50    100   150   200    250         0      50    100   150   200   250
+                      0                                      0                                      0                                         0                                        0                                         0
+
+
+                     50                                     50                                     50                                        50                                       50                                        50
+
+
+                    100                                    100                                    100                                       100                                      100                                       100
+
+U-ViT256            150                                    150                                    150                                       150                                      150                                       150
+
+
+                    200                                    200                                    200                                       200                                      200                                       200
+
+
+                    250                                    250                                    250                                       250                                      250                                       250
+                          0   50   100   150   200   250         0   50   100   150   200   250         0    50    100   150   200    250         0    50   100   150   200    250         0    50    100   150   200    250         0      50    100   150   200   250
+                      0                                      0                                      0                                         0                                        0                                         0
+
+
+                     50                                     50                                     50                                        50                                       50                                        50
+
+
+                    100                                    100                                    100                                       100                                      100                                       100
+
+DiT256
+                    150                                    150                                    150                                       150                                      150                                       150
+
+
+                    200                                    200                                    200                                       200                                      200                                       200
+
+
+                    250                                    250                                    250                                       250                                      250                                       250
+                          0   50   100   150   200   250         0   50   100   150   200   250         0    50    100   150   200    250         0    50   100   150   200    250         0    50    100   150   200    250         0      50    100   150   200   250
+                      0                                      0                                      0                                         0                                        0                                         0
+
+
+                     50                                     50                                     50                                        50                                       50                                        50
+
+
+                    100                                    100                                    100                                       100                                      100                                       100
+
+U-ViT512            150                                    150                                    150                                       150                                      150                                       150
+
+
+                    200                                    200                                    200                                       200                                      200                                       200
+
+
+                    250                                    250                                    250                                       250                                      250                                       250
+                          0   50   100   150   200   250         0   50   100   150   200   250         0    50    100   150   200    250         0    50   100   150   200    250         0    50    100   150   200    250         0      50    100   150   200   250
+                      0                                      0                                      0                                         0                                        0                                         0
+
+
+                     50                                     50                                     50                                        50                                       50                                        50
+
+
+                    100                                    100                                    100                                       100                                      100                                       100
+
+DiT512
+                    150                                    150                                    150                                       150                                      150                                       150
+
+
+                    200                                    200                                    200                                       200                                      200                                       200
+
+
+                    250                                    250                                    250                                       250                                      250                                       250
+                          0   50   100   150   200   250         0   50   100   150   200   250         0    50    100   150   200    250         0    50   100   150   200    250         0    50    100   150   200    250         0      50    100   150   200   250
+                      0                                      0                                      0                                         0                                        0                                         0
+
+
+                     50                                     50                                     50                                        50                                       50                                        50
+
+
+
+
+U-ViT256-Uncond
+                    100                                    100                                    100                                       100                                      100                                       100
+
+
+                    150                                    150                                    150                                       150                                      150                                       150
+
+
+                    200                                    200                                    200                                       200                                      200                                       200
+
+
+                    250                                    250                                    250                                       250                                      250                                       250
+                          0   50   100   150   200   250         0   50   100   150   200   250         0    50    100   150   200    250         0    50   100   150   200    250         0    50    100   150   200    250         0      50    100   150   200   250
+                      0                                      0                                      0                                         0                                        0                                         0
+
+
+                     50                                     50                                     50                                        50                                       50                                        50
+
+
+
+
+U-ViT256-T2I
+                    100                                    100                                    100                                       100                                      100                                       100
+
+
+                    150                                    150                                    150                                       150                                      150                                       150
+
+
+                    200                                    200                                    200                                       200                                      200                                       200
+
+
+                    250                                    250                                    250                                       250                                      250                                       250
+                          0   50   100   150   200   250         0   50   100   150   200   250         0    50    100   150   200    250         0    50   100   150   200    250         0    50    100   150   200    250         0      50    100   150   200   250
+                      0                                      0                                      0                                         0                                        0                                         0
+
+
+                     50                                     50                                     50                                        50                                       50                                        50
+
+
+
+
+U-ViT256-T2I-Deep
+                    100                                    100                                    100                                       100                                      100                                       100
+
+
+                    150                                    150                                    150                                       150                                      150                                       150
+
+
+                    200                                    200                                    200                                       200                                      200                                       200
+
+
+                    250                                    250                                    250                                       250                                      250                                       250
+                          0   50   100   150   200   250         0   50   100   150   200   250         0    50    100   150   200    250         0    50   100   150   200    250         0    50    100   150   200    250         0      50    100   150   200   250
+
+
+
+
+Figure 15. Effect of the reconstruction method for the Gradient Masking. The images in the figure are distorted using noise scale
+corresponding to the timestep=500, and are denoised using the same timestep. The images differ between models due to the difference in
+their respective training datasets (ImageNet and COCO2017).
+              LDM256, |P| = 50                             LDM256, |P| = 100                            LDM256, |P| = 500                                    LDM256, |P| = 1000                              LDM256, |P| = 5000                          LDM256, |P| = 10000
+ 100                                          100                                          100                                             100                                                   100                                          100
+
+
+
+
+10 1                                         10 1                                         10 1                                            10 1                                                  10 1                                         10 1
+
+
+
+
+10 2                                         10 2                                         10 2                                            10 2                                                  10 2                                         10 2
+
+
+
+                                  Random                                       Random                                        Random                                                  Random                                       Random                                      Random
+10 3 3                                       10 3 3                                       10 3 3                                          10 3 3                                                10 3 3                                       10 3 3
+   10          10 2      10 1          100      10           10 2      10 1         100      10           10 2        10 1          100      10                 10 2         10 1         100      10           10 2      10 1         100      10           10 2      10 1        100
+             U-ViT256, |P| = 50                           U-ViT256, |P| = 100                          U-ViT256, |P| = 500                                   U-ViT256, |P| = 1000                           U-ViT256, |P| = 5000                         U-ViT256, |P| = 10000
+ 100                                          100                                          100                                             100                                                   100                                          100
+
+
+
+
+10 1                                         10 1                                         10 1                                            10 1                                                  10 1                                         10 1
+
+
+
+
+10 2                                         10 2                                         10 2                                            10 2                                                  10 2                                         10 2
+
+
+
+                                  Random                                       Random                                        Random                                                  Random                                       Random                                      Random
+10 3 3                                       10 3 3                                       10 3 3                                          10 3 3                                                10 3 3                                       10 3 3
+   10          10 2      10 1          100      10           10 2      10 1         100      10           10 2        10 1          100      10                 10 2         10 1         100      10           10 2      10 1         100      10           10 2      10 1        100
+              DiT256, |P| = 50                             DiT256, |P| = 100                            DiT256, |P| = 500                                     DiT256, |P| = 1000                             DiT256, |P| = 5000                           DiT256, |P| = 10000
+ 100                                          100                                          100                                             100                                                   100                                          100
+
+
+
+
+10 1                                         10 1                                         10 1                                            10 1                                                  10 1                                         10 1
+
+
+
+
+10 2                                         10 2                                         10 2                                            10 2                                                  10 2                                         10 2
+
+
+
+                                  Random                                       Random                                        Random                                                  Random                                       Random                                      Random
+10 3 3                                       10 3 3                                       10 3 3                                          10 3 3                                                10 3 3                                       10 3 3
+   10          10 2      10 1          100      10           10 2      10 1         100      10           10 2        10 1          100      10                 10 2         10 1         100      10           10 2      10 1         100      10           10 2      10 1        100
+             U-ViT512, |P| = 50                           U-ViT512, |P| = 100                          U-ViT512, |P| = 500                                   U-ViT512, |P| = 1000                           U-ViT512, |P| = 5000                         U-ViT512, |P| = 10000
+ 100                                          100                                          100                                             100                                                   100                                          100
+
+
+
+
+10 1                                         10 1                                         10 1                                            10 1                                                  10 1                                         10 1
+
+
+
+
+10 2                                         10 2                                         10 2                                            10 2                                                  10 2                                         10 2
+
+
+
+                                  Random                                       Random                                        Random                                                  Random                                       Random                                      Random
+10 3 3                                       10 3 3                                       10 3 3                                          10 3 3                                                10 3 3                                       10 3 3
+   10          10 2      10 1          100      10           10 2      10 1         100      10           10 2        10 1          100      10                 10 2         10 1         100      10           10 2      10 1         100      10           10 2      10 1        100
+              DiT512, |P| = 50                             DiT512, |P| = 100                            DiT512, |P| = 500                                     DiT512, |P| = 1000                             DiT512, |P| = 5000                           DiT512, |P| = 10000
+ 100                                          100                                          100                                             100                                                   100                                          100
+
+
+
+
+10 1                                         10 1                                         10 1                                            10 1                                                  10 1                                         10 1
+
+
+
+
+10 2                                         10 2                                         10 2                                            10 2                                                  10 2                                         10 2
+
+
+
+                                  Random                                       Random                                        Random                                                  Random                                       Random                                      Random
+10 3 3                                       10 3 3                                       10 3 3                                          10 3 3                                                10 3 3                                       10 3 3
+   10          10 2      10 1          100      10           10 2      10 1         100      10           10 2        10 1          100      10                 10 2         10 1         100      10           10 2      10 1         100      10           10 2      10 1        100
+         U-ViT256-Uncond, |P| = 50                    U-ViT256-Uncond, |P| = 100                   U-ViT256-Uncond, |P| = 500                      U-ViT256-Uncond, |P| = 1000                           U-ViT256-Uncond, |P| = 5000                 U-ViT256-Uncond, |P| = 10000
+ 100                                          100                                          100                                             100                                                   100                                          10   0
+
+
+
+
+10 1                                         10 1                                         10 1                                            10 1                                                  10 1                                         10 1
+
+
+
+
+10 2                                         10 2                                         10 2                                            10 2                                                  10 2                                         10 2
+
+
+
+                                  Random                                       Random                                        Random                                                  Random                                       Random                                      Random
+10 3 3                                       10 3 3                                       10 3 3                                          10 3 3                                                10 3 3                                       10 3 3
+   10          10 2      10 1          100      10           10 2      10 1         100      10           10 2        10 1          100      10                 10 2         10 1         100      10           10 2      10 1         100      10           10 2      10 1        100
+           U-ViT256-T2I, |P| = 50                       U-ViT256-T2I, |P| = 100                      U-ViT256-T2I, |P| = 500                           U-ViT256-T2I, |P| = 1000                            U-ViT256-T2I, |P| = 5000                    U-ViT256-T2I, |P| = 10000
+ 100                                          100                                          100                                             100                                                   100                                          100
+
+
+
+
+10 1                                         10 1                                         10 1                                            10 1                                                  10 1                                         10 1
+
+
+
+
+10 2                                         10 2                                         10 2                                            10 2                                                  10 2                                         10 2
+
+
+
+                                  Random                                       Random                                        Random                                                  Random                                       Random                                      Random
+10 3 3                                       10 3 3                                       10 3 3                                          10 3 3                                                10 3 3                                       10 3 3
+   10          10 2      10 1          100      10           10 2      10 1         100      10           10 2        10 1          100      10                 10 2         10 1         100      10           10 2      10 1         100      10           10 2      10 1        100
+         U-ViT256-T2I-Deep, |P| = 50                  U-ViT256-T2I-Deep, |P| = 100                 U-ViT256-T2I-Deep, |P| = 500                   U-ViT256-T2I-Deep, |P| = 1000                         U-ViT256-T2I-Deep, |P| = 5000                U-ViT256-T2I-Deep, |P| = 10000
+ 100                                          100                                          100                                             10   0                                                10   0                                       10   0
+
+
+
+
+10 1                                         10 1                                         10 1                                            10 1                                                  10 1                                         10 1
+
+
+
+
+10 2                                         10 2                                         10 2                                            10 2                                                  10 2                                         10 2
+
+
+
+                                  Random                                       Random                                        Random                                                  Random                                       Random                                      Random
+10 3 3                                       10 3 3                                       10 3 3                                          10 3 3                                                10 3 3                                       10 3 3
+   10          10 2      10 1          100      10           10 2      10 1         100      10           10 2        10 1          100      10                 10 2         10 1         100      10           10 2      10 1         100      10           10 2      10 1        100
+
+
+
+
+                                                                    Figure 16. Comparison of CDI and MIAs on the DI tasks.
+                                                                                                                                      Attack
+                                                                                                         CDI (Ours)      Denoising Loss          SecMIstat             PIA    PIAN
+Table 12. MIA results at a TPR@FPR=1%. Values in the table are in %. We include the performance of MIAs using our novel features
+and note that they perform comparably with the SOTA PIA method, or even outperform it in some cases.
+
+                                 LDM256      U-ViT256     DiT256      U-ViT512     DiT512     U-ViT256-Uncond U-ViT256-T2I U-ViT256-T2I-Deep
+          Denoising Loss [10]   1.23±0.10    1.22±0.10   1.34±0.12    1.61±0.12   1.78±0.12      1.72±0.15      1.73±0.14      2.25±0.20
+            SecMIstat [16]      1.17±0.11    1.17±0.11   1.31±0.14    1.26±0.10   1.16±0.13      1.67±0.19      1.78±0.14      2.41±0.24
+               PIA [27]         1.12±0.09    1.18±0.10   1.54±0.13    1.25±0.13   1.14±0.13      2.79±0.20      2.84±0.22      5.57±0.41
+              PIAN [27]         0.88±0.09    1.18±0.10   0.96±0.10    1.52±0.12   1.13±0.10      0.88±0.10      0.87±0.09      0.78±0.09
+           Gradient Masking     1.32±0.12    1.20±0.12   1.83±0.15    1.07±0.12   1.28±0.12      2.56±0.16      2.98±0.22      4.71±0.30
+             Multiple Loss      1.31±0.11    1.43±0.14   1.57±0.14    1.43±0.10   1.48±0.13      2.39±0.18      2.19±0.26      3.10±0.28
+          Noise Optimization    1.39±0.11    1.67±0.13   1.35±0.12    1.25±0.16   1.25±0.13      1.63±0.13      1.66±0.15      1.81±0.17
+
+
+
+
+Table 13. Accuracy of MIA on all features. Values are in %. Here we observe that all novel features outperform already existing ones.
+Note that for all models trained on ImageNet (first five columns from the left) we observe results very close to 50%, essentially random
+guessing. For models trained on COCO (remaining three columns on the right) we observe an improvement for Gradient Masking and
+Multiple Loss, while the MIAs from Sec. 3.1 remain close to 50%.
+
+                                LDM256      U-ViT256      DiT256       U-ViT512      DiT512     U-ViT256-Uncond U-ViT256-T2I U-ViT256-T2I-Deep
+        Denoising Loss [10]   50.02±0.01    50.07±0.03   50.09±0.03   50.14±0.04   50.20±0.04      50.01±0.01     50.01±0.01     50.01±0.01
+          SecMIstat [16]      50.03±0.03    50.04±0.04   50.17±0.20   50.03±0.09   49.97±0.04      52.92±2.89     50.40±0.50     53.57±3.55
+             PIA [27]         50.01±0.01    50.02±0.03   50.28±0.06   50.02±0.03   50.03±0.03      50.07±0.02     50.03±0.01     50.03±0.01
+            PIAN [27]         49.51±0.12    49.87±0.06   49.81±0.07   49.82±0.17   49.80±0.13      50.02±0.15     50.10±0.15     50.05±0.12
+         Gradient Masking     50.00±0.01    50.01±0.01   51.61±0.46   50.00±0.01   50.78±0.13      53.60±0.60     55.26±0.68     61.85±0.30
+           Multiple Loss      50.07±0.07    50.00±0.01   50.08±0.06   50.00±0.00   50.06±0.06      52.75±0.19     53.70±0.29     59.79±0.26
+        Noise Optimization    50.00±0.00    50.00±0.00   50.00±0.00   50.09±0.04   50.00±0.00      50.03±0.02     50.24±0.06     52.72±0.20
+
+
+
+
+Table 14. AUC score for MIAs. We observe that for this metric PIA outperforms all standalone features for models trained on COCO (last
+three columns on the right) while MIAs based on Gradient Masking, Multiple Loss and Noise Optim achieve better performance for models
+trained on ImageNet (first five columns on the left) in almost all cases.
+
+                                LDM256      U-ViT256      DiT256       U-ViT512      DiT512     U-ViT256-Uncond U-ViT256-T2I U-ViT256-T2I-Deep
+        Denoising Loss [10]   50.55±0.28    50.29±0.30   51.71±0.29   49.99±0.29   50.19±0.29      56.47±0.28     57.38±0.28     60.77±0.29
+          SecMIstat [16]      49.59±0.28    53.06±0.29   55.22±0.28   50.92±0.30   50.69±0.30      59.28±0.29     61.56±0.28     69.20±0.26
+             PIA [27]         49.02±0.29    51.65±0.29   53.07±0.29   50.79±0.29   49.98±0.29      59.97±0.27     63.99±0.28     71.18±0.25
+            PIAN [27]         49.41±0.28    50.69±0.29   49.88±0.28   49.82±0.28   49.07±0.29      49.63±0.30     49.68±0.29     49.35±0.28
+         Gradient Masking     51.66±0.29    53.06±0.29   54.83±0.29   53.67±0.29   56.05±0.28      59.36±0.29     59.88±0.28     66.80±0.27
+           Multiple Loss      51.77±0.30    53.63±0.29   54.16±0.30   52.30±0.30   52.98±0.29      58.17±0.29     58.93±0.28     64.26±0.27
+        Noise Optimization    51.85±0.29    52.73±0.29   52.15±0.29   54.09±0.29   51.93±0.29      54.28±0.28     55.51±0.29     58.04±0.27
+          100
+                         LDM256                 100
+                                                                 U-ViT256              100
+                                                                                                      DiT256                    100
+                                                                                                                                                U-ViT512
+
+
+
+         10 1                                  10 1                                   10 1                                     10 1
+
+
+   TPR
+
+         10 2                                  10 2                                   10 2                                     10 2
+
+
+
+
+         10 3 3                                10 3 3                                 10 3 3                                   10 3 3
+            10    10 2            10 1   100      10      10 2          10 1    100      10    10 2            10 1      100      10     10 2          10 1   100
+                          FPR
+          100
+                         DiT512                 100
+                                                          U-ViT256-Uncond              100
+                                                                                                U-ViT256-T2I                    100
+                                                                                                                                        U-ViT256-T2I-Deep
+
+
+
+         10 1                                  10 1                                   10 1                                     10 1
+
+
+
+
+         10 2                                  10 2                                   10 2                                     10 2
+
+
+
+
+         10 3 3                                10 3 3                                 10 3 3                                   10 3 3
+            10    10 2            10 1   100      10      10 2          10 1    100      10    10 2            10 1      100      10     10 2          10 1   100
+
+
+
+                                                                               Attack
+                                         Denoising Loss               PIA        Gradient Masking               Noise Optimization
+                                         SecMIstat                    PIAN       Multiple Loss                  Random
+
+Figure 17. ROC curves for MIAs against all models. X- and Y-axis are in logarithmic scale. We observe that for DMs trained on ImageNet
+the TPR in low FPR regime (< 1%) is not better than random guessing, while for the models trained on COCO (last three from the right in
+the bottom row) all methods but PIAN achieve results significantly better than random chance.
+

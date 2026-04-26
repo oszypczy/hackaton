@@ -1,0 +1,900 @@
+                                                 Efficient Model-Stealing Attacks Against Inductive
+                                                              Graph Neural Networks
+                                                              Marcin Podhajskia,b, * , Jan Dubińskia,c , Franziska Boenischd , Adam Dziedzicd ,
+                                                                          Agnieszka Pregowskab and Tomasz P. Michalaka,e
+                                                                                 a IDEAS NCBR, 00-801 Warsaw, Poland
+                                          b Institute of Fundamental Technological Research, Polish Academy of Sciences, Pawińskiego 5B, 02-106 Warsaw, Poland
+                                              c Warsaw University of Technology, Faculty of Electronics and Information Technology, 00-661 Warsaw, Poland
+                                                                                    d CISPA, 66123 Saarbrücken, Germany
+                                                     e University of Warsaw, Faculty of Mathematics, Informatics and Mechanics, 00-927 Warsaw, Poland
+
+
+
+
+arXiv:2405.12295v4 [cs.LG] 19 Nov 2024
+                                         Abstract. Graph Neural Networks (GNNs) are recognized as po-              a) existing methods
+                                         tent tools for processing real-world data organized in graph struc-                                         victim
+                                         tures. Especially inductive GNNs, which allow for the processing                                            model
+                                         of graph-structured data without relying on predefined graph struc-                                                                      one-to-one
+                                         tures, are becoming increasingly important in a wide range of appli-                                                                     supervised
+                                                                                                                                                                                   learning
+                                         cations. As such these networks become attractive targets for model-
+                                         stealing attacks where an adversary seeks to replicate the function-                                      surrogate
+                                                                                                                                                    model
+                                         ality of the targeted network. Significant efforts have been devoted
+                                         to developing model-stealing attacks that extract models trained on
+                                         images and texts. However, little attention has been given to steal-      b) our proposed method
+                                         ing GNNs trained on graph data. This paper identifies a new method
+                                         of performing unsupervised model-stealing attacks against inductive                                         victim
+                                                                                                                                                     model
+                                         GNNs, utilizing graph contrastive learning and spectral graph aug-
+                                         mentations to efficiently extract information from the targeted model.                                                                   one-to-many
+                                                                                                                         spectral
+                                         The new type of attack is thoroughly evaluated on six datasets and                                                                        contrastive
+                                                                                                                         augment
+                                                                                                                                                                                    learning
+                                         the results show that our approach outperforms the current state-
+                                                                                                                                                   surrogate
+                                         of-the-art by Shen et al. (2021). In particular, our attack surpasses                                      model
+                                         the baseline across all benchmarks, attaining superior fidelity and
+                                         downstream accuracy of the stolen model while necessitating fewer
+                                         queries directed toward the target model.1                                                        query node                postive pair
+                                                                                                                                           neighbor node             negative pair
+
+                                         1   Introduction                                                          Figure 1. Existing model stealing methods rely on aligning only the predic-
+                                                                                                                   tions for individual graph nodes sent to the victim and surrogate model. The
+                                         Graph Neural Networks (GNNs) are specifically designed to oper-           new method identified in this paper greatly increases the amount of informa-
+                                         ate on graph-structured data, such as molecules, social networks or       tion extracted from the victim model outputs. We align the node representa-
+                                         complex infrastructure [8, 41, 28]. Unlike models developed for im-       tion from the surrogate model with the corresponding representation from the
+                                         ages or text, GNNs simultaneously consider both node features and         victim model while simultaneously distinguishing it from the representation
+                                         graph structures. GNNs have garnered significant attention for their      of other nodes. By integrating spectral augmentations to augment the graph
+                                         effectiveness in tasks involving structured data. A major advantage       inputs of the surrogate models during its training process, we further increase
+                                         of GNNs is their ability to scale to large graphs while preserving        the efficiency of the stealing process per query sent to the victim model.
+                                         computational efficiency. However, it is also well-documented that
+                                         Machine Learning (ML) models, including GNNs, are vulnerable to           local surrogate model is then trained to mimic the outputs of the tar-
+                                         model stealing attacks [34, 14, 6], where an adversary with query         get model for the same input data. Consequently, the surrogate model
+                                         access to a target (victim) model can extract its parameters or func-     not only compromises the intellectual property of the target model
+                                         tionality, often at a fraction of the cost required to train the model    but also potentially enables further attacks, such as extracting private
+                                         from scratch.                                                             training data [22] or constructing adversarial examples [26].
+                                            In such scenarios, the adversary sends a series of queries as inputs      It is worth stressing that the majority of the current efforts on
+                                         to the target model’s API and obtains the corresponding outputs. A        model stealing attacks concentrate on ML models for images and
+                                         ∗ Corresponding Author. Email: marcin.podhajski@ideas-ncbr.pl             text data [34, 24, 37, 18]. Despite the growing significance of
+                                         1 Code available at https://github.com/m-podhajski/EfficientGNNStealing
+                                                                                                                   GNNs, model-stealing attacks against these types of neural networks
+are severely underexplored compared to image or text models. To             2   Preliminaries
+our knowledge, only one study [33] addresses attacks on inductive
+GNNs, i.e. a type of model that can generalize well to unseen nodes.        Table 1. Notations used in the presented paper. Lowercase letters
+The authors define the threat model for model stealing attacks on           denote scalars, bold lowercase letters denote vectors and bold upper-
+inductive GNNs and describe six attack methods based on the adver-          case letters denote matrices.
+sary’s background knowledge and the responses of the target models.
+                                                                                  Notation              Description
+During the attack, the response of the surrogate model is aligned with
+the response of the target model by minimizing the RMSE loss be-                  G = (V, E, X, C)      graph
+tween them. Although their approach yields promising results, the                 v, u ∈ V              node
+                                                                                  n = |V|               number of nodes
+underlying method of training the surrogate model does not effi-                  d∈N                   dimension of a node feature vector
+ciently utilize the information available from the target’s responses.            b∈N                   dimension of a node embedding vector
+This increases the number of queries required to extract the target               A ∈ {0, 1}n×n         adjacency matrix
+model’s API which results in higher chances of attack detection and               A′ ∈ ⟨−1, 1⟩n×n       augmented adjacency matrix
+mitigation.                                                                       X ∈ Rn×d              feature matrix
+                                                                                  H ∈ Rn×b              embedding matrix
+   Inspired by recent approaches to encoder model stealing [6,
+                                                                                  hiv ∈ Rb              node embedding at layer i
+21, 31] we leverage the significant fact that augmented graph in-                 N (v)                 neighborhood of v
+puts should produce similar model outputs. Thus, the GNN model-                   MT /MS                target/surrogate GNN model
+stealing attack identified in this paper utilizes a contrastive objective
+at the node level. Specifically, for an input graph, we generate two
+                                                                               Graph Neural Networks are a class of neural networks that use
+graph views—one from the target model and one from the surrogate
+                                                                            the graph structure A as well as node features X as the input to the
+model for an augmented graph input. The surrogate model is trained
+                                                                            model. GNNs learn an embedding vector of a node hv or the entire
+by maximizing the agreement of node representations in these two
+                                                                            graph H. These embeddings can be then used in a range of important
+views. This contrastive objective considers both positive and nega-
+                                                                            tasks, including node classification [11, 16], link prediction [27, 10,
+tive pairs between the node representations from the target and sur-
+                                                                            35] or graphs and subgraph classification [1, 19, 43].
+rogate model. To augment the graph input to the surrogate model
+                                                                               Most of the modern GNNs follow a neighborhood aggregation
+we leverage graph transformation operations derived via graph spec-
+                                                                            strategy. We start with h0v = Xv and after k iterations of aggre-
+tral analysis, enabling contrastive learning to capture useful struc-
+                                                                            gation, the k-th layer of a GNN is
+tural representations. Those transformations include spectral graph
+cropping and graph frequency components reordering. Thus, the pro-                 hkv = AGGREGAT E(hvk−1 , M SG(hk−1
+                                                                                                                  v   , huk−1 ),
+posed methods that combine contrastive learning loss and effective
+graph-specific augmentations enable efficient usage of the informa-         u ∈ N (v). In effect, the node embedding at the k-th layer captures
+tion from the target model outputs. As a result, our approach fits          the information within its k-hop neighborhood.
+into the framework established by Shen et al. (2021) [33]. It presents         The training of GNNs occurs in two distinct settings: the transduc-
+an enhanced surrogate model training methodology that significantly         tive setting and the inductive setting. In the transductive setting the
+augments the efficiency and performance of the model-stealing pro-          data consists of a fixed graph and a subset of nodes is assigned labels
+cess, outperforming the state-of-the-art method with less than half of      and utilized during the training process, while another subset remains
+its query budget.                                                           unlabeled. The primary objective is to leverage the labeled nodes and
+   We evaluate all proposed attacks on three popular inductive              predict the labels for the previously unlabeled nodes within the same
+GNN models including GraphSAGE [11], Graph Attention Network                graph. However, the transductive models do not generalize to newly
+(GAT) [36], and Graph Isomorphism Network (GIN) [40] with six               introduced nodes.
+benchmark datasets, i.e., DBLP [25], Pubmed [30], Citeseer Full [9],           In the inductive setting, the GNN is designed to generalize its
+Coauthor Physics [32], ACM [38], and Amazon Co-purchase Net-                learning to accommodate new, unseen nodes or graphs beyond those
+work for Photos [23]. The experiments demonstrate that our model-           encountered during training. The first model capable of inductive
+stealing attack consistently outperforms the state-of-the-art baseline      learning was GraphSAGE introduced by [11]. Other inductive mod-
+approach across the vast majority of datasets and models. In the par-       els include Graph Attention Network (GAT) proposed by [36], and
+ticular case of using SAGE as the surrogate model the increase in           Graph Isomorphism Network (GIN) by [40].
+accuracy reached 36.8 %pt. for a GIN target trained on Amazon Co-
+purchase Network for Photos.                                                3   Threat Model
+   Overall, the main contributions of this work are as follows:
+                                                                            This section outlines the threat model, detailing the attack setting,
+                                                                            adversary’s goals, and capabilities. The proposed approach is based
+• We identify a new unsupervised GNN model stealing attack                  on the threat model widely presented in [33].
+  trained with a contrastive objective at the node level that compels          Attack Setting. We investigate a challenging black-box scenario
+  the embedding of corresponding nodes from the surrogate and vic-          where the adversary is entirely unaware of the target GNN model’s
+  tim models to align while also distinguishing them from embed-            specifics, including its parameters and architecture, and cannot inter-
+  dings of other nodes within the surrogate and the target model.           fere with the training process or the training graph GO . Our study
+• We adapt spectral graph augmentations to generate multiple graph          focuses on the responses to three distinct types of node-level queries.
+  views for the surrogate model in the contrastive learning process.        In this context, the target model is an inductive GNN that utilizes the
+• We perform an extensive comparison of the newly identified steal-         l-hop subgraph Glv of a node v as input to generate outputs for that
+  ing technique to the state of the art. The new stealing process           node. These outputs could be in the form of predicted posterior prob-
+  demonstrates better performance while requiring fewer queries             abilities, node embedding vectors, or a 2-dimensional t-SNE projec-
+  sent to the target model.                                                 tion.
+   Adversary’s Goal. According to the classification established by        Conversely, a Type II attack involves compromising the model
+[14], adversaries typically have two primary objectives: theft or re-    without access to the specific graph structure used during training.
+connaissance. A theft adversary aims to create a surrogate model         Here, the adversary must reconstruct or infer missing information,
+MS that replicates the performance of the target model MT for the        such as in social networks where user connections are private, and
+specific task at hand [34, 26]. On the other hand, a reconnaissance      only public profile information is accessible [42].
+adversary seeks to develop a surrogate model MS that approximates
+MT across all possible inputs. Achieving such a high level of fi-
+delity allows the adversary to use the surrogate model for subsequent    4.2    Learning the Missing Graph Structure
+attacks, such as generating adversarial examples, without needing to     In Type I attacks, the adversary trains a surrogate model MS using
+interact directly with the target model MT [26].                         responses from the target model to the query graph GQ . In contrast,
+   Adversary’s Capabilities. Firstly, we consider a scenario where       Type II attacks require inferring the missing graph structure AQ . Fol-
+the adversary interacts with a target model MT via a public API [34,     lowing [33], we use the IDGL framework by Chen et al. [3] to infer
+24, 12, 13]. The adversary submits a query graph GQ and receives         GQ . This involves minimizing a joint loss function that combines
+responses R, which could be a node embedding matrix (H), a pre-          task-specific prediction loss with graph regularization. The adversary
+dicted probability matrix (Θ), or a t-SNE projection matrix (Υ).         starts with a k-nearest neighbors (kNN) graph based on multi-head
+These responses represent typical outputs from such APIs, varying        weighted cosine similarity and iteratively improves it using IDGL,
+in the level of information they provide for tasks like graph visual-    optimizing the joint loss function without interacting directly with
+ization, transfer learning, and fine-tuning GNNs.                        the target model.
+   Additionally, We assume the query graph GQ , with node features
+XQ and graph structure AQ , is drawn from the same distribution as
+the training graph GO used to train MT . This implies that GQ and        4.3    Training the Surrogate Model
+GO are sampled from the same dataset, consistent with studies on
+neural network attacks using public datasets [14, 12], particularly in   When the adversary has access to the graph structure AQ , their goal
+graph-intensive domains like social networks and molecular struc-        is to train a surrogate model MS . This model is trained using the
+tures. As discussed in Section 4.2, this assumption can be adjusted.     l-hop subgraphs of all nodes from the query graph GQ as input and
+                                                                         the corresponding responses R from the target model as supervised
+                                                                         signals. As noted by [33], nodes that are close or connected in GQ
+4     Attack Framework                                                   should also be close in the t-SNE projection matrix Υ or the node
+                                                                         embedding matrix H. Thus, the target model’s responses can uni-
+This section aims to discuss attack scenarios that can be launched
+                                                                         formly be treated as embedding vectors. The primary goal is to min-
+by the adversary depending on different levels of knowledge and
+                                                                         imize the loss (LR ) between the surrogate model’s output embed-
+describe the general framework of GNN model-stealing. We adopt
+                                                                         dings ĤQ and the target model’s responses R. It’s important to note
+both, the attack structure and taxonomy proposed by Shen and co-
+                                                                         that the surrogate model’s output cannot be directly used for node
+authors [33].
+                                                                         classification, as it is trained to mimic the target model’s responses,
+                                                                         not to perform classification. An additional step is required to enable
+4.1    Attack Taxonomy                                                   node classification. After training and freezing the surrogate model,
+                                                                         an MLP classification head (O) is optimized, using the surrogate
+To conduct a model stealing attack, the adversary relies on two es-      model’s output (ĤQ ) as input and CQ as supervision to minimize
+sential components: the query graph GQ = (AQ , XQ , CQ ) and the         prediction error. This two-step process ensures the surrogate model’s
+corresponding response R. The query graph consists of                    outputs are effectively utilized for node classification.
+• AQ : the adjacency matrix, which represents the graph structure,
+• XQ : the node feature matrix, detailing the attributes of each node,   5     Proposed Model Stealing Attack
+• CQ : the labels or class information associated with nodes or
+  edges.                                                                 This section comprises a description of the training of the surrogate
+                                                                         model in model-stealing attacks on GNNs. The proposed method is
+The response R from the target model can be in one of several forms,     in line with the framework shown in Section 4.
+such as
+
+• H: node embeddings, which are vectors representing each node in        5.1    Contrastive GNN stealing
+  the graph,
+• Θ: predicted posterior probabilities, indicating the model’s confi-    As the number of queries sent by the attacker to the victim’s model
+  dence in various outcomes,                                             increases, increase the risk of detection and the cost of the attack.
+• Υ: a t-SNE projection matrix, which visualizes node embeddings         Thus, the efficiency of model stealing is measured by the number
+  in a 2-dimensional space.                                              of queries sent to the victim model, whose outputs serve as targets
+                                                                         for training the surrogate model. However, the adversary faces no
+   The adversary may not have complete structural information about      constraints on the number of samples sent to the surrogate model.
+the query graph GQ , lacking the adjacency matrix AQ , which leads       For that reason, we argue that simply matching the outputs of the
+to six possible attack scenarios grouped into two types. In a Type       victim and surrogate model proves inefficient within the context of
+I attack, the adversary queries the target model using graphs from       model stealing. Building upon this observation, we propose a novel
+the same distribution as those used in training. This is common in       approach grounded in contrastive graph learning [48, 46]. We utilize
+domains like drug interaction predictions, fraud detection, and rec-     a contrastive objective function that forces the embedding of cor-
+ommendation systems, where abundant graph data is available.             responding nodes in the surrogate and victim models to converge
+while simultaneously distinguishing them from the embedding of                                                Contrastive
+other nodes within both models.                                                                                  loss
+   Starting with the given graph G = (X, A), we initiate an augmen-
+tation process, resulting in the graph G′ = (X′ , A′ ). The augmen-
+                                                                                                          Shared parameters
+tation is applied to both graph structure and feature matrix resulting
+in more robust representations that are invariant to various transfor-
+mations and perturbations. Subsequently, the surrogate model MS
+generates an embedding HS based on the augmented graph G′ . The
+dimensional of the embedding HS matches that of the response R
+obtained from the target model MT . Utilizing a non-linear projec-
+tion head g() [2, 48], we map both the target response R and the
+surrogate embedding HS into a shared representation space, where
+a contrastive loss is applied:
+                                n
+                           1 X
+                  J =−           [ℓi (t, s) + ℓi (s, t)],                  (1)
+                          2n i=1
+
+                                      ec(xi ,yi )/τ
+   ℓi (x, y) = log Pn      c(xi ,yk )/τ +
+                                            Pn            c(yi ,yk )/τ
+                                                                       .   (2)
+                      k=1 e                     k=1,k̸=i e
+
+where t = g(R) and s = g(HS ) represent the matrices in the rep-                            Original graph                  Augmented graph
+resentation space from the target and surrogate models, respectively,
+and xi denotes embedding vector corresponding to node vi in that                 Figure 2. Overview of our model stealing attack against inductive GNNs.
+space. The function c stands for cosine similarity, and τ is a temper-                                   1                  1
+ature parameter.                                                                 L̂ = In − Â = D− 2 (D − A)D− 2 as the symmetric normal-
+   The embeddings from different models xi and yi are a positive                 ized graph Laplacian. Since L̂ is symmetric normalized, its eigen-
+pair, drawing closer together through the minimization of ec(xi ,yi )/τ .        decomposition is U ΛU ⊤ , where Λ = diag(λ1 , . . . , λN ) and U =
+                                                                                                        N ×N
+   To maintain a distinction between a negative pair of embeddings               [u⊤            ⊤
+                                                                                   1 , . . . , uN ] ∈ R      are the eigenvalues and eigenvectors of L̂,
+x i and yi , i ̸= j from target and surrogate models, the term                   respectively. Assuming 0 = λ1 ≤ . . . ≤ λN < 2 (in which we ap-
+Pn
+   k=1 e
+         c(xi ,yk )/τ
+                      is employed.                                               proximately estimate λN ≈ 2 [17]) , we call {λ1 , . . . , λ⌊N/2⌋ } the
+   Similarly, embeddings yi and yj from the same                                 amplitudes of low-frequency components and {λ⌊N/2⌋+1 , . . . , λN }
+                                                P model form      a neg-
+ative pair for i ̸= j, which are pushed apart by n
+                                                 k=1,k̸=i e c(yi ,yk )/τ
+                                                                         ,       the amplitudes of high-frequency components. The graph spectrum,
+which consequently distinguishes embeddings of different nodes in                denoted as ϕ(λ), is defined by these amplitudes of different fre-
+the surrogate embedding space.                                                   quency components, indicating which parts of the frequency are en-
+   This contrastive objective serves two functions: it enforces the              hanced or weakened.
+alignment of corresponding node embeddings across surrogate and                     For two random augmentations V1 and V2 , their graph spectra are
+target models, while simultaneously ensuring their differentiation               ϕV1 (λ) and ϕV2 (λ). Then, for all λm ∈ [1, 2] and λn ∈ [0, 1],
+from embeddings of different nodes within the surrogate model.                   V1 and V2 constitute an effective pair of graph augmentations if the
+   Additionally, the augmentations introduce corruption to the orig-             following condition is met:
+inal graph within the input of the surrogate model, which generates
+novel node contexts to contrast with.                                             OptimV1 ,V2 : |ϕV1 (λm )−ϕV2 (λm )| > |ϕV1 (λn )−ϕV2 (λn )|. (3)
+
+                                                                                 Such a pair of augmentations is termed an optimal contrastive pair
+5.2    Spectral Graph Augmentations                                              as in [20]. On a high level, ensuring that the difference in high-
+                                                                                 frequency components is greater than in low-frequency components
+One of our key observations is that the existing GNN stealing meth-              helps the model to learn more robust and discriminative features.
+ods overlook the capability of GNN models to capture essential node                 Following this rule, we transform the adjacency matrix A to a new
+information while filtering out irrelevant noise. This results in inef-          augmentation A′ , where A and A′ form an optimal contrastive pair
+fective utilization of the information received from the victim model.           OptimA,A′ for all λm ∈ [1, 2] and λn ∈ [0, 1]. The new graph,
+We address it in our approach. In essence, we leverage the basic but             with its adjacency matrix A′ , undergoes further augmentations such
+essential fact that the victim model produces similar outputs for a              as feature masking, edge dropping, and edge perturbation. The result
+given node and its augmented version. Thus, we train the surrogate               serves as the input for training the surrogate model. This form of
+model to align its predictions with the output of the victim model for           augmentation improves the learning process of the surrogate model
+both original and augmented nodes.                                               by boosting the effects of contrastive graph learning.
+   Specifically, we consider the graph structure of the GNN training
+data to develop an optimal augmentation strategy. During surrogate
+                                                                                 6   Experimental Evaluation
+model training, we incorporate spectral graph augmentations initially
+introduced by [20]. The augmented graph is constructed by extract-               In this section, we conduct a thorough experimental analysis of a
+ing information with varying frequencies from the original graph.                model stealing attack on inductive GNNs and show that our ap-
+   Let D = diag(dP      1 , . . . , dn ) represent the node degree matrix,       proach outperforms the state-of-the-art algorithm by Shen et al. [33].
+where di =         j∈V Aij is the degree of node i ∈ V . We de-                  In what follows, we introduce the experimental setup, evaluate Type
+fine L = D − A as the unnormalized graph Laplacian of G, and                     I and Type II attacks from theft and reconnaissance perspectives, and
+investigate the impact of different query budgets on attack perfor-        cant improvement in embedding accuracy across all datasets and sur-
+mance. To our knowledge, ours and Shen et al. [33] are the only            rogate models. Remarkably, our approach outperforms the baseline
+existing model stealing methods applicable to inductive GNN.               method for all tasks, datasets, and surrogate models, with the most
+   Datasets. We evaluate performance of our attack on 6 benchmark          pronounced benefits evident in the DBLP dataset.
+datasets for evaluating GNN performance [16, 11, 40]: DBLP [25],              Fidelity. Examining the fidelity metrics for the target GIN model,
+Pubmed [30], Citeseer Full (referred to as Citeseer) [9], Coauthor         we observe a consistent boost in prediction fidelity across all datasets
+Physics (referred to as Coauthor) [32], ACM [38], and Amazon Co-           and surrogate models, except for Pubmed, where our results closely
+purchase Network for Photos (referred to as Amazon) [23]. We use           align with those produced by the baseline. The most substantial in-
+these datasets to evaluate our attack’s efficacy across different graph    crease in fidelity for the prediction task is witnessed in the ACM
+characteristics such as size, node features, and classes. Each dataset     dataset, reaching nearly 20 %pt. with the GAT surrogate model. Ad-
+is split into three segments: the first 20% of randomly selected nodes     ditionally, there is an observable enhancement in projection fidelity
+for training the target model MT , the next 30% as the query graph         for the majority of dataset and surrogate model configurations. In the
+GQ , and the final 50% as testing data for both MT and MS . Fur-           embedding task, our method achieves increased fidelity across all
+ther, we show that our attacks remain effective even with a reduced        datasets, except for the Pubmed dataset. Notably, for the DBLP and
+number of nodes in the query graph (see Section 6.3). Importantly, in      Coauthor datasets, our method consistently outperforms the baseline
+the official implementation of [33] the testing data is sampled from       in terms of fidelity for all tasks, datasets, and surrogate models.
+the whole dataset, creating an overlap between the first two and the          Stability. We conduct three runs for each combination, employ-
+third data split. We conduct all experiments, including the state-of-      ing different graph partition seeds to evaluate how accuracy and fi-
+the-art baseline by Shen et al. [33] on disjoint data sets.                delity values deviate from the average (indicated by standard devi-
+   Target and Surrogate Models. Following [33] we use GIN, GAT,            ation). The consistently low standard deviation values, as evident in
+and GraphSAGE as our target and surrogate models’ architectures for        Table 3, signify minimal fluctuation. This observation implies that
+evaluating our attack. We outline the model and training details for       the adversary can reliably steal from target models with statistically
+reproducibility purposes in Appendix A and B.                              stable accuracy and fidelity.
+   Metrics. Following [14] taxonomy, we employ three metrics —
+accuracy, F1 score and fidelity — to assess our attack’s performance.
+For the theft adversary, we gauge accuracy (correct predictions di-
+                                                                           6.2    Evaluation of Type II Attacks
+vided by total predictions) and F1 score (the harmonic mean of pre-        Recall that for Type II attacks, the adversary must first construct an
+cision and recall), a widely-used metric in GNN node classifica-           adjacency matrix AQ for the query graph GQ before querying the
+tion evaluation [16, 11, 36]. As the reconnaissance adversary aims         target model MT and executing the model stealing attack. The out-
+to mimic the target model’s behavior, we utilize fidelity (predictions     comes of Type II attacks are outlined in Table 4. We present results
+agreed upon by both MS and MT ) as our evaluation metric [15, 14].         for GIN as the target model; however, similar patterns for targeting
+                                                                           GAT and GraphSAGE can be found in Appendix D.
+                                                                              Accuracy and F1 score. Under the GIN target model, our ap-
+6.1    Evaluation of Type I Attacks                                        proach consistently enhances prediction accuracy and F1 score
+The overview of the accuracy and F1 score of the original node clas-       across the majority of datasets and surrogate models. Noteworthy, the
+sification tasks for the target models are shown in Table 2. All ana-      accuracy observed with the SAGE surrogate model on the Amazon
+lyzed GNN models perform well across all datasets, underscoring the        dataset increases by 18.7 %pt. This trend persists in the context of
+effectiveness of jointly considering node features and graph structure     projection accuracy, where our method outperforms competing con-
+for classification. Subsequently, the accuracy and fidelity results for    figurations. Similarly, improvements in embedding accuracy and F1
+Type I attacks are presented in Table 3. We focus on the results when      score are evident, particularly on the Amazon dataset with the SAGE
+the adversary targets the GIN model with the stealing attack. Sim-         surrogate model, showcasing a remarkable 35.8 %pt. accuracy lead
+ilar performance patterns with GAT and Sage as target models are           over the baseline.
+detailed in Appendix C due to space constraints.                              Fidelity. In terms of accuracy fidelity, our method either surpasses
+   Accuracy and F1 score. In our analysis of the target GIN model,         or closely aligns with the baseline across the majority of config-
+a noteworthy surge in accuracy and F1 score is observed across all         urations, with the most substantial enhancement observed on the
+six datasets when utilizing various surrogate models for the predic-       Pubmed dataset. This trend extends to projection fidelity, where our
+tion task. Particularly remarkable is the ACM dataset, where accu-         approach exhibits notable advantage, particularly pronounced on the
+racy and F1 register a substantial increase of approximately 15 %pt.       Pubmed dataset. In the realm of embedding fidelity, our method
+across all cases. This trend extends to the projection task, showcas-      consistently matches or outperforms the baseline. Notably, with the
+ing enhanced accuracy for most datasets, including DBLP, Pubmed,           SAGE surrogate model on the Amazon dataset, we achieve an in-
+Citeseer, and Coauthor. Furthermore, our method exhibits a signifi-        crease in embedding fidelity from 46.3% to 81.1%.
+                                                                              Stability. Table 4 contains consistently low standard deviation val-
+Table 2. The performance of the original classification tasks on all 6     ues, highlighting the adversary’s ability to steal target models with
+datasets using 3 different GNN structures.                                 stable accuracy and fidelity in Type II attacks.
+
+                      GIN                GAT                SAGE
+      Dataset
+                 Accuracy    F1     Accuracy    F1     Accuracy     F1     6.3    Query Budget
+      DBLP        0.772     0.713    0.759     0.693    0.781      0.715
+      Pubmed      0.844     0.839    0.821     0.816    0.856      0.852   We explore the efficacy of our attack under varying query budgets,
+      Citeseer    0.834     0.836    0.836     0.838    0.838      0.839   represented by different sizes of the query graph GQ . We compare
+      Coauthor    0.912     0.907    0.941     0.923    0.943      0.924
+      ACM         0.890     0.890    0.897     0.896    0.905      0.905   the query efficiency of our approach with that of [33], focusing on the
+      Amazon      0.819     0.754    0.920     0.912    0.902      0.897   Citeseer dataset due to space constraints, though similar trends are
+                            Table 3.        The accuracy and fidelity scores of Type I attacks on all of the datasets with GIN as the target model.
+
+                                                            Surrogate GIN                               Surrogate GAT                               Surrogate SAGE
+    Dataset      Task
+                                                Accuracy       Fidelity      F1 score      Accuracy        Fidelity      F1 score      Accuracy        Fidelity       F1 score
+                              Shen et al.     0.738±0.001    0.805±0.000    0.675±0.002   0.715±0.003    0.782±0.004    0.620±0.002   0.735±0.001    0.799±0.002     0.679±0.001
+               Prediction
+                              ours            0.774±0.002    0.826±0.002    0.718±0.002   0.776±0.001    0.847±0.002    0.717±0.002   0.781±0.001    0.834±0.001     0.723±0.002
+                              Shen et al.     0.705±0.007    0.751±0.000    0.569±0.004   0.695±0.016    0.757±0.020    0.549±0.011   0.704±0.031    0.755±0.038     0.588±0.022
+               Projection
+    DBLP                      ours            0.740±0.001    0.783±0.000    0.607±0.004   0.721±0.004    0.772±0.003    0.593±0.001   0.746±0.002    0.788±0.001     0.579±0.004
+                              Shen et al.     0.705±0.002    0.759±0.000    0.626±0.001   0.683±0.006    0.723±0.013    0.621±0.001   0.710±0.002    0.762±0.001     0.645±0.004
+               Embedding
+                              ours            0.770±0.000    0.806±0.004    0.804±0.001   0.774±0.004    0.827±0.005    0.836±0.002   0.755±0.009    0.796±0.005     0.787±0.002
+                              Shen et al.     0.846±0.001    0.912±0.001    0.843±0.004   0.825±0.002    0.906±0.001    0.819±0.005   0.846±0.001    0.914±0.000     0.840±0.005
+               Prediction
+                              ours            0.856±0.001    0.892±0.001    0.847±0.004   0.845±0.001    0.897±0.001    0.835±0.004   0.859±0.002    0.896±0.002     0.852±0.001
+                              Shen et al.     0.816±0.026    0.872±0.029    0.795±0.005   0.797±0.037    0.864±0.052    0.808±0.005   0.793±0.016    0.848±0.020     0.833±0.005
+               Projection
+    Pubmed                    ours            0.848±0.001    0.883±0.000    0.841±0.009   0.840±0.002    0.896±0.001    0.824±0.004   0.855±0.002    0.889±0.002     0.840±0.002
+                              Shen et al.     0.853±0.002    0.910±0.001    0.847±0.002   0.834±0.001    0.902±0.005    0.829±0.002   0.846±0.001    0.911±0.003     0.839±0.002
+               Embedding
+                              ours            0.863±0.002    0.888±0.003    0.857±0.004   0.853±0.001    0.898±0.003    0.850±0.009   0.862±0.003    0.879±0.005     0.862±0.005
+                              Shen et al.     0.773±0.001    0.818±0.001    0.777±0.002   0.725±0.007    0.766±0.009    0.741±0.001   0.762±0.002    0.794±0.003     0.768±0.001
+               Prediction
+                              ours            0.820±0.003    0.843±0.001    0.820±0.003   0.827±0.003    0.861±0.003    0.827±0.005   0.814±0.003    0.843±0.002     0.814±0.009
+                              Shen et al.     0.668±0.050    0.688±0.051    0.681±0.001   0.704±0.012    0.733±0.015    0.754±0.005   0.664±0.043    0.695±0.053     0.599±0.002
+               Projection
+    Citeseer                  ours            0.751±0.003    0.763±0.002    0.740±0.001   0.766±0.005    0.779±0.004    0.760±0.009   0.631±0.006    0.648±0.008     0.612±0.001
+                              Shen et al.     0.736±0.005    0.772±0.004    0.748±0.004   0.730±0.004    0.771±0.007    0.782±0.001   0.753±0.003    0.797±0.002     0.745±0.001
+               Embedding
+                              ours            0.810±0.003    0.827±0.001    0.815±0.001   0.828±0.000    0.852±0.000    0.837±0.002   0.813±0.004    0.818±0.011     0.810±0.001
+                              Shen et al.     0.869±0.002    0.808±0.000    0.821±0.001   0.759±0.021    0.722±0.028    0.671±0.010   0.842±0.012    0.801±0.016     0.789±0.002
+               Prediction
+                              ours            0.915±0.003    0.839±0.002    0.877±0.003   0.855±0.006    0.825±0.016    0.796±0.003   0.881±0.009    0.816±0.005     0.856±0.001
+                              Shen et al.     0.609±0.055    0.633±0.100    0.512±0.012   0.606±0.052    0.600±0.081    0.559±0.001   0.635±0.021    0.646±0.011     0.540±0.010
+               Projection
+    Amazon                    ours            0.635±0.002    0.616±0.007    0.673±0.002   0.619±0.041    0.591±0.042    0.564±0.009   0.524±0.015    0.538±0.014     0.613±0.002
+                              Shen et al.     0.891±0.005    0.820±0.000    0.866±0.004   0.777±0.032    0.737±0.024    0.781±0.005   0.877±0.004    0.809±0.003     0.822±0.001
+               Embedding
+                              ours            0.919±0.000    0.828±0.005    0.887±0.001   0.901±0.009    0.825±0.010    0.834±0.001   0.893±0.007    0.823±0.002     0.861±0.004
+                              Shen et al.     0.913±0.001    0.930±0.000    0.888±0.004   0.864±0.009    0.888±0.010    0.844±0.001   0.901±0.006    0.918±0.007     0.885±0.002
+               Prediction
+                              ours            0.942±0.002    0.950±0.002    0.926±0.009   0.921±0.002    0.942±0.003    0.876±0.003   0.942±0.000    0.957±0.001     0.923±0.009
+                              Shen et al.     0.790±0.047    0.797±0.000    0.760±0.005   0.832±0.018    0.854±0.018    0.725±0.001   0.773±0.068    0.784±0.070     0.655±0.001
+               Projection
+    Coauthor                  ours            0.920±0.004    0.926±0.004    0.888±0.002   0.881±0.013    0.896±0.012    0.866±0.001   0.824±0.008    0.836±0.008     0.675±0.009
+                              Shen et al.     0.887±0.004    0.902±0.000    0.852±0.004   0.878±0.000    0.891±0.002    0.869±0.002   0.910±0.005    0.922±0.005     0.882±0.004
+               Embedding
+                              ours            0.943±0.003    0.948±0.005    0.926±0.001   0.934±0.001    0.944±0.002    0.911±0.004   0.941±0.001    0.941±0.002     0.915±0.005
+                              Shen et al.     0.733±0.007    0.759±0.007    0.736±0.004   0.725±0.040    0.744±0.051    0.741±0.004   0.750±0.008    0.793±0.007     0.738±0.004
+               Prediction
+                              ours            0.895±0.005    0.913±0.006    0.896±0.001   0.888±0.008    0.934±0.008    0.889±0.003   0.895±0.004    0.928±0.004     0.906±0.005
+                              Shen et al.     0.794±0.009    0.810±0.016    0.712±0.004   0.780±0.028    0.791±0.036    0.737±0.005   0.801±0.039    0.831±0.042     0.847±0.004
+               Projection
+    ACM                       ours            0.770±0.011    0.798±0.008    0.804±0.004   0.757±0.004    0.793±0.003    0.738±0.001   0.816±0.016    0.823±0.020     0.853±0.002
+                              Shen et al.     0.811±0.010    0.836±0.008    0.789±0.001   0.817±0.010    0.840±0.011    0.800±0.001   0.835±0.003    0.865±0.003     0.834±0.004
+               Embedding
+                              ours            0.842±0.007    0.822±0.015    0.882±0.003   0.857±0.009    0.870±0.009    0.845±0.001   0.882±0.009    0.894±0.011     0.874±0.003
+
+
+
+observed in other datasets. Accuracy and fidelity outcomes for both
+Type I and Type II attacks on the embedding task (see Figure 3) are
+presented for three surrogate models: GIN, GAT, and SAGE. Plots
+for prediction and projection tasks are provided in Appendix E. We
+also compare our results to the accuracy and fidelity scores achieved
+by the best-performing surrogate model trained on 30% of dataset
+nodes using the method of [33]. Our method achieves the same or
+higher level of accuracy and fidelity for prediction and embedding
+responses using only 50% of the queries required in the baseline
+method. For the projection task, we can make a similar observation
+for the GAT surrogate model. Learning from the t-SNE projection
+requires using a number of queries closer to 30% to match the per-
+formance best surrogate model of the baseline when GIN or SAGE
+is selected as the surrogate model.
+
+7      Discussion
+Limitations. Firstly, the proposed model stealing attack is limited to                        Figure 3. The average accuracies and fidelities on the Citeseer dataset and
+scenarios where the target model provides node-level results. How-                            GIN target with embedding response using different percentages of nodes
+ever, our method can be extended to graph-level and link predic-                              in the stealing process. We compare with the highest accuracy and fidelity
+tion tasks by adjusting the augmentations (e.g., using node instead                           achieved by [33] best-performing surrogate model using 30% of nodes.
+of link augmentations for link prediction). Secondly, the learning
+process of the missing graph structure was based on the approach                                 Defense. Several active countermeasures against model stealing
+presented in the paper [33]. Developing a novel technique for recon-                          attacks have been proposed in the literature [5, 7, 34]. The applied
+structing graph structure, specifically designed for training the sur-                        formulation of the defense mechanism follows the approach by Shen
+rogate model with contrastive loss, constitutes a direction for further                       and co-authors [33]. To address diverse query responses, we inject
+research.                                                                                     random Gaussian noise into node embeddings and t-SNE projections
+                        Table 4.      The accuracy and fidelity scores of Type II attacks on all of the datasets with GIN as the target model.
+
+                                                        Surrogate GIN                               Surrogate GAT                               Surrogate SAGE
+    Dataset      Task
+                                           Accuracy        Fidelity      F1 score      Accuracy        Fidelity      F1 score      Accuracy        Fidelity       F1 score
+                            Shen et al.   0.731±0.000    0.822±0.000    0.565±0.004   0.687±0.003    0.761±0.004    0.453±0.003   0.732±0.001    0.817±0.000     0.439±0.003
+               Prediction
+                            ours          0.747±0.001    0.813±0.001    0.628±0.004   0.746±0.005    0.815±0.003    0.682±0.005   0.741±0.005    0.804±0.005     0.648±0.003
+                            Shen et al.   0.681±0.001    0.752±0.000    0.366±0.001   0.680±0.004    0.752±0.005    0.518±0.003   0.677±0.000    0.751±0.001     0.362±0.003
+               Projection
+    DBLP                    ours          0.706±0.003    0.767±0.003    0.574±0.001   0.697±0.007    0.753±0.005    0.505±0.001   0.693±0.006    0.756±0.011     0.579±0.002
+                            Shen et al.   0.720±0.006    0.796±0.000    0.540±0.005   0.682±0.003    0.751±0.001    0.540±0.004   0.741±0.002    0.818±0.003     0.605±0.005
+               Embedding
+                            ours          0.742±0.002    0.785±0.002    0.650±0.005   0.749±0.005    0.791±0.002    0.677±0.004   0.704±0.011    0.744±0.009     0.613±0.001
+                            Shen et al.   0.786±0.001    0.831±0.000    0.738±0.001   0.731±0.005    0.785±0.003    0.704±0.001   0.785±0.001    0.820±0.000     0.691±0.003
+               Prediction
+                            ours          0.853±0.001    0.889±0.001    0.847±0.004   0.834±0.004    0.887±0.005    0.822±0.003   0.848±0.001    0.884±0.001     0.846±0.004
+                            Shen et al.   0.814±0.002    0.874±0.000    0.716±0.001   0.798±0.001    0.871±0.001    0.801±0.001   0.822±0.000    0.878±0.000     0.687±0.003
+               Projection
+    Pubmed                  ours          0.846±0.000    0.884±0.002    0.836±0.003   0.830±0.001    0.883±0.002    0.805±0.009   0.829±0.004    0.866±0.005     0.821±0.002
+                            Shen et al.   0.831±0.002    0.887±0.000    0.774±0.002   0.821±0.002    0.889±0.006    0.819±0.003   0.818±0.000    0.864±0.001     0.676±0.001
+               Embedding
+                            ours          0.855±0.001    0.879±0.001    0.857±0.001   0.849±0.002    0.883±0.002    0.839±0.004   0.850±0.002    0.868±0.003     0.842±0.001
+                            Shen et al.   0.797±0.001    0.854±0.000    0.810±0.004   0.764±0.001    0.815±0.001    0.820±0.009   0.797±0.001    0.853±0.001     0.798±0.001
+               Prediction
+                            ours          0.813±0.002    0.854±0.004    0.822±0.001   0.840±0.005    0.887±0.004    0.836±0.001   0.813±0.003    0.856±0.005     0.813±0.003
+                            Shen et al.   0.660±0.006    0.696±0.000    0.670±0.003   0.709±0.005    0.754±0.003    0.667±0.001   0.651±0.010    0.680±0.008     0.675±0.004
+               Projection
+    Citeseer                ours          0.727±0.005    0.747±0.002    0.714±0.009   0.757±0.002    0.784±0.001    0.731±0.001   0.667±0.048    0.691±0.051     0.583±0.005
+                            Shen et al.   0.780±0.002    0.817±0.000    0.791±0.009   0.770±0.002    0.796±0.004    0.760±0.001   0.787±0.003    0.818±0.001     0.803±0.001
+               Embedding
+                            ours          0.802±0.006    0.825±0.006    0.800±0.002   0.838±0.004    0.851±0.009    0.844±0.001   0.791±0.005    0.800±0.005     0.808±0.009
+                            Shen et al.   0.881±0.002    0.828±0.000    0.833±0.002   0.876±0.002    0.839±0.005    0.575±0.001   0.642±0.006    0.586±0.007     0.680±0.009
+               Prediction
+                            ours          0.911±0.005    0.833±0.002    0.900±0.002   0.874±0.024    0.813±0.034    0.882±0.003   0.829±0.008    0.775±0.014     0.774±0.001
+                            Shen et al.   0.532±0.004    0.479±0.000    0.654±0.009   0.480±0.116    0.455±0.122    0.301±0.005   0.500±0.009    0.461±0.005     0.688±0.001
+               Projection
+    Amazon                  ours          0.661±0.028    0.602±0.029    0.673±0.001   0.462±0.028    0.418±0.025    0.492±0.002   0.473±0.048    0.424±0.047     0.491±0.004
+                            Shen et al.   0.744±0.005    0.683±0.000    0.847±0.001   0.863±0.002    0.842±0.001    0.619±0.004   0.525±0.006    0.473±0.004     0.725±0.002
+               Embedding
+                            ours          0.914±0.003    0.838±0.006    0.883±0.009   0.901±0.004    0.851±0.006    0.880±0.005   0.893±0.008    0.811±0.003     0.835±0.009
+                            Shen et al.   0.942±0.000    0.958±0.000    0.910±0.005   0.889±0.008    0.921±0.008    0.910±0.009   0.944±0.000    0.961±0.000     0.931±0.005
+               Prediction
+                            ours          0.946±0.002    0.952±0.001    0.920±0.001   0.888±0.002    0.917±0.002    0.910±0.001   0.944±0.000    0.953±0.001     0.933±0.003
+                            Shen et al.   0.848±0.002    0.856±0.000    0.876±0.005   0.850±0.018    0.866±0.018    0.861±0.001   0.813±0.001    0.824±0.001     0.822±0.002
+               Projection
+    Coauthor                ours          0.933±0.001    0.940±0.000    0.911±0.009   0.734±0.008    0.750±0.009    0.850±0.002   0.873±0.018    0.884±0.015     0.890±0.001
+                            Shen et al.   0.946±0.001    0.959±0.000    0.916±0.004   0.923±0.001    0.944±0.001    0.930±0.004   0.922±0.002    0.936±0.004     0.949±0.001
+               Embedding
+                            ours          0.941±0.001    0.946±0.001    0.916±0.004   0.898±0.005    0.925±0.005    0.920±0.001   0.936±0.004    0.941±0.003     0.960±0.003
+                            Shen et al.   0.905±0.000    0.945±0.000    0.901±0.009   0.892±0.000    0.959±0.000    0.876±0.002   0.897±0.000    0.943±0.000     0.900±0.001
+               Prediction
+                            ours          0.907±0.005    0.913±0.003    0.904±0.002   0.900±0.002    0.926±0.002    0.894±0.001   0.892±0.011    0.911±0.016     0.910±0.002
+                            Shen et al.   0.835±0.000    0.858±0.000    0.884±0.002   0.872±0.000    0.920±0.000    0.859±0.003   0.876±0.000    0.904±0.000     0.879±0.001
+               Prediction
+    ACM                     ours          0.907±0.005    0.913±0.003    0.904±0.002   0.900±0.002    0.926±0.002    0.894±0.001   0.892±0.011    0.911±0.016     0.910±0.002
+                            Shen et al.   0.906±0.000    0.935±0.000    0.910±0.005   0.830±0.000    0.871±0.000    0.875±0.002   0.861±0.000    0.882±0.000     0.876±0.004
+               Embedding
+                            ours          0.885±0.007    0.902±0.008    0.880±0.001   0.882±0.009    0.914±0.008    0.879±0.002   0.868±0.006    0.887±0.001     0.884±0.001
+
+
+produced by target models, employing GIN as the surrogate model
+to assess the countermeasure’s efficacy. The surrogate model’s ac-
+curacy, serving as a metric for attack performance within the de-
+fined threat model, is evaluated on the ACM dataset (refer to Fig-
+ure 4 for the embedding response and Appendix F for prediction
+and projection responses). Our findings indicate a marginal impact
+of random Gaussian noise on the surrogate model’s accuracy, simi-
+lar to the results obtained by [33]. Even with a high standard devi-
+ation of the noise added, the model stealing attack still results in a
+useful surrogate model. Moreover, injecting random noise into the
+target’s model responses results in a lowered utility of the model for
+legitimate users of the model API, as outlined in [6]. Developing ro-
+bust active defense mechanisms continues to be a focus for future
+research. However, we note the existence of several methods for pro-
+tecting the Intellectual Property after the GNN model has already
+been stolen [29, 39, 44, 47, 45, 4].
+
+
+8      Conclusions                                                                        Figure 4. Accuracy scores after adding Gaussian noise with a standard de-
+                                                                                          viation σ to embedding response from target model GIN on the ACM dataset.
+In this work, we identify a new unsupervised GNN model-stealing
+attack. Only a single work [33] targeting inductive GNNs existed                          seamlessly aligns with the overarching framework proposed by [33],
+previously. Our proposed approach combines a contrastive learn-                           serving as an enhanced approach for training surrogate models. This
+ing objective with graph-specific augmentations, improving the ef-                        adaptation significantly enhances the efficiency and overall perfor-
+ficient utilization of information derived from target model outputs.                     mance of the model-stealing process. The conducted comparative
+Specifically, we applied spectral graph augmentations to create var-                      analysis against the state of the art showed that the proposed stealing
+ied graph perspectives for the surrogate model within a contrastive                       technique demonstrates superior performance while requiring fewer
+learning framework at the node level. Thus, the considered method                         queries of the target model.
+References                                                                            GIR Conference on Research and Development in Information Retrieval
+                                                                                      (SIGIR), pages 43–52. ACM, 2015.
+                                                                                 [24] T. Orekondy, B. Schiele, and M. Fritz. Knockoff Nets: Stealing Func-
+ [1] E. Alsentzer, S. Finlayson, M. Li, and M. Zitnik. Subgraph neural net-           tionality of Black-Box Models. In IEEE Conference on Computer Vi-
+     works. In Advances in Neural Information Processing Systems, vol-                sion and Pattern Recognition (CVPR), pages 4954–4963. IEEE, 2019.
+     ume 33, pages 8017–8029. Curran Associates, Inc., 2020.                     [25] S. Pan, J. Wu, X. Zhu, C. Zhang, and Y. Wang. Tri-Party Deep Net-
+ [2] T. Chen, S. Kornblith, M. Norouzi, and G. Hinton. A simple framework             work Representation. In International Joint Conferences on Artifical
+     for contrastive learning of visual representations. In Proceedings of the        Intelligence (IJCAI), pages 1895–1901. IJCAI, 2016.
+     37th International Conference on Machine Learning, volume 119 of            [26] N. Papernot, P. D. McDaniel, I. Goodfellow, S. Jha, Z. B. Celik, and
+     Proceedings of Machine Learning Research, pages 1597–1607. PMLR,                 A. Swami. Practical Black-Box Attacks Against Machine Learning.
+     13–18 Jul 2020.                                                                  In ACM Asia Conference on Computer and Communications Security
+ [3] Y. Chen, L. Wu, and M. J. Zaki. Iterative Deep Graph Learning for                (ASIACCS), pages 506–519. ACM, 2017.
+     Graph Neural Networks: Better and Robust Node Embeddings. In An-            [27] B. Perozzi, R. Al-Rfou, and S. Skiena. DeepWalk: Online Learning of
+     nual Conference on Neural Information Processing Systems (NeurIPS).              Social Representations. In ACM Conference on Knowledge Discovery
+     NeurIPS, 2020.                                                                   and Data Mining (KDD), pages 701–710. ACM, 2014.
+ [4] E. Dai, M. Lin, and S. Wang. Pregip: Watermarking the pretraining of        [28] M. Ringsquandl, H. Sellami, M. Hildebrandt, D. Beyer, S. Henselmeyer,
+     graph neural networks for deep intellectual property protection. arXiv           S. Weber, and M. Joblin. Power to the relational inductive bias: Graph
+     preprint arXiv:2402.04435, 2024.                                                 neural networks in electrical power grids. In Proceedings of the 30th
+ [5] J. Dubiński, S. Pawlak, F. Boenisch, T. Trzcinski, and A. Dziedzic.             ACM International Conference on Information & Knowledge Manage-
+     Bucks for buckets (b4b): Active defenses against stealing encoders. Ad-          ment, CIKM ’21, page 1538–1547, 2021. ISBN 9781450384469.
+     vances in Neural Information Processing Systems, 36, 2024.                  [29] V. Sai Pranav Bachina, A. Gangwal, A. Ajay Sharma, and C. Sharma.
+ [6] A. Dziedzic, N. Dhawan, M. A. Kaleem, J. Guan, and N. Papernot. On               Genie: Watermarking graph neural networks for link prediction. arXiv
+     the difficulty of defending self-supervised learning against model ex-           e-prints, pages arXiv–2406, 2024.
+     traction. In Proceedings of the 39th International Conference on Ma-        [30] P. Sen, G. Namata, M. Bilgic, L. Getoor, B. Gallagher, and T. Eliassi-
+     chine Learning, volume 162 of Proceedings of Machine Learning Re-                Rad. Collective Classification in Network Data. AI Magazine, 2008.
+     search, pages 5757–5776. PMLR, 17–23 Jul 2022.                              [31] Z. Sha, X. He, N. Yu, M. Backes, and Y. Zhang. Can’t steal? cont-steal!
+ [7] A. Dziedzic, M. A. Kaleem, Y. S. Lu, and N. Papernot. Increasing the             contrastive stealing attacks against image encoders, 2023.
+     cost of model extraction with calibrated proof of work, 2022.               [32] O. Shchur, M. Mumme, A. Bojchevski, and S. Günnemann. Pitfalls of
+ [8] W. Fan, Y. Ma, Q. Li, Y. He, E. Zhao, J. Tang, and D. Yin. Graph                 Graph Neural Network Evaluation. CoRR abs/1811.05868, 2018.
+     neural networks for social recommendation. In The World Wide Web            [33] Y. Shen, X. He, Y. Han, and Y. Zhang. Model stealing attacks against
+     Conference, WWW ’19, page 417–426, New York, NY, USA, 2019.                      inductive graph neural networks, 2021.
+     Association for Computing Machinery. ISBN 9781450366748.                    [34] F. Tramèr, F. Zhang, A. Juels, M. K. Reiter, and T. Ristenpart. Stealing
+ [9] C. L. Giles, K. D. Bollacker, and S. Lawrence. CiteSeer: An Automatic            Machine Learning Models via Prediction APIs. In USENIX Security
+     Citation Indexing System. In International Conference on Digital Li-             Symposium (USENIX Security), pages 601–618. USENIX, 2016.
+     braries (ICDL), pages 89–98. ACM, 1998.                                     [35] R. van den Berg, T. N. Kipf, and M. Welling. Graph Convolutional
+[10] A. Grover and J. Leskovec. node2vec: Scalable Feature Learning for               Matrix Completion. CoRR abs/1706.02263, 2017.
+     Networks. In ACM Conference on Knowledge Discovery and Data Min-            [36] P. Velickovic, G. Cucurull, A. Casanova, A. Romero, P. Liò, and Y. Ben-
+     ing (KDD), pages 855–864. ACM, 2016.                                             gio. Graph Attention Networks. In International Conference on Learn-
+[11] W. L. Hamilton, Z. Ying, and J. Leskovec. Inductive Representation               ing Representations (ICLR), 2018.
+     Learning on Large Graphs. In Annual Conference on Neural Informa-           [37] B. Wang and N. Z. Gong. Stealing Hyperparameters in Machine Learn-
+     tion Processing Systems (NIPS), pages 1025–1035. NIPS, 2017.                     ing. In IEEE Symposium on Security and Privacy (S&P), pages 36–52.
+[12] X. He, J. Jia, M. Backes, N. Z. Gong, and Y. Zhang. Stealing Links from          IEEE, 2018.
+     Graph Neural Networks. In USENIX Security Symposium (USENIX                 [38] X. Wang, H. Ji, C. Shi, B. Wang, Y. Ye, P. Cui, and P. S. Yu. Hetero-
+     Security), pages 2669–2686. USENIX, 2021.                                        geneous Graph Attention Network. In The Web Conference (WWW),
+[13] X. He, R. Wen, Y. Wu, M. Backes, Y. Shen, and Y. Zhang. Node-Level               pages 2022–2032. ACM, 2019.
+     Membership Inference Attacks Against Graph Neural Networks. CoRR            [39] J. Xu, S. Koffas, O. Ersoy, and S. Picek. Watermarking graph neural
+     abs/2102.05429, 2021.                                                            networks based on backdoor attacks. In IEEE 8th European Symposium
+[14] M. Jagielski, N. Carlini, D. Berthelot, A. Kurakin, and N. Papernot.             on Security and Privacy (EuroS&P), pages 1179–1197. IEEE, 2023.
+     High Accuracy and High Fidelity Extraction of Neural Networks. In           [40] K. Xu, W. Hu, J. Leskovec, and S. Jegelka. How Powerful are Graph
+     USENIX Security Symposium (USENIX Security), pages 1345–1362.                    Neural Networks? In International Conference on Learning Represen-
+     USENIX, 2020.                                                                    tations (ICLR), 2019.
+[15] M. Juuti, S. Szyller, S. Marchal, and N. Asokan. PRADA: Protecting          [41] K. Yang, K. Swanson, W. Jin, C. Coley, P. Eiden, H. Gao, A. Guzman-
+     Against DNN Model Stealing Attacks. In IEEE European Symposium                   Perez, T. Hopper, B. Kelley, M. Mathea, A. Palmer, V. Settels,
+     on Security and Privacy (Euro S&P), pages 512–527. IEEE, 2019.                   T. Jaakkola, K. Jensen, and R. Barzilay. Analyzing learned molecular
+[16] T. N. Kipf and M. Welling. Semi-Supervised Classification with Graph             representations for property prediction. Journal of Chemical Informa-
+     Convolutional Networks. In International Conference on Learning Rep-             tion and Modeling, 59(8):3370–3388, 2019. PMID: 31361484.
+     resentations (ICLR), 2017.                                                  [42] Q. Yang, Y. Liu, T. Chen, and Y. Tong. Federated Machine Learning:
+[17] T. N. Kipf and M. Welling. Semi-supervised classification with graph             Concept and Applications. ACM Transactions on Intelligent Systems
+     convolutional networks. In International Conference on Learning Rep-             and Technology, 2019.
+     resentations (ICLR), 2017.                                                  [43] R. Ying, J. You, C. Morris, X. Ren, W. L. Hamilton, and J. Leskovec.
+[18] K. Krishna, G. S. Tomar, A. P. Parikh, N. Papernot, and M. Iyyer.                Hierarchical Graph Representation Learning with Differentiable Pool-
+     Thieves on Sesame Street! Model Extraction of BERT-based APIs. In                ing. In Annual Conference on Neural Information Processing Systems
+     International Conference on Learning Representations (ICLR), 2020.               (NeurIPS), pages 4805–4815. NeurIPS, 2018.
+[19] J. Lee, I. Lee, and J. Kang. Self-Attention Graph Pooling. In Inter-        [44] X. You, Y. Jiang, J. Xu, M. Zhang, and M. Yang. Gnnfingers: A finger-
+     national Conference on Machine Learning (ICML), pages 3734–3743.                 printing framework for verifying ownerships of graph neural networks.
+     PMLR, 2019.                                                                      In Proceedings of the ACM on Web Conference, pages 652–663, 2024.
+[20] N. Liu, X. Wang, D. Bo, C. Shi, and J. Pei. Revisiting graph contrastive    [45] X. You, Y. Jiang, J. Xu, M. Zhang, and M. Yang. Gnnguard: A finger-
+     learning from the perspective of graph spectrum. In Advances in Neural           printing framework for verifying ownerships of graph neural networks.
+     Information Processing Systems, volume 35, pages 2972–2983. Curran               In The Web Conference, 2024.
+     Associates, Inc., 2022.                                                     [46] Y. You, T. Chen, Y. Sui, T. Chen, Z. Wang, and Y. Shen. Graph Con-
+[21] Y. Liu, J. Jia, H. Liu, and N. Z. Gong. Stolenencoder: Stealing pre-             trastive Learning with Augmentations. In Annual Conference on Neural
+     trained encoders in self-supervised learning, 2022.                              Information Processing Systems (NeurIPS). NeurIPS, 2020.
+[22] Y. Liu, R. Wen, X. He, A. Salem, Z. Zhang, M. Backes, E. D. Cristofaro,     [47] L. Zhang, M. Xue, L. Y. Zhang, Y. Zhang, and W. Liu. An imperceptible
+     M. Fritz, and Y. Zhang. ML-Doctor: Holistic Risk Assessment of Infer-            and owner-unique watermarking method for graph neural networks. In
+     ence Attacks Against Machine Learning Models. In USENIX Security                 ACM Turing Award Celebration Conference, pages 108–113, 2024.
+     Symposium (USENIX Security). USENIX, 2022.                                  [48] Y. Zhu, Y. Xu, F. Yu, Q. Liu, S. Wu, and L. Wang. Deep Graph Con-
+[23] J. J. McAuley, C. Targett, Q. Shi, and A. van den Hengel. Image-Based            trastive Representation Learning. In ICML Workshop on Graph Repre-
+     Recommendations on Styles and Substitutes. In International ACM SI-              sentation Learning and Beyond, 2020.
+A    Target Model Architectures (MT )
+In our evaluation, we employ GIN, GAT, and GraphSAGE as target models. For reproducibility, we provide concise details:
+
+• GIN: A 3-layer GIN model with a fixed neighborhood sample size of 10 at each layer. The first hidden layers have 128 hidden units, and
+  the final layer is used for classification.
+• GAT: A 3-layer GAT model with a fixed neighborhood sample size of 10 at each layer. The first layer consists of 4 attention heads with a
+  hidden unit size of 128. The second layer comprises 4 attention heads with the hidden unit size being the chosen embedding size. The final
+  layer follows the original design for classification [36].
+• GraphSAGE: A 2-layer GraphSAGE following Hamilton et al. [11], with neighborhood sample sizes of 25 and 10, respectively. The first
+  hidden layer has a hidden unit size of 128, and the second layer has the hidden unit size set to the chosen embedding size. Each layer
+  employs a GCN aggregator and a 0.5 dropout rate to prevent overfitting. Classification is done using a linear transformation layer.
+
+   All models utilize cross-entropy as the loss function, ReLU as the activation function between layers, and Adam as the optimizer with an
+initial learning rate of 0.001. Training spans 200 epochs, and the best models are selected based on the highest validation accuracy. These
+designs adhere to the specifications outlined in the respective papers.
+
+
+B    Surrogate Model Architecture (MS )
+For evaluation, we adopt customized GraphSAGE, GAT, and GIN models as our surrogate models. Key details are summarized below:
+
+• GIN: A 2-layer GIN model with neighborhood sample sizes of 10 and 50. The hidden unit size for the first layer is 128, and for the second
+  layer, it matches the size of the query response.
+• GAT: A 2-layer GAT model with neighborhood sample sizes of 10 and 50. Both layers consist of 4 attention heads, following the same
+  hidden unit size as mentioned for GIN.
+• GraphSAGE: A 2-layer GraphSAGE with neighborhood sample sizes of 10 and 50, following the same hidden unit size as mentioned for
+  GIN.
+
+   The classification head is a 2-layer MLP with a hidden unit size of 100, taking the output from the first component as input and employing
+cross-entropy as its loss function. Both components use the Adam optimizer with a learning rate of 0.001. We train the surrogate model and
+the classification head for 200 and 300 epochs, respectively.
+   In the augmentation phase we use feature masking with probability p1 = 0.5, edge dropping with probability p2 = 0.1, and for the spectral
+augmentations we use ϵ = 0.01, η = 1, Ω = 20, and Iter = 3 following [20]. In the contrastive learning, we use one layer projection g()
+with output size 128 and ELU activation function, and loss J with τ = 1.0.
+C   Additional result - Type I attack
+
+                        Table 5.     The accuracy and fidelity scores of Type I attacks on all of the datasets with GAT as the target model.
+
+                                                        Surrogate GIN                                Surrogate GAT                                Surrogate SAGE
+Dataset      Task
+                                          Accuracy         Fidelity      F1 score      Accuracy         Fidelity      F1 score      Accuracy          Fidelity      F1 score
+                           Shen et al.   0.764±0.000     0.852±0.000    0.695±0.001   0.772±0.001     0.889±0.001    0.688±0.005   0.768±0.001      0.855±0.002    0.698±0.005
+           Prediction
+                           ours          0.772±0.001     0.804±0.001    0.706±0.009   0.762±0.003     0.825±0.004    0.692±0.001   0.778±0.002      0.813±0.002    0.691±0.003
+                           Shen et al.   0.697±0.000     0.618±0.000    0.527±0.004   0.720±0.008     0.790±0.010    0.604±0.003   0.686±0.033      0.742±0.038    0.363±0.041
+           Projection
+DBLP                       ours          0.735±0.002     0.771±0.003    0.609±0.001   0.741±0.001     0.789±0.002    0.625±0.001   0.726±0.003      0.772±0.006    0.541±0.005
+                           Shen et al.   0.759±0.001     0.846±0.000    0.673±0.009   0.776±0.001     0.872±0.010    0.706±0.001   0.761±0.005      0.863±0.008    0.651±0.005
+           Embedding
+                           ours          0.764±0.002     0.793±0.004    0.683±0.009   0.775±0.002     0.816±0.001    0.699±0.002   0.759±0.004      0.790±0.003    0.696±0.001
+                           Shen et al.   0.840±0.001     0.912±0.000    0.836±0.002   0.824±0.001     0.931±0.002    0.819±0.003   0.838±0.000      0.917±0.000    0.832±0.003
+           Prediction
+                           ours          0.852±0.001     0.874±0.001    0.847±0.001   0.834±0.001     0.886±0.002    0.836±0.004   0.853±0.001      0.879±0.001    0.848±0.003
+                           Shen et al.   0.819±0.008     0.874±0.000    0.722±0.004   0.812±0.005     0.903±0.008    0.799±0.005   0.800±0.023      0.856±0.024    0.809±0.001
+           Projection
+Pubmed                     ours          0.842±0.002     0.865±0.002    0.833±0.001   0.827±0.002     0.880±0.002    0.815±0.001   0.841±0.001      0.867±0.000    0.827±0.003
+                           Shen et al.   0.843±0.000     0.915±0.000    0.839±0.001   0.827±0.002     0.919±0.002    0.822±0.005   0.838±0.001      0.930±0.001    0.833±0.009
+           Embedding
+                           ours          0.854±0.002     0.871±0.000    0.852±0.009   0.836±0.002     0.880±0.003    0.831±0.003   0.854±0.001      0.859±0.001    0.857±0.004
+                           Shen et al.   0.821±0.002     0.892±0.000    0.824±0.005   0.827±0.003     0.910±0.001    0.827±0.001   0.825±0.003      0.884±0.002    0.830±0.003
+           Prediction
+                           ours          0.820±0.003     0.849±0.003    0.821±0.002   0.835±0.003     0.863±0.005    0.842±0.001   0.820±0.001      0.855±0.002    0.822±0.005
+                           Shen et al.   0.626±0.028     0.645±0.000    0.657±0.001   0.744±0.005     0.780±0.001    0.753±0.001   0.649±0.019      0.672±0.017    0.694±0.001
+           Projection
+Citeseer                   ours          0.731±0.005     0.749±0.005    0.724±0.001   0.753±0.004     0.777±0.005    0.747±0.001   0.686±0.007      0.689±0.008    0.696±0.004
+                           Shen et al.   0.825±0.003     0.903±0.000    0.821±0.009   0.843±0.002     0.912±0.001    0.845±0.002   0.816±0.003      0.882±0.003    0.813±0.004
+           Embedding
+                           ours          0.819±0.003     0.842±0.003    0.823±0.005   0.842±0.006     0.866±0.005    0.848±0.005   0.826±0.004      0.839±0.006    0.824±0.001
+                           Shen et al.   0.935±0.000     0.945±0.000    0.923±0.001   0.916±0.002     0.933±0.004    0.906±0.009   0.916±0.003      0.936±0.004    0.897±0.002
+           Prediction
+                           ours          0.925±0.002     0.929±0.001    0.912±0.003   0.900±0.012     0.917±0.012    0.853±0.009   0.914±0.001      0.921±0.003    0.877±0.009
+                           Shen et al.   0.671±0.020     0.664±0.000    0.552±0.002   0.717±0.026     0.726±0.025    0.592±0.012   0.683±0.023      0.683±0.028    0.549±0.003
+           Projection
+Amazon                     ours          0.784±0.011     0.785±0.011    0.708±0.005   0.756±0.014     0.764±0.014    0.681±0.001   0.711±0.018      0.708±0.022    0.572±0.003
+                           Shen et al.   0.917±0.000     0.928±0.000    0.892±0.009   0.918±0.001     0.940±0.001    0.908±0.002   0.880±0.004      0.903±0.004    0.850±0.003
+           Embedding
+                           ours          0.915±0.003     0.921±0.001    0.889±0.004   0.899±0.005     0.907±0.008    0.883±0.003   0.890±0.006      0.895±0.003    0.851±0.002
+                           Shen et al.   0.940± 0.000    0.954±0.000    0.919±0.005   0.926± 0.002    0.927± 0.002   0.908±0.001   0.942± 0.000    0.962± 0.001    0.922±0.009
+           Prediction
+                           ours          0.946±0.001     0.954±0.002    0.929±0.004   0.935±0.005     0.950±0.005    0.905±0.004   0.939±0.001     0.951±0.001     0.919±0.002
+                           Shen et al.   0.792± 0.066    0.801± 0.069   0.593±0.001   0.864± 0.005    0.874± 0.005   0.823±0.001   0.727± 0.038    0.734± 0.941    0.650±0.003
+           Projection
+Coauthor                   ours          0.905±0.008     0.912±0.010    0.847±0.001   0.898±0.008     0.904±0.008    0.868±0.001   0.883±0.003     0.894±0.004     0.827±0.004
+                           Shen et al.   0.932± 0.002    0.945± 0.002   0.910±0.005   0.938± 0.002    0.927± 0.002   0.916±0.001   0.935± 0.001    0.953± 0.001    0.912±0.002
+           Embedding
+                           ours          0.941±0.002     0.946±0.002    0.922±0.001   0.942±0.002     0.949±0.003    0.927±0.009   0.942±0.003     0.949±0.002     0.923±0.003
+                           Shen et al.   0.898±0.004     0.926±0.000    0.896±0.004   0.889±0.001     0.939±0.004    0.883±0.002   0.893±0.001      0.934±0.001    0.895±0.001
+           Prediction
+                           ours          0.901±0.004     0.922±0.006    0.898±0.002   0.896±0.001     0.935±0.005    0.895±0.002   0.901±0.002      0.923±0.004    0.900±0.009
+                           Shen et al.   0.860±0.010     0.900±0.000    0.765±0.002   0.885±0.004     0.916±0.006    0.881±0.002   0.851±0.029      0.883±0.020    0.873±0.001
+           Projection
+ACM                        ours          0.871±0.006     0.892±0.006    0.883±0.003   0.887±0.001     0.937±0.002    0.882±0.009   0.870±0.014      0.894±0.019    0.898±0.005
+                           Shen et al.   0.898±0.003     0.931±0.000    0.887±0.002   0.893±0.002     0.937±0.002    0.892±0.005   0.831±0.012      0.855±0.025    0.833±0.004
+           Embedding
+                           ours          0.870±0.011     0.862±0.009    0.877±0.001   0.894±0.005     0.928±0.003    0.899±0.004   0.879±0.010      0.881±0.010    0.871±0.004
+                     Table 6.     The accuracy and fidelity scores of Type I attacks on all of the datasets with SAGE as the target model.
+
+                                                     Surrogate GIN                               Surrogate GAT                               Surrogate SAGE
+Dataset      Task
+                                        Accuracy        Fidelity      F1 score      Accuracy        Fidelity      F1 score      Accuracy        Fidelity       F1 score
+                         Shen et al.   0.776±0.001    0.899±0.000    0.698±0.001   0.779±0.001    0.901±0.003    0.694±0.004   0.777±0.003    0.899±0.004     0.697±0.001
+           Prediction
+                         ours          0.783±0.001    0.855±0.001    0.712±0.003   0.781±0.002    0.848±0.001    0.734±0.003   0.784±0.001    0.857±0.003     0.683±0.001
+                         Shen et al.   0.714±0.027    0.811±0.000    0.557±0.002   0.744±0.002    0.839±0.004    0.604±0.005   0.739±0.014    0.836±0.025     0.484±0.012
+           Projection
+DBLP                     ours          0.750±0.001    0.827±0.004    0.618±0.001   0.754±0.004    0.829±0.007    0.620±0.003   0.749±0.005    0.821±0.004     0.616±0.005
+                         Shen et al.   0.773±0.001    0.878±0.000    0.700±0.005   0.781±0.002    0.879±0.001    0.715±0.001   0.783±0.000    0.903±0.002     0.706±0.003
+           Embedding
+                         ours          0.773±0.002    0.840±0.003    0.715±0.009   0.779±0.002    0.842±0.010    0.706±0.001   0.763±0.003    0.815±0.007     0.707±0.001
+                         Shen et al.   0.859±0.001    0.966±0.000    0.856±0.002   0.847±0.000    0.956±0.001    0.845±0.005   0.854±0.000    0.964±0.002     0.852±0.001
+           Pre diction
+                         ours          0.856±0.002    0.920±0.005    0.851±0.003   0.848±0.001    0.923±0.002    0.849±0.005   0.858±0.001    0.926±0.002     0.854±0.005
+                         Shen et al.   0.821±0.007    0.890±0.000    0.757±0.005   0.841±0.001    0.945±0.009    0.823±0.004   0.844±0.004    0.936±0.003     0.832±0.003
+           Projection
+Pubmed                   ours          0.849±0.001    0.915±0.002    0.842±0.003   0.844±0.001    0.922±0.003    0.836±0.004   0.843±0.001    0.911±0.000     0.825±0.003
+                         Shen et al.   0.863±0.001    0.964±0.000    0.860±0.001   0.848±0.001    0.958±0.000    0.847±0.002   0.853±0.002    0.967±0.003     0.852±0.009
+           Embedding
+                         ours          0.861±0.001    0.925±0.000    0.854±0.001   0.852±0.001    0.929±0.001    0.849±0.005   0.858±0.002    0.905±0.002     0.846±0.009
+                         Shen et al.   0.829±0.002    0.916±0.000    0.831±0.003   0.832±0.002    0.909±0.002    0.829±0.005   0.825±0.002    0.895±0.004     0.902±0.005
+           Prediction
+                         ours          0.813±0.001    0.861±0.002    0.809±0.009   0.833±0.004    0.873±0.000    0.833±0.009   0.824±0.004    0.864±0.005     0.816±0.009
+                         Shen et al.   0.679±0.030    0.711±0.000    0.554±0.001   0.732±0.015    0.769±0.014    0.692±0.005   0.648±0.043    0.680±0.039     0.658±0.022
+           Projection
+Citeseer                 ours          0.731±0.003    0.760±0.002    0.723±0.004   0.744±0.005    0.784±0.004    0.738±0.005   0.659±0.024    0.691±0.021     0.686±0.023
+                         Shen et al.   0.823±0.002    0.893±0.000    0.823±0.001   0.834±0.002    0.888±0.003    0.831±0.005   0.822±0.001    0.885±0.002     0.892±0.001
+           Embedding
+                         ours          0.819±0.000    0.848±0.003    0.819±0.009   0.831±0.003    0.861±0.000    0.827±0.003   0.816±0.009    0.834±0.007     0.813±0.005
+                         Shen et al.   0.926±0.001    0.932±0.000    0.910±0.009   0.897±0.004    0.910±0.001    0.882±0.003   0.888±0.009    0.913±0.012     0.876±0.009
+           Prediction
+                         ours          0.920±0.001    0.921±0.001    0.899±0.001   0.909±0.004    0.911±0.001    0.879±0.009   0.908±0.003    0.907±0.005     0.863±0.003
+                         Shen et al.   0.750±0.015    0.780±0.000    0.597±0.001   0.787±0.029    0.803±0.023    0.704±0.005   0.727±0.008    0.763±0.016     0.567±0.005
+           Projection
+Amazon                   ours          0.822±0.015    0.831±0.015    0.671±0.002   0.790±0.010    0.796±0.007    0.648±0.009   0.663±0.026    0.691±0.024     0.543±0.009
+                         Shen et al.   0.930±0.002    0.925±0.000    0.920±0.005   0.915±0.001    0.929±0.003    0.893±0.001   0.918±0.002    0.931±0.005     0.904±0.002
+           Embedding
+                         ours          0.913±0.005    0.912±0.004    0.887±0.003   0.875±0.014    0.894±0.011    0.844±0.001   0.907±0.005    0.904±0.005     0.876±0.001
+                         Shen et al.   0.945±0.001    0.971±0.000    0.924±0.002   0.904±0.006    0.929±0.006    0.891±0.009   0.943±0.001    0.974±0.002     0.925±0.004
+           Prediction
+                         ours          0.942±0.004    0.962±0.005    0.922±0.001   0.934±0.003    0.956±0.005    0.901±0.004   0.941±0.000    0.968±0.001     0.926±0.009
+                         Shen et al.   0.833±0.029    0.849±0.000    0.553±0.004   0.822±0.028    0.845±0.030    0.684±0.001   0.755±0.021    0.776±0.017     0.456±0.031
+           Projection
+Coauthor                 ours          0.927±0.000    0.949±0.001    0.900±0.001   0.908±0.006    0.930±0.006    0.860±0.005   0.905±0.006    0.927±0.007     0.863±0.002
+                         Shen et al.   0.940±0.001    0.964±0.000    0.918±0.001   0.886±0.008    0.902±0.009    0.901±0.009   0.939±0.001    0.969±0.002     0.921±0.002
+           Embedding
+                         ours          0.942±0.002    0.959±0.003    0.926±0.001   0.942±0.002    0.954±0.004    0.918±0.005   0.940±0.003    0.950±0.003     0.923±0.004
+                         Shen et al.   0.898±0.003    0.933±0.000    0.899±0.002   0.891±0.003    0.941±0.003    0.889±0.003   0.895±0.003    0.935±0.003     0.883±0.005
+           Prediction
+                         ours          0.888±0.003    0.903±0.006    0.887±0.005   0.892±0.003    0.923±0.017    0.896±0.009   0.888±0.004    0.914±0.004     0.892±0.001
+                         Shen et al.   0.849±0.047    0.884±0.100    0.887±0.003   0.869±0.002    0.913±0.002    0.863±0.002   0.891±0.005    0.931±0.008     0.888±0.001
+           Projection
+ACM                      ours          0.887±0.004    0.912±0.003    0.892±0.004   0.887±0.008    0.919±0.010    0.892±0.004   0.865±0.014    0.887±0.017     0.887±0.001
+                         Shen et al.   0.902±0.002    0.936±0.000    0.886±0.004   0.876±0.001    0.925±0.002    0.866±0.001   0.861±0.014    0.889±0.009     0.852±0.002
+           Embedding
+                         ours          0.883±0.007    0.891±0.010    0.873±0.001   0.882±0.008    0.911±0.015    0.886±0.001   0.870±0.007    0.874±0.013     0.870±0.004
+D   Additional result - Type II attack
+
+                    Table 7.      The accuracy and fidelity scores of Type II attacks on all of the datasets with GAT as the target model.
+
+                                                     Surrogate GIN                                Surrogate GAT                                Surrogate SAGE
+Dataset      Task
+                                       Accuracy         Fidelity      F1 score      Accuracy         Fidelity      F1 score      Accuracy          Fidelity      F1 score
+                        Shen et al.   0.736±0.000     0.855±0.000    0.682±0.002   0.733±0.001     0.845±0.000    0.617±0.002   0.747±0.000      0.856±0.000    0.610±0.002
+           Prediction
+                        ours          0.745±0.004     0.811±0.001    0.631±0.004   0.742±0.001     0.820±0.003    0.637±0.002   0.749±0.002      0.815±0.002    0.620±0.009
+                        Shen et al.   0.668±0.000     0.746±0.000    0.483±0.002   0.704±0.002     0.794±0.002    0.545±0.002   0.636±0.002      0.697±0.003    0.403±0.001
+           Projection
+DBLP                    ours          0.701±0.003     0.756±0.004    0.550±0.005   0.715±0.003     0.775±0.004    0.571±0.005   0.688±0.004      0.742±0.006    0.501±0.003
+                        Shen et al.   0.733±0.001     0.837±0.000    0.637±0.002   0.746±0.000     0.858±0.000    0.677±0.001   0.748±0.005      0.861±0.010    0.626±0.003
+           Embedding
+                        ours          0.736±0.004     0.790±0.003    0.663±0.002   0.745±0.008     0.778±0.015    0.672±0.004   0.705±0.001      0.742±0.002    0.634±0.001
+                        Shen et al.   0.835±0.000     0.911±0.000    0.826±0.001   0.817±0.001     0.910±0.007    0.818±0.003   0.832±0.000      0.913±0.000    0.827±0.001
+           Prediction
+                        ours          0.850±0.000     0.875±0.001    0.844±0.001   0.826±0.007     0.880±0.007    0.821±0.005   0.849±0.001      0.875±0.001    0.844±0.009
+                        Shen et al.   0.749±0.000     0.800±0.000    0.720±0.004   0.797±0.001     0.892±0.001    0.813±0.002   0.751±0.000      0.806±0.000    0.728±0.003
+           Projection
+Pubmed                  ours          0.838±0.002     0.867±0.001    0.830±0.004   0.826±0.005     0.881±0.005    0.805±0.009   0.837±0.000      0.860±0.001    0.828±0.004
+                        Shen et al.   0.844±0.000     0.911±0.000    0.837±0.009   0.827±0.000     0.911±0.000    0.822±0.005   0.838±0.001       0.931±0.00    0.833±0.002
+           Embedding
+                        ours          0.851±0.002     0.867±0.002    0.851±0.001   0.841±0.000     0.874±0.001    0.831±0.003   0.845±0.002      0.847±0.002    0.851±0.004
+                        Shen et al.   0.822±0.001     0.902±0.000    0.816±0.005   0.835±0.001     0.893±0.001    0.835±0.001   0.828±0.000      0.895±0.001    0.829±0.004
+           Prediction
+                        ours          0.817±0.004     0.849±0.002    0.818±0.001   0.843±0.003     0.880±0.002    0.835±0.009   0.824±0.004      0.862±0.001    0.817±0.001
+                        Shen et al.   0.682±0.008     0.713±0.000    0.671±0.009   0.742±0.003     0.787±0.002    0.721±0.001   0.624±0.021      0.661±0.023    0.655±0.005
+           Projection
+Citeseer                ours          0.730±0.001     0.749±0.001    0.821±0.002   0.757±0.001     0.783±0.001    0.736±0.005   0.695±0.007      0.712±0.001    0.663±0.001
+                        Shen et al.   0.825±0.001     0.909±0.000    0.824±0.009   0.833±0.001     0.918±0.002    0.847±0.002   0.819±0.001      0.892±0.001    0.821±0.005
+           Embedding
+                        ours          0.814±0.006     0.843±0.005    0.820±0.002   0.844±0.001     0.869±0.006    0.857±0.009   0.812±0.005      0.820±0.005    0.829±0.002
+                        Shen et al.   0.907±0.000     0.922±0.000    0.877±0.003   0.905±0.002     0.930±0.004    0.775±0.009   0.886±0.003      0.906±0.004    0.829±0.001
+           Prediction
+                        ours          0.922±0.001     0.932±0.004    0.905±0.001   0.896±0.003     0.925±0.004    0.902±0.005   0.879±0.011      0.895±0.011    0.868±0.001
+                        Shen et al.   0.446±0.002     0.444±0.000    0.368±0.009   0.395±0.091     0.396±0.086    0.273±0.002   0.500±0.002      0.495±0.002    0.298±0.009
+           Projection
+Amazon                  ours          0.500±0.006     0.490±0.006    0.389±0.009   0.497±0.008     0.492±0.008    0.387±0.001   0.400±0.075      0.399±0.071    0.301±0.003
+                        Shen et al.   0.750±0.011     0.766±0.000    0.889±0.005   0.864±0.026     0.878±0.032    0.872±0.004   0.589±0.026      0.606±0.025    0.424±0.001
+           Embedding
+                        ours          0.906±0.005     0.924±0.003    0.874±0.004   0.861±0.032     0.882±0.034    0.887±0.004   0.839±0.011      0.851±0.012    0.765±0.009
+                        Shen et al.   0.948± 0.001    0.960± 0.002   0.943±0.001   0.906± 0.001    0.927± 0.002   0.911±0.003   0.939± 0.003    0.953± 0.002    0.909±0.001
+           Prediction
+                        ours          0.948±0.002     0.959±0.003    0.944±0.001   0.895±0.006     0.911±0.007    0.918±0.005   0.944±0.001     0.956±0.001     0.921±0.009
+                        Shen et al.   0.821± 0.001    0.827± 0.001   0.810±0.003   0.859± 0.002    0.937± 0.002   0.850±0.001   0.799± 0.021    0.850± 0.031    0.720±0.003
+           Projection
+Coauthor                ours          0.789±0.006     0.795±0.007    0.811±0.005   0.673±0.020     0.684±0.021    0.765±0.002   0.758±0.009     0.765±0.008     0.710±0.001
+                        Shen et al.   0.945± 0.001    0.826± 0.001   0.944±0.004   0.920± 0.002    0.937± 0.001   0.910±0.004   0.930± 0.007    0.947± 0.011    0.910±0.002
+           Embedding
+                        ours          0.941±0.002     0.952±0.001    0.940±0.002   0.904±0.009     0.921±0.008    0.920±0.009   0.939±0.001     0.948±0.001     0.920±0.009
+                        Shen et al.   0.898±0.000     0.947±0.000    0.891±0.003   0.900±0.000     0.958±0.000    0.886±0.009   0.892±0.000      0.936±0.000    0.889±0.005
+           Prediction
+                        ours          0.903±0.004     0.923±0.005    0.903±0.009   0.896±0.007     0.940±0.003    0.876±0.001   0.889±0.012      0.923±0.007    0.902±0.002
+                        Shen et al.   0.876±0.000     0.915±0.000    0.869±0.001   0.857±0.000     0.913±0.000    0.859±0.009   0.888±0.000      0.929±0.000    0.886±0.009
+           Projection
+ACM                     ours          0.880±0.002     0.906±0.002    0.889±0.002   0.842±0.012     0.891±0.010    0.842±0.003   0.867±0.003      0.886±0.009    0.868±0.004
+                        Shen et al.   0.900±0.000     0.927±0.000    0.897±0.005   0.845±0.000     0.880±0.000    0.892±0.001   0.839±0.000      0.855±0.000    0.840±0.009
+           Embedding
+                        ours          0.835±0.010     0.848±0.016    0.883±0.001   0.864±0.013     0.900±0.011    0.877±0.003   0.853±0.003      0.862±0.007    0.855±0.003
+                    Table 8.     The accuracy and fidelity scores of Type II attacks on all of the datasets with SAGE as the target model.
+
+                                                    Surrogate GIN                               Surrogate GAT                               Surrogate SAGE
+Dataset      Task
+                                       Accuracy        Fidelity      F1 score      Accuracy        Fidelity      F1 score      Accuracy        Fidelity       F1 score
+                        Shen et al.   0.761±0.000    0.904±0.000    0.682±0.001   0.759±0.000    0.864±0.000    0.689±0.001   0.764±0.000    0.891±0.001     0.683±0.001
+           Prediction
+                        ours          0.761±0.002    0.858±0.002    0.696±0.001   0.770±0.007    0.853±0.005    0.690±0.001   0.760±0.005    0.849±0.008     0.656±0.001
+                        Shen et al.   0.714±0.001    0.807±0.000    0.483±0.001   0.734±0.000    0.839±0.000    0.596±0.001   0.729±0.001    0.830±0.000     0.403±0.001
+           Projection
+DBLP                    ours          0.731±0.002    0.821±0.003    0.570±0.004   0.737±0.004    0.824±0.006    0.599±0.005   0.743±0.000    0.829±0.001     0.545±0.001
+                        Shen et al.   0.757±0.000    0.887±0.000    0.637±0.004   0.776±0.001    0.885±0.001    0.710±0.009   0.762±0.000    0.895±0.000     0.626±0.002
+           Embedding
+                        ours          0.737±0.017    0.809±0.021    0.632±0.002   0.764±0.003    0.837±0.003    0.701±0.009   0.724±0.003    0.787±0.003     0.645±0.002
+                        Shen et al.   0.855±0.000    0.956±0.000    0.851±0.004   0.839±0.000    0.944±0.001    0.840±0.001   0.856±0.000    0.952±0.001     0.847±0.001
+           Prediction
+                        ours          0.856±0.002    0.925±0.001    0.850±0.003   0.846±0.003    0.925±0.003    0.826±0.009   0.855±0.001    0.924±0.000     0.849±0.004
+                        Shen et al.   0.852±0.000    0.951±0.000    0.820±0.003   0.822±0.001    0.922±0.001    0.826±0.005   0.845±0.000    0.938±0.000     0.823±0.001
+           Projection
+Pubmed                  ours          0.848±0.001    0.920±0.001    0.844±0.001   0.838±0.001    0.920±0.002    0.830±0.001   0.842±0.001    0.915±0.002     0.834±0.001
+                        Shen et al.   0.859±0.001    0.958±0.000    0.853±0.003   0.842±0.002    0.944±0.003    0.838±0.001   0.848±0.000    0.953±0.000     0.847±0.001
+           Embedding
+                        ours          0.859±0.000    0.920±0.005    0.854±0.001   0.848±0.002    0.924±0.002    0.844±0.001   0.847±0.003    0.895±0.006     0.847±0.001
+                        Shen et al.   0.829±0.001    0.933±0.000    0.832±0.005   0.846±0.001    0.908±0.000    0.838±0.001   0.831±0.000    0.908±0.000     0.832±0.009
+           Prediction
+                        ours          0.814±0.003    0.867±0.001    0.819±0.001   0.843±0.004    0.897±0.003    0.837±0.004   0.818±0.001    0.876±0.006     0.809±0.004
+                        Shen et al.   0.685±0.004    0.727±0.000    0.617±0.001   0.736±0.001    0.792±0.003    0.734±0.002   0.719±0.003    0.756±0.004     0.602±0.005
+           Projection
+Citeseer                ours          0.718±0.004    0.762±0.005    0.707±0.003   0.750±0.003    0.797±0.001    0.734±0.001   0.666±0.015    0.704±0.014     0.655±0.005
+                        Shen et al.   0.830±0.001    0.913±0.000    0.825±0.004   0.840±0.001    0.905±0.001    0.829±0.003   0.820±0.002    0.886±0.001     0.817±0.001
+           Embedding
+                        ours          0.812±0.005    0.849±0.004    0.815±0.001   0.845±0.002    0.878±0.001    0.841±0.001   0.803±0.004    0.824±0.002     0.812±0.004
+                        Shen et al.   0.924±0.001    0.953±0.000    0.914±0.005   0.899±0.009    0.932±0.007    0.702±0.001   0.876±0.002    0.921±0.002     0.830±0.003
+           Prediction
+                        ours          0.922±0.005    0.932±0.009    0.916±0.009   0.909±0.004    0.930±0.008    0.857±0.005   0.899±0.008    0.913±0.011     0.867±0.003
+                        Shen et al.   0.720±0.004    0.743±0.000    0.571±0.004   0.767±0.011    0.818±0.008    0.338±0.002   0.638±0.002    0.674±0.002     0.554±0.001
+           Projection
+Amazon                  ours          0.856±0.013    0.854±0.014    0.820±0.009   0.779±0.010    0.794±0.004    0.515±0.002   0.654±0.028    0.670±0.033     0.554±0.001
+                        Shen et al.   0.926±0.001    0.948±0.000    0.914±0.002   0.900±0.007    0.939±0.005    0.703±0.004   0.859±0.001    0.870±0.001     0.901±0.009
+           Embedding
+                        ours          0.921±0.003    0.929±0.003    0.909±0.005   0.894±0.018    0.916±0.035    0.889±0.005   0.906±0.004    0.913±0.005     0.860±0.001
+                        Shen et al.   0.948±0.000    0.979±0.000    0.960±0.009   0.866±0.004    0.891±0.004    0.874±0.001   0.945±0.000    0.981±0.000     0.971±0.005
+           Prediction
+                        ours          0.946±0.001    0.967±0.001    0.961±0.003   0.884±0.040    0.909±0.042    0.898±0.002   0.947±0.002    0.971±0.002     0.973±0.005
+                        Shen et al.   0.731±0.001    0.743±0.000    0.714±0.005   0.844±0.007    0.865±0.008    0.820±0.001   0.717±0.005    0.729±0.005     0.704±0.004
+           Projection
+Coauthor                ours          0.907±0.011    0.924±0.011    0.899±0.004   0.674±0.053    0.682±0.054    0.750±0.001   0.782±0.003    0.802±0.005     0.790±0.001
+                        Shen et al.   0.947±0.000    0.977±0.000    0.959±0.004   0.878±0.002    0.894±0.006    0.873±0.001   0.890±0.030    0.905±0.034     0.899±0.001
+           Embedding
+                        ours          0.938±0.003    0.952±0.006    0.960±0.009   0.921±0.004    0.940±0.004    0.930±0.003   0.938±0.001    0.954±0.003     0.930±0.001
+                        Shen et al.   0.907±0.000    0.950±0.000    0.896±0.001   0.902±0.000    0.950±0.000    0.888±0.002   0.905±0.000    0.943±0.000     0.893±0.001
+           Prediction
+                        ours          0.905±0.003    0.924±0.002    0.910±0.009   0.900±0.006    0.938±0.002    0.884±0.001   0.889±0.006    0.910±0.012     0.890±0.001
+                        Shen et al.   0.901±0.000    0.938±0.000    0.888±0.004   0.896±0.000    0.944±0.000    0.891±0.002   0.904±0.000    0.939±0.000     0.881±0.002
+           Projection
+ACM                     ours          0.895±0.002    0.915±0.002    0.902±0.004   0.887±0.003    0.920±0.004    0.889±0.001   0.869±0.004    0.886±0.003     0.836±0.009
+                        Shen et al.   0.907±0.000    0.952±0.000    0.905±0.009   0.868±0.000    0.919±0.000    0.881±0.001   0.870±0.000    0.895±0.000     0.867±0.005
+           Embedding
+                        ours          0.879±0.004    0.890±0.007    0.898±0.009   0.841±0.027    0.836±0.033    0.878±0.009   0.877±0.007    0.893±0.006     0.871±0.009
+E    Additional results - query budget
+
+
+
+
+Figure 5. The average accuracies and fidelities on the Citeseer dataset and GIN target with projection response using different percentages of nodes in the
+stealing process. We compare with the highest accuracy and fidelity achieved by [33]’s best-performing surrogate model using 30% of dataset nodes.
+
+
+
+
+Figure 6. The average accuracy and fidelity on the Citeseer dataset and GIN target with prediction response using different percentages of nodes in the stealing
+process. We compare with the highest accuracy and fidelity achieved by [33]’s best-performing surrogate model using 30% of dataset nodes.
+F     Additional results - defense
+
+
+
+
+    Figure 7. Accuracy scores after adding Gaussian noise with a standard deviation σ to prediction response from target model GIN on the ACM dataset.
+
+
+
+
+Figure 8. Accuracy scores after adding Gaussian noise with a standard deviation σ to t-SNE projection response from target model GIN on the ACM dataset.
+
