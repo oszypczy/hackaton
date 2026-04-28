@@ -16,5 +16,8 @@ data/
 .idea/
 .vscode/
 
+# secrets — per-repo env (GITHUB_TOKEN etc.)
+.env
+
 # Claude Code session files
 .claude/local/

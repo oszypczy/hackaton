@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "github": {
+      "command": "sh",
+      "args": [
+        "-c",
+        "set -a && source /Users/oszypczy/VSCode/personal/hackaton/.env && set +a && npx -y @modelcontextprotocol/server-github"
+      ]
+    }
+  }
+}
