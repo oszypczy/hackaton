@@ -13,7 +13,9 @@ Stan na 2026-04-26.
 - ✅ **Phase 0 token-hygiene baseline DONE 2026-04-26** — settings.json + .claudeignore + 25/25 PDFów→.txt + slim CLAUDE.md (152 lines) + MAPPING router split (INDEX 693w + MAPPING.md 3099w)
 - ✅ **Phase 1 productivity scaffolding DONE 2026-04-26** — 3 subagenty, 4 slash commands, FAQ/LEARNINGS skeletony, Justfile + templates/ + tests/smoke.py (zielony), SUBMISSION_LOG, docs/SETUP.md per-teammate checklist
 - ⚠️ **Per-teammate setup** — każdy musi przejść `docs/SETUP.md` przed mini-hackathonem (brew install, unset ANTHROPIC_API_KEY, claude logout/login, ccusage)
-- ⚠️ **Brak kodu** — żadnego boilerplate, fixture data, scoring scripts
+- ✅ **Scoring scripts** — `code/practice/score_A/B/C.py` gotowe (2026-04-28)
+- ✅ **Challenge A fixture data** — `data/A/` wygenerowane (in/out/val_in/ground_truth.jsonl)
+- ⚠️ **Brak kodu ataku** — scoring scripts są, ale brak `attack_A/B/C.py` z implementacją
 - ⚠️ **Brak rejestracji Jülich** + nieznana data Zoom info session
 - ⚠️ Folder `references/repos/` jeszcze nie sklonowany — patrz sekcja paper repos w MAPPING.md
 - ⚠️ Promp 7 (toolkit) z `deep_research_prompts.md` jeszcze nieodpalony
@@ -48,10 +50,7 @@ Stan na 2026-04-26.
 **Trzeba GPU innego niż M4.** Główny tor: **kolega z CUDA GPU** w zespole (patrz Environment w `CLAUDE.md`). Backup: Jülich (jak dostęp ruszy), Colab Pro free tier T4.
 
 - [ ] Ustalić z kolegą-CUDA harmonogram generowania fixture data (B + C, ~6h roboty łącznie)
-- [ ] **Challenge A fixtures** (~30 min na CPU lub Colab — nie wymaga CUDA):
-  - 1000 docs z `monology/pile-uncopyrighted` (streaming) → `data/A/in.jsonl`
-  - 1000 docs z `RealTimeData/News_2024` → `data/A/out.jsonl`
-  - 200 docs z Pile-val → `data/A/val_in.jsonl`
+- [x] **Challenge A fixtures** — `data/A/` wygenerowane ✅ 2026-04-28
 - [ ] **Challenge B fixtures** (~2h na CUDA GPU — zlecić koledze-CUDA):
   - Pobrać Llama-3-8B-Instruct
   - Zaimplementować Kirchenbauer green-list generator (z repo jwkirchenbauer)
@@ -68,10 +67,9 @@ Stan na 2026-04-26.
   - **Backup plan jeśli za wolno na M4**: wygenerować 5000 samples z DDPM i też dystrybuować
 
 ### 4. Scoring scripts (opcjonalne ale pomocne)
-- [ ] `code/practice/score_A.py` — wczytuje submission JSONL + ground truth, liczy AUC + p-value, drukuje score
-- [ ] `code/practice/score_B.py` — F1 dla B1, BERTScore + z-score recheck dla B2
-- [ ] `code/practice/score_C.py` — nDCG@50, Recall@50, Recall@100
-- [ ] Każdy ma deterministic seeds + clear output: można odpalać wielokrotnie
+- [x] `code/practice/score_A.py` — AUC + p-value ✅ 2026-04-28
+- [x] `code/practice/score_B.py` — F1 dla B1, BERTScore + z-score recheck dla B2 ✅ 2026-04-28
+- [x] `code/practice/score_C.py` — nDCG@50, Recall@50, Recall@100 ✅ 2026-04-28
 
 ### 5. Mini-hackathon (timer 8h)
 - [ ] Każdy bierze swój challenge, pracuje solo

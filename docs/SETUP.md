@@ -8,11 +8,13 @@
 ```bash
 # macOS — required
 brew install poppler ripgrep just
+curl -LsSf https://astral.sh/uv/install.sh | sh   # lub: brew install uv
 
 # verify
-which pdftotext rg just     # all three should print paths
+which pdftotext rg just uv  # all four should print paths
 pdftotext -v 2>&1 | head -1  # 26.x
 rg --version | head -1       # 15.x
+uv --version                 # 0.9.x
 ```
 
 If on Linux: `apt install poppler-utils ripgrep` and grab `just` from <https://just.systems/man/en/chapter_4.html>.
@@ -74,11 +76,15 @@ Extra Usage: Claude Code → Settings → Usage → Extra Usage → enable month
 ## 6. Smoke test
 
 ```bash
+uv venv .venv
+source .venv/bin/activate
+uv pip install -r requirements.txt
+
 just eval
 # expect 6 PASS in [metrics], 3 SKIP in [attacks], "OK", exit 0
 ```
 
-If `just` not found → install per step 1. If `python3` missing → `brew install python@3.11`. If `numpy` missing → `pip install numpy datasets transformers`.
+If `just` not found → install per step 1. If `uv` not found → install per step 1. If `numpy` missing → `uv pip install numpy datasets transformers`.
 
 ## 7. Sleep rotation (during 24h event)
 

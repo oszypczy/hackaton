@@ -15,3 +15,15 @@ baseline:
 
 extract-papers:
     bash scripts/extract_papers.sh
+
+gen-B:
+    python scripts/generate_B_fixtures.py
+
+gen-C:
+    python scripts/generate_C_fixtures.py
+
+gen-B-dry:
+    python scripts/generate_B_fixtures.py --dry-run
+
+gen-C-dry:
+    python scripts/generate_C_fixtures.py --dry-run

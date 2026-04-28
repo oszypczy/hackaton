@@ -1,0 +1,17 @@
+# Core numerics
+numpy>=2.0
+scipy>=1.13
+scikit-learn>=1.5
+
+# ML stack (MPS-compatible — no bitsandbytes)
+torch>=2.3
+transformers>=4.42
+datasets>=2.19
+accelerate>=0.30    # needed for MPS device selection in transformers
+
+# Scoring
+bert-score>=0.3.13  # score_B.py B2 subtask
+
+# Dev tools
+tqdm                # progress bars in generate_* scripts
+ipykernel           # optional: Jupyter notebooks in .venv
