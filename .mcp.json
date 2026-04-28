@@ -6,6 +6,27 @@
         "-c",
         "set -a && source /Users/oszypczy/VSCode/personal/hackaton/.env && set +a && npx -y @modelcontextprotocol/server-github"
       ]
+    },
+    "hf": {
+      "type": "http",
+      "url": "https://huggingface.co/mcp?login"
+    },
+    "paper-search": {
+      "command": "uvx",
+      "args": ["--from", "paper-search-mcp", "python", "-m", "paper_search_mcp.server"]
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"]
+    },
+    "duckdb": {
+      "command": "uvx",
+      "args": [
+        "mcp-server-motherduck",
+        "--db-path",
+        "./submissions.duckdb",
+        "--read-write"
+      ]
     }
   }
 }

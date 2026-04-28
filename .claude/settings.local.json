@@ -1,6 +1,10 @@
 {
   "enabledMcpjsonServers": [
-    "github"
+    "github",
+    "hf",
+    "paper-search",
+    "playwright",
+    "duckdb"
   ],
   "enableAllProjectMcpServers": true
 }

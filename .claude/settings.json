@@ -3,6 +3,7 @@
   "alwaysThinkingEnabled": false,
   "env": {
     "MAX_THINKING_TOKENS": "8000",
+    "MAX_MCP_OUTPUT_TOKENS": "6000",
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "65",
     "USE_BUILTIN_RIPGREP": "0",
     "DISABLE_NON_ESSENTIAL_MODEL_CALLS": "1",

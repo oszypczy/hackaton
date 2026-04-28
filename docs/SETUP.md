@@ -49,7 +49,46 @@ Then in a Claude Code session:
 /usage              # smoke-check budget reads
 ```
 
-## 4. Live budget monitoring
+## 4. Claude Code per-user config (NOT versioned)
+
+These live in `~/.claude/settings.json` and are NOT in the repo — each teammate applies them locally.
+
+### 4a. MCP servers (project-scoped, auto-loaded from `.mcp.json`)
+
+After `git pull` and restart of Claude Code, verify:
+
+```
+/mcp
+# expect 5 entries: github, hf, paper-search, playwright, duckdb
+```
+
+First-use prereqs per server:
+
+| Server | Prereq | First-call cost |
+|---|---|---|
+| `github` | `.env` with `GITHUB_PERSONAL_ACCESS_TOKEN` | none |
+| `hf` | free HuggingFace account | opens browser → OAuth login |
+| `paper-search` | `uv` (section 1) | `uvx` pulls package, ~30s |
+| `playwright` | none | downloads ~250 MB Chromium — **on home Wi-Fi, BEFORE event** |
+| `duckdb` | `uv` (section 1) | creates `./submissions.duckdb` in cwd |
+
+Smoke check `playwright` before event day: ask Claude "via playwright open https://huggingface.co and screenshot the page" — first run pulls Chromium, subsequent runs reuse cache.
+
+### 4b. Token-discipline flips (`~/.claude/settings.json`)
+
+```json
+{
+  "alwaysThinkingEnabled": false,
+  "enabledPlugins": {
+    "coderabbit@claude-plugins-official": false
+  }
+}
+```
+
+- `alwaysThinkingEnabled: false` — thinking tokens billed as output ($15/MTok Sonnet); silent-thinking turn ≈ $0.12. Opt-in via `/think` for known-hard subtasks (math, derivations).
+- `coderabbit: false` — disabled during the 24h race (review turns cost tokens with no submission impact). Re-enable after.
+
+## 5. Live budget monitoring
 
 Pin in a tmux pane on event day:
 
@@ -63,7 +102,7 @@ When you cross 70% of your 5h window:
 2. Downshift the next subtask to Sonnet (or Haiku for grep/classification)
 3. Post a one-liner in team chat
 
-## 5. Plan tier per person (decide BEFORE event)
+## 6. Plan tier per person (decide BEFORE event)
 
 | Person | Plan | 5h budget | Role |
 |---|---|---|---|
@@ -73,7 +112,7 @@ When you cross 70% of your 5h window:
 
 Extra Usage: Claude Code → Settings → Usage → Extra Usage → enable monthly cap.
 
-## 6. Smoke test
+## 7. Smoke test
 
 ```bash
 uv venv .venv
@@ -86,7 +125,7 @@ just eval
 
 If `just` not found → install per step 1. If `uv` not found → install per step 1. If `numpy` missing → `uv pip install numpy datasets transformers`.
 
-## 7. Sleep rotation (during 24h event)
+## 8. Sleep rotation (during 24h event)
 
 - h0–8: all 3 awake (iteration peak; window resets ~h5)
 - h8–14: P2 sleeps (P1 + P3 work)
@@ -95,7 +134,7 @@ If `just` not found → install per step 1. If `uv` not found → install per st
 
 **Critical: never both Max 5x users sleep simultaneously** — they're the team's token capital.
 
-## 8. Worktrees for parallel Claude sessions
+## 9. Worktrees for parallel Claude sessions
 
 ```bash
 git worktree add ../hack-A -b person2/extraction
@@ -105,12 +144,10 @@ git worktree add ../hack-B -b person3/watermark
 
 Avoid two Claudes editing the same file. Worktree disjointness = parallel wins; same file = 2× burn.
 
-## 9. When NOT to use Claude
+## 10. When NOT to use Claude
 
 - Boilerplate from `templates/` — copy-paste, don't ask
 - Patterns you've written 3+ times before — type it
 - Renames / refactors — `ast-grep` (`brew install ast-grep`)
 - Submission packaging — `just submit`, no Claude turn
 - Reading papers — pre-event work, not in-event
-
-Claude is for novel design and integration, not for typing.
