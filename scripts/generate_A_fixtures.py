@@ -83,7 +83,7 @@ def stream_openwebtext(n: int, skip: int = 0) -> list[dict]:
     return docs
 
 
-def stream_cnn_dailymail(n: int) -> list[dict]:
+def stream_cnn_dailymail(n: int) -> list[str]:
     """Stream n cleaned articles from cnn_dailymail 3.0.0."""
     from datasets import load_dataset
 
@@ -92,6 +92,30 @@ def stream_cnn_dailymail(n: int) -> list[dict]:
 
     for row in ds:
         raw = row.get("article", "")
+        cleaned = clean_and_truncate(raw)
+        if cleaned:
+            docs.append(cleaned)
+        if len(docs) >= n:
+            break
+
+    return docs
+
+
+def stream_wikipedia_recent(n: int, skip: int = 0) -> list[str]:
+    """Stream n cleaned articles from Wikipedia 2023 dump (post-Pythia cutoff)."""
+    from datasets import load_dataset
+
+    ds = load_dataset("wikimedia/wikipedia", "20231101.en", split="train", streaming=True)
+    docs = []
+    skipped = 0
+
+    for row in ds:
+        raw = row.get("text", "")
+        if len(raw) < MIN_CHARS:
+            continue
+        if skipped < skip:
+            skipped += 1
+            continue
         cleaned = clean_and_truncate(raw)
         if cleaned:
             docs.append(cleaned)
@@ -145,31 +169,48 @@ def main() -> None:
     ap.add_argument("--n-val", type=int, default=200,  help="VAL set size (default 200)")
     ap.add_argument("--out-dir", default="data/A", help="Output directory (default data/A)")
     ap.add_argument("--seed",  type=int, default=42,   help="Not used — streaming is deterministic")
+    ap.add_argument("--out-source", choices=["cnn", "wikipedia"], default="cnn",
+                    help="OUT set source: cnn=cnn_dailymail (default), wikipedia=wikimedia 2023")
+    ap.add_argument("--out-only", action="store_true",
+                    help="Regenerate only out.jsonl (skip IN and VAL)")
     args = ap.parse_args()
 
     out_dir = Path(args.out_dir)
     n_in, n_out, n_val = args.n_in, args.n_out, args.n_val
 
+    out_source_label = {"cnn": "cnn_dailymail", "wikipedia": "wikimedia/wikipedia 20231101.en"}[args.out_source]
     print(f"Generating Challenge A fixtures → {out_dir}/")
-    print(f"  IN={n_in}  OUT={n_out}  VAL={n_val}\n")
+    print(f"  IN={n_in}  OUT={n_out} ({out_source_label})  VAL={n_val}\n")
 
     # ── IN set ────────────────────────────────────────────────────────────────
-    print(f"[1/3] Streaming IN set from openwebtext (n={n_in})...")
-    in_texts = stream_openwebtext(n_in, skip=0)
-    if len(in_texts) < n_in:
-        print(f"  [WARN] Only got {len(in_texts)} docs (wanted {n_in})", file=sys.stderr)
-    in_records = [{"id": i, "text": t} for i, t in enumerate(in_texts)]
-    write_jsonl(out_dir / "in.jsonl", in_records)
+    if not args.out_only:
+        print(f"[1/3] Streaming IN set from openwebtext (n={n_in})...")
+        in_texts = stream_openwebtext(n_in, skip=0)
+        if len(in_texts) < n_in:
+            print(f"  [WARN] Only got {len(in_texts)} docs (wanted {n_in})", file=sys.stderr)
+        in_records = [{"id": i, "text": t} for i, t in enumerate(in_texts)]
+        write_jsonl(out_dir / "in.jsonl", in_records)
+    else:
+        print("[1/3] Skipping IN set (--out-only)")
+        in_records = []
 
     # ── OUT set ───────────────────────────────────────────────────────────────
-    print(f"\n[2/3] Streaming OUT set from cnn_dailymail (n={n_out})...")
-    out_texts = stream_cnn_dailymail(n_out)
+    print(f"\n[2/3] Streaming OUT set from {out_source_label} (n={n_out})...")
+    if args.out_source == "wikipedia":
+        out_texts = stream_wikipedia_recent(n_out)
+    else:
+        out_texts = stream_cnn_dailymail(n_out)
     if len(out_texts) < n_out:
         print(f"  [WARN] Only got {len(out_texts)} docs (wanted {n_out})", file=sys.stderr)
     out_records = [{"id": n_in + i, "text": t} for i, t in enumerate(out_texts)]
     write_jsonl(out_dir / "out.jsonl", out_records)
 
     # ── VAL set ───────────────────────────────────────────────────────────────
+    if args.out_only:
+        print("\n[3/3] Skipping VAL set (--out-only)")
+        print(f"\nDone. Regenerated only out.jsonl ({len(out_records)} docs, source={args.out_source})")
+        return
+
     print(f"\n[3/3] Streaming VAL set from wikitext-103 test (n={n_val})...")
     val_texts = stream_wikitext_test(n_val)
     shortage = n_val - len(val_texts)
@@ -207,7 +248,7 @@ IDs:
   {len(in_records)+len(out_records)} – {len(in_records)+len(out_records)+len(val_records)-1}  → val_in.jsonl  (is_member=true)
 
 Note: IN = openwebtext (in The Pile).
-      OUT = cnn_dailymail (not in The Pile; post-Pythia cutoff).
+      OUT = {out_source_label} (not in Pythia training; post-cutoff).
       VAL = wikitext-103 test (same distribution as Pile Wikipedia).
 """)
 

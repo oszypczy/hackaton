@@ -20,6 +20,8 @@ from pathlib import Path
 # Add project root to sys.path so local `code/` package shadows stdlib `code` module.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+import hashlib
+
 import joblib
 import numpy as np
 from tqdm import tqdm
@@ -42,27 +44,56 @@ def load_jsonl(path: Path) -> list[dict]:
         return [json.loads(line) for line in f if line.strip()]
 
 
+def _text_hash(text: str) -> str:
+    return hashlib.md5(text.encode()).hexdigest()[:8]
+
+
 def run_inference(docs: list[dict], model_id: str, cache_path: Path) -> dict:
+    cached: dict = {}
     if cache_path.exists():
-        print(f"  Loading cache: {cache_path.name}")
-        return joblib.load(cache_path)
+        cached = joblib.load(cache_path)
 
-    device = pick_device()
-    print(f"  Device: {device}")
-    print(f"  Loading {model_id} ...", flush=True)
-    tokenizer, model = load_model(model_id, device)
-    print(f"  Model loaded.", flush=True)
+    # Migration: seed _hash for pre-hash-tracking entries (assumes text unchanged).
+    # Newly-added or invalidated IDs won't be in cached, so they skip seeding.
+    needs_save = False
+    for doc in docs:
+        if doc["id"] in cached and "_hash" not in cached[doc["id"]]:
+            cached[doc["id"]]["_hash"] = _text_hash(doc["text"])
+            needs_save = True
 
-    feats = {}
-    for doc in tqdm(docs, desc=f"Scoring {model_id}"):
-        feats[doc["id"]] = compute_doc_features(
-            doc["text"], tokenizer, model, device, MAX_LENGTH
-        )
+    current_ids = {doc["id"] for doc in docs}
+    to_infer = [
+        doc for doc in docs
+        if doc["id"] not in cached
+        or cached[doc["id"]].get("_hash") != _text_hash(doc["text"])
+    ]
 
-    CACHE_DIR.mkdir(exist_ok=True)
-    joblib.dump(feats, cache_path)
-    print(f"  Cached to {cache_path.name}")
-    return feats
+    if not to_infer:
+        if needs_save:
+            CACHE_DIR.mkdir(exist_ok=True)
+            joblib.dump(cached, cache_path)
+        print(f"  Cache hit ({len(docs)} docs): {cache_path.name}")
+    else:
+        n_cached = len(docs) - len(to_infer)
+        print(f"  {n_cached} cached + {len(to_infer)} new — loading {model_id} ...", flush=True)
+        device = pick_device()
+        tokenizer, model = load_model(model_id, device)
+        print(f"  Model loaded.", flush=True)
+
+        for doc in tqdm(to_infer, desc=f"Scoring {model_id}"):
+            feats = compute_doc_features(doc["text"], tokenizer, model, device, MAX_LENGTH)
+            feats["_hash"] = _text_hash(doc["text"])
+            cached[doc["id"]] = feats
+
+        # Drop IDs no longer in docs
+        for stale_id in [k for k in cached if k not in current_ids]:
+            del cached[stale_id]
+
+        CACHE_DIR.mkdir(exist_ok=True)
+        joblib.dump(cached, cache_path)
+        print(f"  Saved cache: {cache_path.name}")
+
+    return cached
 
 
 def main() -> None:
