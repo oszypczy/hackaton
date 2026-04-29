@@ -5,7 +5,7 @@ venv/
 .python-version
 
 # data + checkpoints (often huge; per-laptop)
-data/C/
+data/C/candidates/
 *.ckpt
 *.safetensors
 *.pt

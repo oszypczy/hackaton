@@ -1,32 +1,3 @@
-{
-  "mcpServers": {
-    "github": {
-      "command": "sh",
-      "args": [
-        "-c",
-        "set -a && source /Users/oszypczy/VSCode/personal/hackaton/.env && set +a && npx -y @modelcontextprotocol/server-github"
-      ]
-    },
-    "hf": {
-      "type": "http",
-      "url": "https://huggingface.co/mcp?login"
-    },
-    "paper-search": {
-      "command": "uvx",
-      "args": ["--from", "paper-search-mcp", "python", "-m", "paper_search_mcp.server"]
-    },
-    "playwright": {
-      "command": "npx",
-      "args": ["-y", "@playwright/mcp@latest"]
-    },
-    "duckdb": {
-      "command": "uvx",
-      "args": [
-        "mcp-server-motherduck",
-        "--db-path",
-        "./submissions.duckdb",
-        "--read-write"
-      ]
-    }
-  }
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:25842472e0e06a645806d46ab43dc4529b6773db382ff432278a9d5efe1ea831
+size 746
