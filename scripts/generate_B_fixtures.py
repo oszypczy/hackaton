@@ -142,15 +142,34 @@ def generate_texts(
 def load_human_texts(n: int) -> list[str]:
     ds = load_dataset("wikitext", "wikitext-103-raw-v1", split="test", streaming=True)
     texts: list[str] = []
+    buf: list[str] = []  # accumulate consecutive lines into paragraphs
+
+    def flush(buf: list[str]) -> str | None:
+        text = " ".join(buf).strip()
+        words = text.split()
+        if len(words) >= 150:
+            return " ".join(words[:180])  # ~200–250 tokens
+        return None
+
     with tqdm(total=n, desc="loading human texts", unit="text") as pbar:
         for row in ds:
-            words = row["text"].strip().split()
-            if len(words) >= 60:
-                texts.append(" ".join(words[:70]))
-                pbar.update(1)
+            line = row["text"].strip()
+            if line.startswith("=") or not line:
+                result = flush(buf)
+                if result:
+                    texts.append(result)
+                    pbar.update(1)
+                buf = []
+            else:
+                buf.append(line)
             if len(texts) >= n:
                 break
-    return texts
+        if len(texts) < n and buf:
+            result = flush(buf)
+            if result:
+                texts.append(result)
+
+    return texts[:n]
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -208,7 +227,8 @@ def main() -> None:
     cl_texts = generate_texts(mdl_llama, tok_llama, llama_prompts[n_wm:], False, vocab)
 
     del mdl_llama
-    torch.cuda.empty_cache()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
     # ── GPT-2 XL ─────────────────────────────────────────────────────────────
     print(f"\n[3/4] {n_gp} GPT-2 XL texts...")
@@ -258,7 +278,7 @@ def main() -> None:
         for r in records:
             f.write(json.dumps({"id": r["id"], "watermarked": r["watermark"] is not None}) + "\n")
 
-    wm_records = [r for r in records if r["watermark"] is not None]
+    wm_records = [r for r in records if r["watermark"] is not None][:50]  # B2 = exactly 50
     with removal_path.open("w") as f:
         for r in wm_records:
             f.write(json.dumps({

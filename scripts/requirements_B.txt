@@ -1,0 +1,11 @@
+# Challenge B fixture generation
+# Install with: pip install -r scripts/requirements_B.txt
+#
+# Llama-3-8B-Instruct is a gated model.
+# Before running: huggingface-cli login  (or set HF_TOKEN env var)
+
+torch>=2.2.0
+transformers>=4.40.0
+datasets>=2.18.0
+tqdm>=4.66.0
+accelerate>=0.29.0

@@ -1,6 +1,4 @@
 {
-  "model": "sonnet",
-  "alwaysThinkingEnabled": false,
   "env": {
     "MAX_THINKING_TOKENS": "8000",
     "MAX_MCP_OUTPUT_TOKENS": "6000",
@@ -15,7 +13,10 @@
       "Bash(just --list)",
       "Bash(uv --version)",
       "Bash(npx ccusage *)",
-      "Bash(python3 -m py_compile *)"
+      "Bash(python3 -m py_compile *)",
+      "Bash(python3 -c ' *)"
     ]
-  }
+  },
+  "model": "sonnet",
+  "alwaysThinkingEnabled": false
 }

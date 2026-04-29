@@ -80,7 +80,7 @@ def train(unet, noise_scheduler, loader, train_steps: int, device: str) -> None:
     )
 
     use_amp = device == "cuda"
-    scaler  = torch.cuda.amp.GradScaler() if use_amp else None
+    scaler  = torch.amp.GradScaler("cuda") if use_amp else None
 
     step       = 0
     total_loss = 0.0
@@ -108,7 +108,7 @@ def train(unet, noise_scheduler, loader, train_steps: int, device: str) -> None:
             noisy = noise_scheduler.add_noise(images, noise, timesteps)
 
             if use_amp:
-                with torch.cuda.amp.autocast():
+                with torch.amp.autocast("cuda"):
                     pred = unet(noisy, timesteps).sample
                     loss = F.mse_loss(pred, noise)
                 scaler.scale(loss).backward()
@@ -234,7 +234,8 @@ def main() -> None:
     print(f"First 10: {memorized_indices[:10]}")
 
     aug = AugmentedCIFAR10(cifar_train, memorized_indices, dup)
-    loader = DataLoader(aug, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True)
+    pin = device == "cuda"
+    loader = DataLoader(aug, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=pin)
     print(f"Dataset: {len(aug)} images (base={len(cifar_train)} + {N_MEMORIZED}×{dup} duplicates)")
 
     # ── Fine-tune ─────────────────────────────────────────────────────────────
