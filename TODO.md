@@ -111,9 +111,15 @@ Stan na 2026-04-26.
 
 ## Pytania otwarte / do wyjaśnienia
 
-- [x] Zoom info session: **dziś 2026-05-04 17:00 GMT+2** — link w mailu od organizatorów
-- [ ] Czy Jülich access działa? (Sprawdzić https://judoor.fz-juelich.de/projects/training2615)
-- [ ] Skąd wziął się autor `hackathon_preparation.md` z listą poprzednich edycji per miasto? (Może warto zweryfikować źródła)
+- [x] Zoom info session: **2026-05-04 17:00** — DONE, transcript + slajdy w `docs/`
+- [x] Submission format: REST API + CSV, team token, 5-min cooldown
+- [x] AI tools: w pełni dozwolone
+- [x] Dane/modele: dostarczone na start (HuggingFace + Jülich)
+- [x] GPU Jülich: 800 GPU, partycja DCGPU, 4× A800 per node, projekt training2615
+- [x] Taski: Data Identification + Memorization + Watermarking (Zawalski NIE jest osobnym taskiem)
+- [ ] **Jülich SSH setup** — każda osoba: rejestracja + MFA + SSH key → `jutil env activate -p training2615`
+- [ ] **UV install** na każdym laptopie: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- [ ] Kto bierze który task (A/B/C)? — ustalić w zespole przed May 9th
 
 ## Hidden papers warte przeczytania (z deep research)
 
