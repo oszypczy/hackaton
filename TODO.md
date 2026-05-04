@@ -27,10 +27,7 @@ Stan na 2026-04-26.
 ### 1. Decyzje zespołowe (zanim cokolwiek się buduje)
 - [ ] Przeczytać 3 specs (A, B, C) w zespole — czy scope jest OK?
 - [ ] Wyciąć / dodać co trzeba (np. czy ktoś chce zamiast C robić **NeurIPS "Erasing the Invisible"**?)
-- [ ] **Zdecydować czy bierzemy 3 czy 5 challengeów.** Po deep research dodane dwa opcjonalne:
-  - Challenge D — Property Inference / Fairness Audit (Barcelona-style, recipe gotowy)
-  - Challenge E — Model Stealing (B4B encoder lub CIFAR-100 classifier)
-  Domyślnie 3, ale jeśli ktoś chce drugą rundę praktyki — D i E są tu.
+- [x] **Ile challengeów: 3** — potwierdzone na Discord 2026-05-04. D i E odpada jako zakres hackathonu (zostają jako materiał do ew. drugiej rundy praktyki).
 - [ ] **Zdecydować czy challenge C robimy w wersji Carlini (CIFAR-10) czy CDI (Dubiński/Boenisch CVPR 2025).** CDI jest świeższy, paper SprintML, wymaga tylko 70 próbek.
 - [ ] Przypisać osoby:
   - Challenge A → ?
@@ -114,7 +111,7 @@ Stan na 2026-04-26.
 
 ## Pytania otwarte / do wyjaśnienia
 
-- [ ] Czy organizatorzy ogłosili już Zoom info session? (Sprawdzić Discord / mail)
+- [x] Zoom info session: **dziś 2026-05-04 17:00 GMT+2** — link w mailu od organizatorów
 - [ ] Czy Jülich access działa? (Sprawdzić https://judoor.fz-juelich.de/projects/training2615)
 - [ ] Skąd wziął się autor `hackathon_preparation.md` z listą poprzednich edycji per miasto? (Może warto zweryfikować źródła)
 

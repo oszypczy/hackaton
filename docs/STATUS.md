@@ -1,7 +1,7 @@
 # Project status (volatile)
 
 > NOT loaded into CLAUDE.md prefix. Edit freely; cache stays warm.
-> Last updated: 2026-04-26
+> Last updated: 2026-05-04
 
 ## Status snapshot
 - 25 PDFs in `references/papers/` + 25/25 pre-extracted to `references/papers/txt/` (5.6 MB)
@@ -19,8 +19,23 @@
 - Fixture data dla challenge B + C jeszcze nie wygenerowane (wymaga CUDA-teammate)
 - `just` musi być zainstalowane na każdym laptopie zespołu (`brew install just`)
 
-## Open questions
-- Czy bierzemy 3 czy 5 challengeów (D + E opcjonalne)?
-- Carlini vs CDI dla Challenge C?
+## Confirmed (Discord 2026-05-04)
+- **3 challenges total** — potwierdzono na Discord przed Zoom info session
+- Struktura A/B/C (jeden na osobę) jest właściwa, D/E odpada jako zakres
+
+## Active blockers
+- Brak boilerplate'u dla atak-implementacji (templates są — skeleton tylko, attack code TODO)
+- score_A/B/C.py gotowe, ale brak attack_A/B/C.py
+- Jülich access nieprzetestowany (https://judoor.fz-juelich.de/projects/training2615)
+- Zoom info session dziś 17:00 — czekamy na: submission format, metryki, co jest dostarczone
+- Fixture data dla challenge B + C jeszcze nie wygenerowane (wymaga CUDA-teammate)
+
+## Open questions (na Zoom dziś 17:00)
+- Submission format: REST API, CSV, CLI? → determinuje /submit pipeline
+- Primarna metryka: TPR@1%FPR, AUC, inne?
+- Co jest dostarczone na start (dane, checkpointy)?
+- Czy modele można pre-cachować na Jülich przed May 9th?
+- GPU spec na Jülich (VRAM, node limit)?
+- Jakie 3 challengi (czy jeden z nich to Zawalski data contamination)?
+- Dostęp do internetu / HuggingFace podczas hackathonu?
 - Kto bierze który challenge (A/B/C)?
-- Kiedy mini-hackathon (sugerowane: weekend 2026-05-02/03)?
