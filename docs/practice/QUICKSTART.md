@@ -1,3 +1,7 @@
+> ⚠️ **DOTYCZY TYLKO ćwiczeń A/B/C — nie faktycznego hackathonu.**
+> Na event day (2026-05-09) zignoruj sekcję "repos do sklonowania" dopóki nie wiesz że
+> faktyczny task tego wymaga. Protokół na dzień hackathonu: `docs/DAY_OF.md`.
+
 # QUICKSTART — "Hackathon dał mi X, co teraz?"
 
 Jednostronicowa mapa scenariusz → narzędzie → liczba kontaktowa, oparta na researchach 01/02/03 + paperach 09–25. Czytaj tutaj zamiast deep researchy w trakcie.

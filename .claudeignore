@@ -1,4 +1,5 @@
 references/papers/*.pdf
+docs/ARCHIVE/
 **/__pycache__/
 .venv/
 data/

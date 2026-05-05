@@ -42,7 +42,7 @@ Current status: see @docs/STATUS.md
 | Source | What | Authority |
 |---|---|---|
 | `docs/01_email_*.txt`, `02_email_*.txt`, `references/papers/01–04` | Organizer mails + 4 required papers | **Ground truth** |
-| `docs/hackathon_preparation.md` | Autorska analiza poprzednich edycji (Paris/Vienna/Stockholm/Munich/Barcelona) | **Speculation, sources unverified** |
+| `docs/ARCHIVE/hackathon_preparation_pre_zoom.md` | Autorska analiza poprzednich edycji — **ARCHIVED, superseded by STATUS.md** | **Ignore** |
 | `docs/deep_research/0N_*.md`, `docs/practice/`, papers `05–25` | Claude Research output + our extrapolations | **Educated guesses** |
 
 Do not mix these in recommendations. Official emails are thin: no challenge count, format, scoring server, or API spec given. Zoom info session announced but not yet scheduled.
@@ -122,7 +122,7 @@ docs/
   claude_retrieval_strategy.md               # research #2 — RAG vs no-RAG verdict (recommends no-RAG)
   01_email_invitation_papers.txt             # ORGANIZER mail #1
   02_email_registration_confirmed.txt        # ORGANIZER mail #2
-  hackathon_preparation.md                   # OUR analysis of past editions
+  ARCHIVE/hackathon_preparation_pre_zoom.md  # ARCHIVED — pre-Zoom speculation, superseded by STATUS.md
   deep_research/
     deep_research_prompts.md                 # 7 research prompts
     01_adversarial_attacks.md                # Claude Research result for prompt 1

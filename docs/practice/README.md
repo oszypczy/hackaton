@@ -1,3 +1,8 @@
+> ⚠️ **ĆWICZENIA PRZED HACKATONEM — NIE faktyczne zadania.**
+> Challenges A/B/C to nasze własne mock-taski do nauki technik. Faktyczne zadania hackathonu
+> zostaną ujawnione 2026-05-09 o 12:00 i mogą się znacząco różnić (format, metryki, dane).
+> Patrz `docs/STATUS.md` po potwierdzone fakty z Zoom info session.
+
 # Practice Challenges — przygotowanie do CISPA Hackathon (Warsaw 2026-05-09/10)
 
 Trzy mock-challengi do samodzielnego rozwiązania w ciągu 2 tygodni przed hackathonem.
