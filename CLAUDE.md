@@ -73,6 +73,31 @@ Use the CUDA teammate for:
 
 GPU access during competition: Jülich Supercomputer (https://judoor.fz-juelich.de/projects/training2615) — register early.
 
+### Executing commands on Jülich from Claude
+
+Use `scripts/juelich_exec.sh "<cmd>"` — **never** call `ssh` directly.
+
+**Prerequisite (user must do once per session):**
+```bash
+! scripts/juelich_connect.sh   # prompts for TOTP; socket lives 4h
+```
+
+**Then Claude can call freely:**
+```bash
+scripts/juelich_exec.sh "squeue -u $JUELICH_USER"
+scripts/juelich_exec.sh "cat ~/results.txt"
+scripts/juelich_exec.sh "python train.py --epochs 5"
+```
+
+**Safety rules baked into `juelich_exec.sh`:**
+- `rm`, `rmdir`, `dd`, `mkfs`, `git reset --hard`, `scancel` (no ID), `truncate`, `chown` → **BLOCKED** (exit 2). Use `--force` only if user explicitly asks.
+- `sbatch`, `scancel <id>`, `| bash` → **asks [y/N]** — always show user what will run and wait for their confirmation before calling.
+- Read-only ops (`ls`, `cat`, `squeue`, `sinfo`, `python`, `uv`) → free, no prompt needed.
+
+**If socket is dead** (>4h since connect or machine rebooted): tell user to run `! scripts/juelich_connect.sh` again. Do not attempt to restart it yourself.
+
+**Config lives in `.juelich.local`** (gitignored). Each teammate has their own file with `JUELICH_USER`, `JUELICH_KEY`, `JUELICH_HOST`.
+
 ## Repo structure
 ```
 CLAUDE.md                                    # this file
@@ -133,6 +158,7 @@ Note: `references/repos/` is referenced in older notes but does **not exist** ye
 
 ## Working principles
 - **Do not invent challenge details** the organizers haven't published. The Zoom info session is the next official source.
+- **KRYTYCZNE: Challenges A/B/C to wyłącznie nasze ćwiczenia** wygenerowane przez Claude do nauki technik. NIE są faktycznymi zadaniami hackathonu. Faktyczne taski poznamy 2026-05-09 o 12:00 i mogą się znacząco różnić. Kod i wnioski z A/B/C to materiał referencyjny — nie gotowe rozwiązania.
 - **Practice = paper replication**, not generic ML security. Each `docs/practice/challenge_*.md` is anchored in a specific paper.
 - **Fixture data for challenges B and C must be pre-generated on a non-M4 GPU** (Jülich / Colab T4 / CUDA-teammate). M4s cannot train DDPM from scratch or generate watermarked corpora with Llama-3-8B in fp16.
 - **Challenges D and E are OPTIONAL** (Property Inference, Model Stealing). Treat A/B/C as primary; only suggest D/E when team explicitly considers a second round of practice.

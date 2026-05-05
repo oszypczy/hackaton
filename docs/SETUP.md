@@ -144,7 +144,68 @@ git worktree add ../hack-B -b person3/watermark
 
 Avoid two Claudes editing the same file. Worktree disjointness = parallel wins; same file = 2× burn.
 
-## 10. When NOT to use Claude
+## 10. Jülich SSH setup (each teammate, one-time)
+
+This allows Claude to execute GPU jobs on JURECA without TOTP interruptions.
+
+### 10a. Generate SSH key
+
+```bash
+ssh-keygen -t ed25519 -C "your_juelich_email@example.com" -f ~/.ssh/juelich_ed25519
+```
+
+### 10b. Register key on JuDOOR
+
+1. Log in at https://judoor.fz-juelich.de
+2. **Profile → SSH Public Keys → Add**
+3. Paste contents of `~/.ssh/juelich_ed25519.pub`
+4. Wait ~5 min for propagation
+
+### 10c. Create your local config
+
+```bash
+cp .juelich.local.example .juelich.local
+```
+
+Edit `.juelich.local` — fill in your Jülich username and key path:
+
+```
+JUELICH_USER=your_juelich_nick    # e.g. kowalski1
+JUELICH_KEY=~/.ssh/juelich_ed25519
+JUELICH_HOST=jureca.fz-juelich.de
+```
+
+This file is gitignored — never commit it.
+
+### 10d. Test connection
+
+```bash
+./scripts/juelich_connect.sh
+# Prompts for TOTP (6-digit code from your authenticator app)
+# Prints: "Connected to jureca.fz-juelich.de as <user>"
+```
+
+If you haven't set up MFA yet: https://judoor.fz-juelich.de → Profile → 2FA.
+
+### 10e. Verify Claude can reach the cluster
+
+```bash
+scripts/juelich_exec.sh "hostname && squeue -u $USER"
+```
+
+Should print `jrloginXX.jureca` and your (empty) job queue.
+
+### 10f. On event day — connect at session start
+
+```bash
+! scripts/juelich_connect.sh   # type in Claude Code prompt; TOTP once, socket lives 4h
+```
+
+After that Claude handles Jülich commands automatically (read-only free; `sbatch` asks confirmation).
+
+---
+
+## 11. When NOT to use Claude
 
 - Boilerplate from `templates/` — copy-paste, don't ask
 - Patterns you've written 3+ times before — type it

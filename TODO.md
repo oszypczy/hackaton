@@ -15,8 +15,11 @@ Stan na 2026-04-26.
 - ⚠️ **Per-teammate setup** — każdy musi przejść `docs/SETUP.md` przed mini-hackathonem (brew install, unset ANTHROPIC_API_KEY, claude logout/login, ccusage)
 - ✅ **Scoring scripts** — `code/practice/score_A/B/C.py` gotowe (2026-04-28)
 - ✅ **Challenge A fixture data** — `data/A/` wygenerowane (in/out/val_in/ground_truth.jsonl)
-- ⚠️ **Brak kodu ataku** — scoring scripts są, ale brak `attack_A/B/C.py` z implementacją
-- ⚠️ **Brak rejestracji Jülich** + nieznana data Zoom info session
+- ✅ **Challenge A atak** — `code/attacks/run_attack_A.py` (183 linie, Min-K%++) + `min_k_pp.py`
+- ⚠️ **Brak `run_attack_B.py` + `run_attack_C.py`** — w trakcie (koledzy odpowiedzialni)
+- ✅ **Jülich SSH szypczyn1** — działa, socket ControlMaster, skrypty w `scripts/`
+- ⚠️ **Jülich SSH dla 2 kolegów** — muszą przejść `docs/SETUP.md` sekcja 10
+- ✅ **Zoom info session** — 2026-05-04, transcript + slajdy przetworzone
 - ⚠️ Folder `references/repos/` jeszcze nie sklonowany — patrz sekcja paper repos w MAPPING.md
 - ⚠️ Promp 7 (toolkit) z `deep_research_prompts.md` jeszcze nieodpalony
 
