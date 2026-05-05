@@ -1,0 +1,4 @@
+# Copy to .juelich.local and fill in your values. Never commit .juelich.local.
+JUELICH_USER=szypczyn1
+JUELICH_KEY=~/.ssh/juelich_ed25519
+JUELICH_HOST=jureca.fz-juelich.de

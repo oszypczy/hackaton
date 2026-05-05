@@ -15,7 +15,9 @@
       "Bash(just --list)",
       "Bash(uv --version)",
       "Bash(npx ccusage *)",
-      "Bash(python3 -m py_compile *)"
+      "Bash(python3 -m py_compile *)",
+      "Bash(scripts/juelich_exec.sh *)",
+      "Bash(scripts/juelich_connect.sh)"
     ]
   }
 }

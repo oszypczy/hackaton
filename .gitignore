@@ -19,6 +19,9 @@ data/C/candidates/
 # secrets — per-repo env (GITHUB_TOKEN etc.)
 .env
 
+# Jülich per-user SSH config (username, key path)
+.juelich.local
+
 # Claude Code session files
 .claude/local/
 
