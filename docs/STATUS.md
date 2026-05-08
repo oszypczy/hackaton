@@ -37,14 +37,16 @@ Trzy obszary omówione technicznie = trzy taski:
 
 Zawalski (data contamination) **NIE był omówiony** w części technicznej → prawdopodobnie nie jest osobnym taskiem.
 
-### Compute — Jülich
-- **800 GPU dostępne** podczas hackathonu, partycja: `DCGPU`
+### Compute — Jülich (zweryfikowane 2026-05-08 z `kempinski1@jrlogin05.jureca`)
+- **800 GPU dostępne** podczas hackathonu, partycja: **`dc-gpu`** (slajd Zoom mówił "DCGPU" jako uproszczenie; faktyczna nazwa slurm: lowercase z hyphen)
+- Dostępne też: `dc-gpu-devel` (krótkie joby debug), `dc-gpu-large` (więcej GPU per node)
 - Węzły: **4× A800 GPU per node**
-- Projekt ID: `training2615`
-- Aktywacja: `jutil env activate -p training2615`
-- Submit job: `sbatch main.sh` (skrypt bash z `#SBATCH --partition=DCGPU`)
+- Projekt ID: `training2615` (PI: `herten1`, project-type C)
+- Aktywacja: `jutil env activate -p training2615` — ustawia `$PROJECT=/p/project1/training2615`, `$SCRATCH=/p/scratch/training2615`
+- Submit job: `sbatch main.sh` (skrypt bash z `#SBATCH --partition=dc-gpu --account=training2615`)
 - Rekomendowany package manager: **UV** (blazingly fast)
-- SSH config host: `hdfml` (login node Jülicha)
+- SSH host: **`jureca.fz-juelich.de`** (login nodes: `jrlogin0X.jureca`)
+- MFA: TOTP wymagane przy każdym ssh (workaround: `scripts/juelich_connect.sh` zakłada socket na 4h, potem `juelich_exec.sh` wykonuje komendy bez TOTP)
 
 ### Dane i modele
 - Wszystko dostarczone na start: PDF z opisem taska + dane + checkpointy modeli
@@ -56,7 +58,7 @@ Zawalski (data contamination) **NIE był omówiony** w części technicznej → 
 - Organizatorzy oczekują że rozumiecie co robicie — to weryfikowane na prezentacji
 
 ## Active blockers
-- Jülich SSH setup + test połączenia (każda osoba osobno, wymaga MFA)
+- Jülich SSH setup + test połączenia (per teammate, wymaga MFA). **kempinski1 verified 2026-05-08** (login + project membership + storage OK). Pozostali muszą przejść per `docs/SETUP.md` sekcja 10.
 - Fixture data dla challenge C (wymaga GPU — Jülich lub CUDA-teammate)
 - Brak attack_C.py (Carlini lub CDI extraction)
 - Każdy musi mieć UV zainstalowane (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
