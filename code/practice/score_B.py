@@ -65,7 +65,9 @@ def kirchenbauer_zscore(
     if len(token_ids) < 2:
         return 0.0
 
-    vocab_size = tokenizer.vocab_size
+    # Use len(tokenizer) — matches model.config.vocab_size (incl. special tokens).
+    # Llama-3: tokenizer.vocab_size=128000 but model uses 128256 → silent mismatch.
+    vocab_size = len(tokenizer)
     green_size = int(gamma * vocab_size)
     n_green    = 0
     T          = len(token_ids) - 1  # skip first (no prev token)
@@ -85,15 +87,25 @@ def kirchenbauer_zscore(
 
 
 def _load_tokenizer(preferred: str = "meta-llama/Meta-Llama-3-8B-Instruct"):
+    """Try gated → open mirrors → gpt2. First success wins."""
     from transformers import AutoTokenizer
-    try:
-        tok = AutoTokenizer.from_pretrained(preferred)
-        print(f"  Tokenizer: {preferred}")
-        return tok
-    except Exception:
-        fallback = "gpt2"
-        print(f"  [WARN] {preferred} unavailable — using {fallback} (z-scores approximate)")
-        return AutoTokenizer.from_pretrained(fallback)
+    candidates = [
+        preferred,
+        "NousResearch/Meta-Llama-3-8B-Instruct",  # open mirror, vocab 128256
+        "unsloth/llama-3-8b-Instruct",            # open mirror
+        "gpt2",                                    # last-resort, z-scores will be wrong
+    ]
+    for c in candidates:
+        try:
+            tok = AutoTokenizer.from_pretrained(c)
+            if c == "gpt2":
+                print(f"  [WARN] only gpt2 available — z-scores will not match Llama generation")
+            else:
+                print(f"  Tokenizer: {c} (vocab={len(tok)})")
+            return tok
+        except Exception:
+            continue
+    raise RuntimeError("No tokenizer could be loaded.")
 
 
 # ── B1: detection ─────────────────────────────────────────────────────────────
