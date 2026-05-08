@@ -55,19 +55,48 @@ def test_metrics() -> None:
     _check("recall@3", recall_at_k(rank, gold, 3), 2 / 3)
 
 
+class _MockTok:
+    """Duck-typed tokenizer for offline smoke tests — no model download."""
+    _V = 256
+
+    def __len__(self) -> int:
+        return self._V
+
+    def encode(self, text: str, add_special_tokens: bool = False) -> list[int]:
+        # deterministic hash of bytes → 50 token ids in [0, V)
+        return [(b * 31 + i) % self._V for i, b in enumerate(text.encode()[:50])]
+
+
 def test_attack_placeholders() -> None:
     print("[attacks]")
     placeholders = [
-        ("min_k_pp", "Challenge A — paper 20 Min-K%++"),
-        ("kirchenbauer_detect", "Challenge B — paper 04 watermark detect"),
-        ("diffusion_extraction", "Challenge C — paper 01/09 generate-and-filter / CDI"),
+        ("min_k_pp", "Challenge A — paper 20 Min-K%++", None),
+        ("kirchenbauer_detect", "Challenge B — paper 04 watermark detect", _smoke_kirchenbauer),
+        ("diffusion_extraction", "Challenge C — paper 01/09 generate-and-filter / CDI", None),
     ]
-    for module, label in placeholders:
+    for module, label, smoke_fn in placeholders:
         try:
-            __import__(f"code.attacks.{module}")
-            print(f"  TODO  {module} module imported but no smoke fixture wired yet ({label})")
+            mod = __import__(f"code.attacks.{module}", fromlist=["*"])
         except ModuleNotFoundError:
             print(f"  SKIP  {module} not implemented yet ({label})")
+            continue
+        if smoke_fn is None:
+            print(f"  TODO  {module} imported but no smoke fixture wired yet ({label})")
+            continue
+        smoke_fn(mod)
+
+
+def _smoke_kirchenbauer(mod) -> None:
+    tok = _MockTok()
+    z = mod.kirchenbauer_zscore("the quick brown fox jumps over the lazy dog", tok)
+    if math.isnan(z) or math.isinf(z):
+        raise AssertionError(f"kirchenbauer_zscore returned non-finite: {z}")
+    is_wm, z_max = mod.predict_watermarked("the quick brown fox jumps over the lazy dog", tok)
+    if math.isnan(z_max) or math.isinf(z_max):
+        raise AssertionError(f"predict_watermarked z_max non-finite: {z_max}")
+    if not isinstance(is_wm, bool):
+        raise AssertionError(f"predict_watermarked is_wm not bool: {type(is_wm)}")
+    print(f"  PASS  kirchenbauer_detect: z={z:.2f}, predict={(is_wm, round(z_max,2))}")
 
 
 def main() -> int:

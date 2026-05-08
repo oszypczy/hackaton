@@ -28,3 +28,4 @@ data/C/candidates/
 # Generated outputs (reproducible from code)
 .cache/
 submissions/
+data/B_broken/

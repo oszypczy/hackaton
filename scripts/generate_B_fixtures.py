@@ -37,8 +37,10 @@ from transformers import (
 
 SEED = 42
 
-LLAMA_MODEL = "meta-llama/Meta-Llama-3-8B-Instruct"
-GPT2_MODEL  = "gpt2-xl"
+LLAMA_MODEL = "unsloth/Llama-3.2-1B-Instruct"  # open mirror, vocab=128000, M4-MPS friendly
+LLAMA_LABEL = "llama3.2-1b"
+GPT2_MODEL  = "gpt2-medium"  # was gpt2-xl; medium fits comfortably on 16GB M4
+GPT2_LABEL  = "gpt2-medium"
 
 WM_GAMMA    = 0.25
 WM_DELTA    = 2.0
@@ -82,7 +84,7 @@ class KirchenbauerLogitsProcessor(LogitsProcessor):
 
 def load_prompts(n: int) -> list[str]:
     """Pull first sentences from wikitext-103 as generation prompts."""
-    ds = load_dataset("wikitext", "wikitext-103-raw-v1", split="train", streaming=True)
+    ds = load_dataset("Salesforce/wikitext", "wikitext-103-raw-v1", split="train", streaming=True)
     prompts: list[str] = []
     with tqdm(total=n, desc="loading prompts", unit="prompt") as pbar:
         for row in ds:
@@ -140,7 +142,7 @@ def generate_texts(
 # ── Human texts ───────────────────────────────────────────────────────────────
 
 def load_human_texts(n: int) -> list[str]:
-    ds = load_dataset("wikitext", "wikitext-103-raw-v1", split="test", streaming=True)
+    ds = load_dataset("Salesforce/wikitext", "wikitext-103-raw-v1", split="test", streaming=True)
     texts: list[str] = []
     buf: list[str] = []  # accumulate consecutive lines into paragraphs
 
@@ -208,16 +210,18 @@ def main() -> None:
     llama_prompts = all_prompts[:total_llama]
     gpt2_prompts  = all_prompts[total_llama:]
 
-    # ── Llama-3-8B ────────────────────────────────────────────────────────────
+    # ── Llama-3.2-1B ──────────────────────────────────────────────────────────
     print(f"\nLoading {LLAMA_MODEL}...")
     tok_llama = AutoTokenizer.from_pretrained(LLAMA_MODEL, token=hf_token)
+    if tok_llama.pad_token is None:
+        tok_llama.pad_token = tok_llama.eos_token
+    llama_dtype = torch.float16 if device != "cpu" else torch.float32
     mdl_llama = AutoModelForCausalLM.from_pretrained(
         LLAMA_MODEL,
-        torch_dtype=torch.float16,
-        device_map="auto",
+        torch_dtype=llama_dtype,
         token=hf_token,
-    )
-    mdl_llama.train(False)  # inference mode
+    ).to(device)
+    mdl_llama.train(False)
     vocab = mdl_llama.config.vocab_size
 
     print(f"\n[1/4] {n_wm} watermarked Llama texts...")
@@ -231,11 +235,12 @@ def main() -> None:
         torch.cuda.empty_cache()
 
     # ── GPT-2 XL ─────────────────────────────────────────────────────────────
-    print(f"\n[3/4] {n_gp} GPT-2 XL texts...")
+    print(f"\n[3/4] {n_gp} {GPT2_MODEL} texts...")
     tok_gpt2 = AutoTokenizer.from_pretrained(GPT2_MODEL)
     tok_gpt2.pad_token = tok_gpt2.eos_token
+    gpt2_dtype = torch.float16 if device != "cpu" else torch.float32
     mdl_gpt2 = AutoModelForCausalLM.from_pretrained(
-        GPT2_MODEL, torch_dtype=torch.float16
+        GPT2_MODEL, torch_dtype=gpt2_dtype
     ).to(device)
     mdl_gpt2.train(False)
     gp_texts = generate_texts(mdl_gpt2, tok_gpt2, gpt2_prompts, False, mdl_gpt2.config.vocab_size)
@@ -250,13 +255,13 @@ def main() -> None:
     records = []
 
     for text, prompt in zip(wm_texts, llama_prompts[:n_wm]):
-        records.append({"text": text, "model": "llama3-8b", "watermark": wm_cfg, "prompt": prompt})
+        records.append({"text": text, "model": LLAMA_LABEL, "watermark": wm_cfg, "prompt": prompt})
 
     for text, prompt in zip(cl_texts, llama_prompts[n_wm:]):
-        records.append({"text": text, "model": "llama3-8b", "watermark": None, "prompt": prompt})
+        records.append({"text": text, "model": LLAMA_LABEL, "watermark": None, "prompt": prompt})
 
     for text, prompt in zip(gp_texts, gpt2_prompts):
-        records.append({"text": text, "model": "gpt2-xl", "watermark": None, "prompt": prompt})
+        records.append({"text": text, "model": GPT2_LABEL, "watermark": None, "prompt": prompt})
 
     for text in hu_texts:
         records.append({"text": text, "model": "human", "watermark": None, "prompt": None})
