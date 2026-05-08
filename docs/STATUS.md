@@ -1,7 +1,7 @@
 # Project status (volatile)
 
 > NOT loaded into CLAUDE.md prefix. Edit freely; cache stays warm.
-> Last updated: 2026-05-04 (po Zoom info session)
+> Last updated: 2026-05-08 (po implementacji Challenge B)
 
 ## Status snapshot
 - 25 PDFs in `references/papers/` + 25/25 pre-extracted to `references/papers/txt/` (5.6 MB)
@@ -9,8 +9,15 @@
 - 7/7 deep research artifacts present in `docs/deep_research/`
 - 5 challenge specs + QUICKSTART in `docs/practice/`
 - Token Optimization Plan Phase 0 + Phase 1 DONE 2026-04-26
-- score_A/B/C.py gotowe; brak attack_A/B/C.py
-- Fixture data: A gotowe, B+C brak (wymaga GPU)
+- score_A/B/C.py gotowe
+- attack_A.py (Min-K%++) + attack_B1.py + attack_B2.py gotowe; **attack_C.py brak**
+- Fixture data: A + B gotowe; **C brak (wymaga GPU)**
+- `.venv` (python 3.11) z requirements.txt — działa na M4
+
+## Baselines (mock challenges, zalogowane w SUBMISSION_LOG.md)
+- A: AUC=0.873 (Min-K%++ + reference model + Welch t-test)
+- B1: F1=0.9588 (Kirchenbauer z-score + sliding window 100/50, threshold z>4)
+- B2: score=0.8263 (ZWSP after every word; evasion 96%, BERTScore 0.864)
 
 ## Confirmed (Zoom info session 2026-05-04)
 
@@ -50,8 +57,8 @@ Zawalski (data contamination) **NIE był omówiony** w części technicznej → 
 
 ## Active blockers
 - Jülich SSH setup + test połączenia (każda osoba osobno, wymaga MFA)
-- Fixture data dla challenge B + C (wymaga GPU — Jülich lub CUDA-teammate)
-- Brak attack_A/B/C.py (szkielety kodu ataku)
+- Fixture data dla challenge C (wymaga GPU — Jülich lub CUDA-teammate)
+- Brak attack_C.py (Carlini lub CDI extraction)
 - Każdy musi mieć UV zainstalowane (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
 
 ## Open questions (pozostałe)

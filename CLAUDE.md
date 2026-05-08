@@ -131,6 +131,12 @@ code/
     score_A.py                               # AUC + p-value dla challenge A
     score_B.py                               # F1 (B1) + BERTScore+z-score (B2)
     score_C.py                               # nDCG@50, Recall@50/100
+  attacks/
+    min_k_pp.py                              # Min-K%++ helpers (Challenge A)
+    run_attack_A.py                          # → submissions/A_*.jsonl
+    kirchenbauer_detect.py                   # pure-function z-score / sliding / predict
+    run_attack_B1.py                         # watermark detection → submissions/B1.jsonl
+    run_attack_B2.py                         # ZWSP removal → submissions/B2.jsonl
 data/
   A/                                         # fixture data gotowe (2026-04-28)
   B/                                         # fixture data gotowe (LFS, 200 texts + 50 removal)
