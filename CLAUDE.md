@@ -98,11 +98,25 @@ scripts/juelich_exec.sh "python train.py --epochs 5"
 
 **Config lives in `.juelich.local`** (gitignored). Each teammate has their own file with `JUELICH_USER`, `JUELICH_KEY`, `JUELICH_HOST`.
 
+## Quick commands
+
+```bash
+just eval           # smoke test (<30s)
+just score A        # scoruje attack_A.py przeciwko data/A/
+just score B        # j.w. dla B
+just score C        # j.w. dla C
+just gen-B          # generuje fixture data B (wymaga CUDA)
+just gen-C          # generuje fixture data C (wymaga CUDA)
+just gen-B-dry      # dry-run bez GPU
+just baseline       # ostatnie 5 linii SUBMISSION_LOG.md
+```
+
 ## Repo structure
 ```
 CLAUDE.md                                    # this file
 TODO.md                                      # ACTIVE — overall hackathon prep tracker
 SUBMISSION_LOG.md                            # one-liner per successful /submit
+requirements.txt
 Justfile                                     # eval / score / submit / baseline / extract-papers
 .claudeignore                                # PDFs, fixtures, lockfiles
 .claude/
@@ -112,6 +126,15 @@ Justfile                                     # eval / score / submit / baseline 
 templates/                                   # pytorch_train_loop, hf_dataset_loader, eval_scaffold
 tests/
   smoke.py                                   # `just eval` runs this; <30s, exits 0/1
+code/
+  practice/
+    score_A.py                               # AUC + p-value dla challenge A
+    score_B.py                               # F1 (B1) + BERTScore+z-score (B2)
+    score_C.py                               # nDCG@50, Recall@50/100
+data/
+  A/                                         # fixture data gotowe (2026-04-28)
+  B/                                         # fixture data gotowe (LFS, 200 texts + 50 removal)
+  C/                                         # fixture data PENDING (wymaga CUDA)
 docs/
   TOKEN_OPTIMIZATION_PLAN.md                 # pre-event setup playbook (read for token/setup work)
   STATUS.md                                  # volatile project state (out of CLAUDE.md prefix)
@@ -153,6 +176,11 @@ references/
           after pull researchy 01/02/03
 scripts/
   extract_papers.sh                          # pdftotext → references/papers/txt/
+  generate_A_fixtures.py
+  generate_B_fixtures.py                     # wymaga CUDA + HF_TOKEN (Llama-3-8B gated)
+  generate_C_fixtures.py                     # wymaga CUDA
+  requirements_B.txt
+  requirements_C.txt
 ```
 Note: `references/repos/` is referenced in older notes but does **not exist** yet. MAPPING.md sekcja 8 ma listę repos do sklonowania (CDI, IAR Privacy, B4B, NeMo, PoW, Maini, Kirchenbauer).
 
@@ -160,7 +188,7 @@ Note: `references/repos/` is referenced in older notes but does **not exist** ye
 - **Do not invent challenge details** the organizers haven't published. The Zoom info session is the next official source.
 - **KRYTYCZNE: Challenges A/B/C to wyłącznie nasze ćwiczenia** wygenerowane przez Claude do nauki technik. NIE są faktycznymi zadaniami hackathonu. Faktyczne taski poznamy 2026-05-09 o 12:00 i mogą się znacząco różnić. Kod i wnioski z A/B/C to materiał referencyjny — nie gotowe rozwiązania.
 - **Practice = paper replication**, not generic ML security. Each `docs/practice/challenge_*.md` is anchored in a specific paper.
-- **Fixture data for challenges B and C must be pre-generated on a non-M4 GPU** (Jülich / Colab T4 / CUDA-teammate). M4s cannot train DDPM from scratch or generate watermarked corpora with Llama-3-8B in fp16.
+- **Fixture data for challenge C must be pre-generated on a non-M4 GPU** (Jülich / Colab T4 / CUDA-teammate). M4s cannot train DDPM from scratch. Challenge B fixtures are already in LFS (`git lfs pull`).
 - **Challenges D and E are OPTIONAL** (Property Inference, Model Stealing). Treat A/B/C as primary; only suggest D/E when team explicitly considers a second round of practice.
 - **Deep research artifacts are heavy.** Don't auto-load `docs/deep_research/*` unless 1–4 above didn't answer. State explicitly when you're about to load one and why.
 
