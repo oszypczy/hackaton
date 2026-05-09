@@ -15,6 +15,7 @@ ARCH=${ARCH:-0}        # 0=ResNet18, 1=ResNet50, 2=ResNet152
 SEED=${SEED:-0}
 P_FRAC=${P_FRAC:-0.5}
 EPOCHS=${EPOCHS:-50}
+N_TOTAL=${N_TOTAL:-0}
 
 REPO=/p/scratch/training2615/kempinski1/Czumpers/repo-szypczyn1
 P4VENV=/p/scratch/training2615/kempinski1/Czumpers/P4Ms-hackathon-vision-task/.venv/bin/python
@@ -28,6 +29,6 @@ echo "[sbatch] CUDA visible: $(nvidia-smi -L 2>/dev/null | head -2)"
 cd "$REPO"
 $P4VENV -m code.attacks.task1_duci.train_ref \
     --arch "$ARCH" --seed "$SEED" --p-fraction "$P_FRAC" \
-    --epochs "$EPOCHS" --out-dir "$OUT_DIR"
+    --epochs "$EPOCHS" --out-dir "$OUT_DIR" --n-total "$N_TOTAL"
 
 echo "[sbatch] done"

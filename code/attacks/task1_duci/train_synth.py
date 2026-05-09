@@ -50,21 +50,35 @@ def parse_args() -> argparse.Namespace:
                     help="label smoothing alpha for CrossEntropyLoss (0.0 = off)")
     ap.add_argument("--mixup-alpha", type=float, default=0.0,
                     help="mixup beta-distribution alpha; 0.0 = off")
+    ap.add_argument("--n-total", type=int, default=0,
+                    help="total training set size; 0 = |MIXED|. Match regime to organizer (e.g., 7000).")
     return ap.parse_args()
 
 
-def build_synth_split(p: float, seed: int) -> tuple[np.ndarray, np.ndarray, dict]:
+def build_synth_split(p: float, seed: int, n_total_override: int = 0) -> tuple[np.ndarray, np.ndarray, dict]:
     rng = np.random.default_rng(seed)
     X_m, y_m = load_mixed()
     X_p, y_p = load_population()
-    n_total = len(X_m)
-    n_mixed = int(round(p * n_total))
+    base_n = len(X_m)
+    n_total = n_total_override if n_total_override > 0 else base_n
+    # p semantics: fraction of UNIQUE MIXED rows used out of |MIXED|
+    # n_mixed = round(p * |MIXED|), n_filler = n_total - n_mixed
+    n_mixed = int(round(p * base_n))
     n_filler = n_total - n_mixed
+    if n_filler < 0:
+        # p * |MIXED| > n_total — clamp
+        n_mixed = n_total
+        n_filler = 0
 
     mixed_idx = rng.choice(len(X_m), size=n_mixed, replace=False) if n_mixed > 0 else np.array([], dtype=np.int64)
     flo, fhi = POPULATION_FILLER_RANGE
     filler_pool = np.arange(flo, fhi)
-    filler_idx = rng.choice(filler_pool, size=n_filler, replace=False) if n_filler > 0 else np.array([], dtype=np.int64)
+    if n_filler > len(filler_pool):
+        filler_idx = rng.choice(filler_pool, size=n_filler, replace=True)  # bootstrap
+    elif n_filler > 0:
+        filler_idx = rng.choice(filler_pool, size=n_filler, replace=False)
+    else:
+        filler_idx = np.array([], dtype=np.int64)
 
     X_train = np.concatenate([X_m[mixed_idx], X_p[filler_idx]]) if n_mixed and n_filler else (
         X_m[mixed_idx] if n_filler == 0 else X_p[filler_idx]
@@ -84,9 +98,10 @@ def build_synth_split(p: float, seed: int) -> tuple[np.ndarray, np.ndarray, dict
 
 
 def train_one_synth(p: float, seed: int, args: argparse.Namespace, device: str) -> None:
-    print(f"\n[synth] p={p:.3f} seed={seed} arch={args.arch}", flush=True)
+    print(f"\n[synth] p={p:.3f} seed={seed} arch={args.arch} n_total={args.n_total or 'default'}",
+          flush=True)
     set_seed(seed)
-    X_train, y_train, info = build_synth_split(p, seed)
+    X_train, y_train, info = build_synth_split(p, seed, n_total_override=args.n_total)
     print(f"[synth] split: total={info['n_total']} mixed={info['n_mixed']} filler={info['n_filler']}",
           flush=True)
 
