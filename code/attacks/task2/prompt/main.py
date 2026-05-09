@@ -10,7 +10,8 @@ import os
 import time
 from pathlib import Path
 
-from attack import generate_one, load_model_and_tools
+from aggregator import medoid_pick
+from attack import generate_k_candidates, generate_one, load_model_and_tools
 from format import (
     PHONE_FALLBACK,
     email_fallback_from_question,
@@ -81,6 +82,27 @@ def cli() -> argparse.Namespace:
              "prefix priming (legacy). 'direct_probe' / 'role_play_dba' / etc replace "
              "the prompt entirely (no prefix). See strategies.py.",
     )
+    p.add_argument(
+        "--k_shot",
+        type=int,
+        default=1,
+        help="K-sample ensemble. K=1 → greedy single-shot (default). K>1 → sample "
+             "K candidates with --temperature/--top_p, pick Levenshtein medoid via "
+             "aggregator.medoid_pick. Cost is K× single-shot — calibrate on val_pii blank.",
+    )
+    p.add_argument(
+        "--temperature",
+        type=float,
+        default=0.4,
+        help="Sampling temperature (only when --k_shot > 1). Research §2.4 recommends "
+             "0.3–0.6 for memorization extraction (sharp peaks + rank-2 escapes).",
+    )
+    p.add_argument(
+        "--top_p",
+        type=float,
+        default=0.95,
+        help="Nucleus sampling cutoff (only when --k_shot > 1).",
+    )
     return p.parse_args()
 
 
@@ -132,17 +154,33 @@ def main() -> None:
     print(f"[main] model loaded. image_size={image_size}")
 
     use_prefix = not args.no_prefix
+    k_shot = max(1, args.k_shot)
     rows: list[dict] = []
     t0 = time.time()
     for i, s in enumerate(samples):
-        raw = generate_one(
-            model, tokenizer, image_processor, image_size, get_fmt_q,
-            s, max_new_tokens=args.max_new_tokens, use_prefix=use_prefix,
-            image_mode=args.image_mode,
-            scrubbed_image_dir=args.scrubbed_image_dir,
-            strategy=args.strategy,
-        )
-        extracted = extract_pii(raw, s.pii_type)
+        if k_shot > 1:
+            cands = generate_k_candidates(
+                model, tokenizer, image_processor, image_size, get_fmt_q,
+                s, K=k_shot, temperature=args.temperature, top_p=args.top_p,
+                max_new_tokens=args.max_new_tokens,
+                image_mode=args.image_mode,
+                scrubbed_image_dir=args.scrubbed_image_dir,
+                strategy=args.strategy,
+            )
+            # Aggregate via Levenshtein medoid on canonicalized candidates
+            # (per research §3.1+§3.4). medoid_pick returns canonicalized form.
+            extracted = medoid_pick(cands, s.pii_type)
+            raw = " | ".join(c[:60] for c in cands)  # for debug log
+        else:
+            raw = generate_one(
+                model, tokenizer, image_processor, image_size, get_fmt_q,
+                s, max_new_tokens=args.max_new_tokens, use_prefix=use_prefix,
+                image_mode=args.image_mode,
+                scrubbed_image_dir=args.scrubbed_image_dir,
+                strategy=args.strategy,
+            )
+            extracted = extract_pii(raw, s.pii_type)
+
         # EMAIL fallback: when model emits non-email content (phone/CC/twitter),
         # `extracted` lacks '@'. Build firstname.lastname@example.com from the
         # question — gives ~0.6 sim vs ~0.0 from raw phone digits.

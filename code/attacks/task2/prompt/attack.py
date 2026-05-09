@@ -162,6 +162,10 @@ def generate_one(
     image_mode: str = "original",
     scrubbed_image_dir: Path | None = None,
     strategy: str = "baseline",
+    do_sample: bool = False,
+    temperature: float = 1.0,
+    top_p: float = 1.0,
+    seed: int | None = None,
 ) -> str:
     """Generate one PII prediction. Returns the raw (post-prefix) text.
 
@@ -170,6 +174,10 @@ def generate_one(
     scrubbed-output prefix is appended (kept for --no_prefix smoke runs).
     For other strategies the prompt structure is fully dictated by the
     strategy function; use_prefix is ignored.
+
+    Sampling: when `do_sample=True`, uses `temperature` and `top_p`. When
+    `seed` is set, calls `torch.manual_seed` before generate — required for
+    K-shot ensemble to get diverse candidates across calls.
     """
     if strategy == "baseline":
         prefix = derive_assistant_prefix(sample.scrubbed_output) if use_prefix else ""
@@ -191,27 +199,83 @@ def generate_one(
         user_id=sample.user_id, scrubbed_image_dir=scrubbed_image_dir,
     ).to(model.device)
 
+    if seed is not None:
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+
     # Use the codebase's overridden `generate`. It accepts the unified-arch
     # batched inputs directly and calls `prepare_multimodal_inputs` internally
     # (see src/lmms/models/unified_mllm.py:99). Per src/README.md.
     # autocast: matches inference_example.py — projector outputs FP32 but LLM
     # weights are bf16; without autocast we hit "mat1 float != mat2 bf16".
+    gen_kwargs: dict[str, object] = {
+        "batch_input_ids": [input_ids],
+        "batch_labels": [torch.full_like(input_ids, -100)],
+        "batch_X_modals": [{"<image>": image_tensor}],
+        "max_new_tokens": max_new_tokens,
+        "do_sample": do_sample,
+        "num_beams": 1,
+        "pad_token_id": tokenizer.pad_token_id,
+        "eos_token_id": tokenizer.eos_token_id,
+    }
+    if do_sample:
+        gen_kwargs["temperature"] = temperature
+        gen_kwargs["top_p"] = top_p
+
     with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-        gen_out = model.generate(
-            batch_input_ids=[input_ids],
-            batch_labels=[torch.full_like(input_ids, -100)],
-            batch_X_modals=[{"<image>": image_tensor}],
-            max_new_tokens=max_new_tokens,
-            do_sample=False,
-            num_beams=1,
-            pad_token_id=tokenizer.pad_token_id,
-            eos_token_id=tokenizer.eos_token_id,
-        )
+        gen_out = model.generate(**gen_kwargs)
 
     # When inputs_embeds-based, generate returns only new tokens (no input prepended).
     new_tokens = gen_out[0]
     decoded = tokenizer.decode(new_tokens, skip_special_tokens=True)
     return decoded
+
+
+@torch.no_grad()
+def generate_k_candidates(
+    model,
+    tokenizer,
+    image_processor,
+    image_size: int,
+    get_formatted_question,
+    sample: Sample,
+    K: int,
+    temperature: float,
+    top_p: float,
+    max_new_tokens: int = 50,
+    image_mode: str = "blank",
+    scrubbed_image_dir: Path | None = None,
+    strategy: str = "direct_probe",
+    seed_base: int = 42,
+) -> list[str]:
+    """K independent samples for the same (sample, strategy) — for medoid aggregation.
+
+    Per research §3 (edit-distance-aware aggregation): K diverse candidates
+    sampled at low τ and Bayes-aggregated by Levenshtein medoid yield the
+    optimal point estimate for the server's 1-NormLev metric.
+
+    Each call uses a different RNG seed (seed_base + k) to ensure diversity
+    across candidates; we do K separate forward passes rather than relying on
+    `num_return_sequences` because the codebase's overridden generate is not
+    documented to support that path cleanly.
+    """
+    cands: list[str] = []
+    for k in range(K):
+        out = generate_one(
+            model, tokenizer, image_processor, image_size, get_formatted_question,
+            sample,
+            max_new_tokens=max_new_tokens,
+            use_prefix=False,  # ignored for non-baseline strategies anyway
+            image_mode=image_mode,
+            scrubbed_image_dir=scrubbed_image_dir,
+            strategy=strategy,
+            do_sample=True,
+            temperature=temperature,
+            top_p=top_p,
+            seed=seed_base + k,
+        )
+        cands.append(out)
+    return cands
 
 
 def predict_one(

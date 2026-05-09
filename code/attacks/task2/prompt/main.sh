@@ -19,6 +19,7 @@
 #   sbatch main.sh eval 100 noise                       # smoke + noise image
 #   sbatch main.sh predict - original direct_probe      # predict task/ with direct_probe strategy
 #   sbatch main.sh eval - scrubbed direct_probe         # eval on val_pii with scrubbed images
+#   sbatch main.sh eval - blank direct_probe 8 0.4 0.95 # K=8 medoid ensemble
 set -euo pipefail
 
 MODE="${1:-eval}"
@@ -30,7 +31,20 @@ IMAGE_MODE="${3:-original}"
 IMAGE_ARG="--image_mode ${IMAGE_MODE}"
 STRATEGY="${4:-baseline}"
 STRATEGY_ARG="--strategy ${STRATEGY}"
+
+# K-shot ensemble args (5th-7th positional). K=1 → greedy single-shot.
+K_SHOT="${5:-1}"
+TEMPERATURE="${6:-0.4}"
+TOP_P="${7:-0.95}"
+KSHOT_ARG=""
+if [[ "$K_SHOT" -gt 1 ]]; then
+    KSHOT_ARG="--k_shot ${K_SHOT} --temperature ${TEMPERATURE} --top_p ${TOP_P}"
+fi
+
 TS_TAG="${IMAGE_MODE}_${STRATEGY}"
+if [[ "$K_SHOT" -gt 1 ]]; then
+    TS_TAG="${TS_TAG}_K${K_SHOT}"
+fi
 
 # Scrubbed-image directory (only used when image_mode=scrubbed)
 SCRUBBED_DIR="/p/scratch/training2615/kempinski1/Czumpers/val_pii_scrubbed"
@@ -95,7 +109,8 @@ case "$MODE" in
             $LIMIT_ARG \
             $IMAGE_ARG \
             $STRATEGY_ARG \
-            $SCRUBBED_ARG
+            $SCRUBBED_ARG \
+            $KSHOT_ARG
         ;;
     predict)
         OUT_CSV="$ATTACK_DIR/output/submission_v0_${TS_TAG}_${TS}.csv"
@@ -109,7 +124,8 @@ case "$MODE" in
             $LIMIT_ARG \
             $IMAGE_ARG \
             $STRATEGY_ARG \
-            $SCRUBBED_ARG
+            $SCRUBBED_ARG \
+            $KSHOT_ARG
         ;;
     *)
         echo "Unknown mode: $MODE (use 'eval' or 'predict')"
