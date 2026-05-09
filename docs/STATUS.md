@@ -58,7 +58,30 @@ Zawalski (data contamination) **NIE był omówiony** w części technicznej → 
   - flagować slice'y na których metoda się wyłamuje
 - Pełne wytyczne i konsekwencje → patrz `CLAUDE.md` sekcja "Working principles" (bullet z 🎯).
 
+## Cluster setup (2026-05-09 14:19)
+
+- Owner setup zrobiony przez kempinski1: `source hackathon_setup.sh` z `TEAM_FOLDER="Czumpers"`
+- Shared folder `/p/scratch/training2615/kempinski1/Czumpers/` ma ACL na 4 osoby
+  (kempinski1, szypczyn1, multan1, murdzek2 — rwx) + lockdown na others
+- 3 datasety pobrane:
+  - `DUCI/` (Task 1)
+  - `P4Ms-hackathon-vision-task/` (Task 2)
+  - `llm-watermark-detection/` (Task 3)
+- 3 venv'y zbudowane (uv 0.11, Python 3.12, PyTorch 2.11 + CUDA 13)
+- Owner clone: `Czumpers/repo-kempinski1/` (git po SSH przez `ssh.github.com:443`)
+- Teammate setup: `docs/JURECA_TEAMMATE_SETUP.md` — szypczyn1/multan1/murdzek2 do wykonania samodzielnie
+
+## Submission (potwierdzone z templates organizatorów)
+
+- BASE_URL: `http://35.192.205.84` (port 80)
+- Endpoint: `POST /submit/<TASK_ID>` z header `X-API-Key`, multipart `file`
+- TASK_IDs: `11-duci` / `27-p4ms` / `13-llm-watermark-detection`
+- Klucz API w `.env` lokalnie (gitignored, var: `HACKATHON_API_KEY`)
+- Submit z laptopa przez `just submit <task> <csv>` (skrypt: `scripts/submit.py`)
+- Pull CSV z klastra: `just pull-csv <task>` (skrypt: `scripts/pull_csv.py`)
+- Pełen flow → `docs/SUBMISSION_FLOW.md`
+
 ## Active blockers
-- Jülich SSH dla pozostałych członków zespołu (**kempinski1 verified 2026-05-08**)
-- Faktyczne taski nieznane do 12:00 2026-05-09
-- UV install na każdym laptopie: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- Faktyczne taski znane od 12:00 2026-05-09 — patrz `docs/tasks/*.md`
+- Wpisanie `HACKATHON_API_KEY` do `.env` (user ma klucz, nie zapisany jeszcze)
+- Setup teammate'ów (3 osoby) — instrukcja: `docs/JURECA_TEAMMATE_SETUP.md`
