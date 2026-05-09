@@ -41,7 +41,7 @@ def parse_args() -> argparse.Namespace:
     return ap.parse_args()
 
 
-def discover_combined(dirs_csv: str, want_arch: str) -> list[dict]:
+def discover_combined(dirs_csv: str, want_arch: str | None = None) -> list[dict]:
     out = []
     for d in dirs_csv.split(","):
         d = d.strip()
@@ -53,7 +53,7 @@ def discover_combined(dirs_csv: str, want_arch: str) -> list[dict]:
             ckpt = Path(m["checkpoint"])
             if not ckpt.exists():
                 continue
-            if str(m["arch_digit"]) != want_arch:
+            if want_arch is not None and str(m["arch_digit"]) != want_arch:
                 continue
             out.append({"manifest": m, "ckpt": ckpt, "true_p": float(m["true_p"]),
                         "arch_digit": str(m["arch_digit"])})
