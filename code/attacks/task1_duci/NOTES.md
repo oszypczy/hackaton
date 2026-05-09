@@ -163,3 +163,22 @@ Per-arch mean top-1 accuracy on POPULATION (10k):
 - 2026-05-09 — Loader = stdlib `pickle.load` (NOT `torch.load`). All 9 .pkl = raw OrderedDict state_dicts. ImageNet-style heads (conv1=7×7) confirmed across all archs. Note: shipped `task_template.py` ships a `torch.load`-based loader that fails in cluster's torch 2.11 — we override it.
 - 2026-05-09 — Preprocessing = `(32×32, CIFAR-100 mean/std)` chosen by smoke test on POPULATION acc. Architecture-agnostic winner (same for ResNet18/50/152). 224×224 collapses to near-random.
 - 2026-05-09 — Use **P4Ms venv** to run task1 code (`/p/scratch/.../P4Ms-hackathon-vision-task/.venv/bin/python`). DUCI/.venv has no torchvision; P4Ms (torch 2.3.0+cu121) loads DUCI .pkl without ABI issues. Read-only access — no shared state mutation. (Long-term may want user-local venv; for now P4Ms is fine.)
+- 2026-05-09 — **Phase 0 diagnostics PASS.** G0a: linear probe AUC=0.4912 (≤0.55, pools i.i.d., no domain shift). G0b: 9/9 positive conf-deltas. Per-arch mean deltas: R18 +0.063, R50 +0.043, R152 +0.038. R152 model_20 has min delta +0.002 (likely p≈0). MIA signal confirmed across all targets — proceed to RMIA pipeline.
+
+## Phase 0 — diagnostics output (2026-05-09)
+
+| Target | mean_conf MIXED | mean_conf POP_z | delta |
+|---|---|---|---|
+| model_00 (R18) | 0.183 | 0.159 | +0.024 |
+| model_01 (R18) | 0.275 | 0.209 | +0.066 |
+| model_02 (R18) | 0.292 | 0.192 | **+0.100** ← highest |
+| model_10 (R50) | 0.221 | 0.196 | +0.025 |
+| model_11 (R50) | 0.248 | 0.203 | +0.045 |
+| model_12 (R50) | 0.277 | 0.218 | +0.059 |
+| model_20 (R152) | 0.230 | 0.228 | **+0.002** ← min, likely p≈0 |
+| model_21 (R152) | 0.230 | 0.193 | +0.038 |
+| model_22 (R152) | 0.266 | 0.192 | +0.074 |
+
+Crude `p̂` ranking from conf-delta (NOT submission-quality, just sanity check on RMIA later):
+- High: model_02, model_22, model_01, model_12
+- Low: model_20
