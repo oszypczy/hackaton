@@ -516,3 +516,45 @@ Bezpośredni atak na CONTENT przez ICL demo (jeden val_pii subject jako (Name, P
 |---|---|---|---|---|
 | 21:09 | 444 | direct_probe (v2) | 0.381 | +0.034 |
 | 22:20 | 581 | direct_probe + post-process (v2.1) | **≤0.381** (no LB move) | 0 |
+
+## Phase 12 — V1 oneshot_demo REJECTED (2026-05-09 22:49, job 14739789)
+
+```
+                    CREDIT  EMAIL   PHONE   OVERALL    Δ vs direct_probe
+direct_probe        0.245   0.579   0.370   0.398      (top, baseline)
+V1 oneshot_demo     0.253   0.461   0.334   0.349      -0.049
+```
+
+**REJECTED — gate +0.02 nie spełniony** (-0.049 OVERALL, EMAIL **-0.118**, PHONE -0.036).
+
+### Diagnoza: demo-leak pollution
+Sample EMAIL preds:
+- gt `k.turner@hess.com` → pred `daniel.wright@hawkins.com` — **imię skopiowane z demo**
+- gt `a.williams@lee.com` → pred `candace.spears@greene.com` — **imię skopiowane z demo**
+- gt `gabriella.johnson@savage.com` → pred `gabriella.johnson@smith.org` — domain z demo
+
+V1 wymienił hallucynacyjny domain-cluster (peters/jones/lewis) na **demo-name-cluster** (smith/martinez/johnson/hawkins/fuller — wszystko nazwiska val_pii). Model ma zbyt słabą memorization żeby oprzeć się demo anchoringowi → kopiuje surface features demo zamiast emitowac własne (bardziej poprawne) hallucynacje.
+
+**Implikacja:** single-demo ICL na overfit-but-weak-memorization pada. Faza 5 (V5 K-shot×demo) DEAD bo V1 component broken. Pivot na K-shot+Lev medoid bez demo (Faza 4 zmodyfikowana).
+
+## Phase 13 — research_v2 integration (2026-05-09 ~22:30)
+
+Drugi research wrócił → `findings/new_researchclaude.md`. Kluczowe wnioski:
+
+### NOWE high-EV opcje (poza Pinto/PII-Scope/Carlini/Nasr)
+- **§3 Edit-distance-aware aggregation** — wprost optymalizuje 1-Lev_norm metric:
+  - §3.1 `Levenshtein.median` + `median_improve` (generalized-median + local search)
+  - §3.2 MBR z utility `1-Lev_norm` = Bayes-optimal selector
+  - §3.4 regex-canonicalize PRZED voteem
+- **§2.1 Contrastive Decoding** z `shadow_lmm` (clean OLMo-2-1B BEZ PII finetune) jako amateur — `α·logits_target − β·logits_amateur`, memorized PII tokens mają huge margin
+- **§5.1 Multi-token repeated trigger** — repeat Q template ×8 → attention-sink saturation
+- **§5.4 Template-faithful byte-exact** — zweryfikować że `apply_chat_template` matchuje training-time bytes
+
+### Walidacje istniejących decyzji
+- Research POTWIERDZA blank-mode (§1.1 grey-image sink-redirect)
+- Research POTWIERDZA że P2 verbatim_prefix był złą drogą (chat template POWINIEN być, ale BYTE-EXACT)
+
+### Pivot decision: K-shot + Lev medoid + Contrastive Decoding W RÓWNOLEGŁEJ SESJI
+- Main session (task2-prompt): K-shot + Levenshtein medoid na direct_probe
+- Parallel session (task2-prompt-cd, worktree): Contrastive Decoding z shadow_lmm
+- Ewaluacja obu w paraleli, picture po lądowaniu obu evali

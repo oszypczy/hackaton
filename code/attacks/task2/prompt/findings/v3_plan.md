@@ -81,10 +81,37 @@ val_pii blank ≥+0.02 over current best (calibrator delta-reliable per synthesi
 
 ## Status checkpoints
 
-- [ ] Phase 0 post-processor written + v2.1 CSV produced
-- [ ] Phase 0 submitted, LB recorded
-- [ ] Phase 1 A3 multi-eval submitted on cluster
-- [ ] Phase 2 V1 strategy implemented + multi_eval submitted
-- [ ] Phase 2 v3 submitted, LB recorded
-- [ ] Research output reviewed (Phase 3)
-- [ ] Phase 4/5 decision based on v3 result
+- [x] Phase 0 post-processor written + v2.1 CSV produced
+- [x] Phase 0 submitted, LB recorded — **NO LB MOVE** (format-only fixes below noise)
+- [~] Phase 1 A3 — SKIPPED (Phase 0 confirmed format wins are insufficient)
+- [x] Phase 2 V1 strategy implemented + eval submitted
+- [x] Phase 2 V1 eval done — **REJECTED** (-0.049 vs DP, demo-leak pollution)
+- [x] Research v2 reviewed (`new_researchclaude.md`)
+- [ ] **Phase 4 (REVISED)** — K-shot + Levenshtein medoid on direct_probe (this session)
+- [ ] **Phase 5 (PARALLEL)** — Contrastive Decoding with shadow_lmm (separate session, branch task2-prompt-cd)
+
+## Revised plan post-V1 fail (2026-05-09 22:50)
+
+Pivot: drop V1 family. Run two strategies in parallel:
+
+### Phase 4 (this session, branch `task2-prompt`) — K-shot + Lev medoid
+
+K=8 sampling on direct_probe (typical-τ=0.4, top_p=0.95) + Levenshtein medoid aggregator.
+Per research §3.1 + §3.2 + §3.4: medoid = Bayes-opt for 1-Lev_norm metric.
+Implementation: ~50 LoC (`aggregator.py` + `attack.py` sampling mode).
+Eval cost: ~112 min (8× direct_probe). Predict cost: K=4 → 3.5h, K=8 → 7h.
+
+### Phase 5 (parallel session, branch `task2-prompt-cd`) — Contrastive Decoding
+
+α·logits_target − β·logits_amateur via custom decoder. Amateur = `shadow_lmm/`
+(clean OLMo-2-1B, multimodal, no PII finetune). Memorized PII tokens have
+huge margin in target vs amateur → CD amplifies. Per research §2.1.
+Implementation plan: `findings/contrastive_decoding_plan.md`.
+
+### Coordination rules
+
+- Two SEPARATE branches: `task2-prompt` (K-shot) ↔ `task2-prompt-cd` (CD)
+- Two SEPARATE cluster clones: `repo-kempinski1/` ↔ `repo-kempinski1-cd/`
+- DON'T submit at same minute (5-min cooldown shared per team)
+- Winner = whichever passes +0.02 gate AND lifts higher; submit best as v3
+- Both sessions track progress in their branch's `insights/insights_task2_pathA.md`
