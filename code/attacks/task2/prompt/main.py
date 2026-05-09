@@ -133,6 +133,23 @@ def main() -> None:
                 )
             print(f"[main] eval log → {args.output_log}")
 
+        # Append summary line to run_log.csv (zbiorczy log wszystkich evali)
+        run_log = args.output_log.parent / "run_log.csv" if args.output_log else None
+        if run_log:
+            new_file = not run_log.exists()
+            with open(run_log, "a") as f:
+                if new_file:
+                    f.write("ts,mode,n,credit,email,phone,overall,notes\n")
+                f.write(
+                    f"{time.strftime('%Y-%m-%d_%H:%M:%S')},eval,{len(rows)},"
+                    f"{scores.get('CREDIT', {}).get('mean', 0):.4f},"
+                    f"{scores.get('EMAIL', {}).get('mean', 0):.4f},"
+                    f"{scores.get('PHONE', {}).get('mean', 0):.4f},"
+                    f"{scores['OVERALL']['mean']:.4f},"
+                    f"{args.output_log.stem}\n"
+                )
+            print(f"[main] run_log → {run_log}")
+
     # Predict mode: write CSV
     if args.mode == "predict":
         if args.output_csv is None:
