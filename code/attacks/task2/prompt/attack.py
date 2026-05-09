@@ -30,6 +30,24 @@ def setup_codebase_path(codebase_dir: Path) -> None:
         sys.path.insert(0, p)
 
 
+def _patch_attn_no_flash() -> None:
+    """Codebase hardcodes attn_implementation='flash_attention_2' for OLMo-2
+    (src/lmms/models/__init__.py:99). flash_attn isn't installed in the shared
+    venv (and convention forbids us from pip-installing into it). Downgrade
+    to 'sdpa' which OLMo-2 supports natively. Must run BEFORE load_lmm."""
+    import transformers.modeling_utils as _mu
+
+    _orig = _mu.PreTrainedModel.from_pretrained
+
+    @classmethod
+    def _patched(cls, *args, **kwargs):
+        if kwargs.get("attn_implementation") == "flash_attention_2":
+            kwargs["attn_implementation"] = "sdpa"
+        return _orig.__func__(cls, *args, **kwargs)
+
+    _mu.PreTrainedModel.from_pretrained = _patched
+
+
 # These imports require setup_codebase_path() called first.
 def _import_codebase():
     from src.lmms.dataset.task_dataset import get_formatted_question
@@ -48,6 +66,7 @@ def load_model_and_tools(
     image_size, get_formatted_question)."""
     setup_codebase_path(codebase_dir)
     load_lmm, get_formatted_question = _import_codebase()
+    _patch_attn_no_flash()  # MUST run before load_lmm. See _patch_attn_no_flash docstring.
 
     model, tokenizer, _, data_args, training_args = load_lmm(
         model_dir=str(model_dir), device=device, dtype=dtype
