@@ -46,6 +46,10 @@ def parse_args() -> argparse.Namespace:
                     help="comma-separated list of true p values")
     ap.add_argument("--base-seed", type=int, default=1000,
                     help="seed for synthetic target sampling (independent from refs seed range)")
+    ap.add_argument("--label-smoothing", type=float, default=0.0,
+                    help="label smoothing alpha for CrossEntropyLoss (0.0 = off)")
+    ap.add_argument("--mixup-alpha", type=float, default=0.0,
+                    help="mixup beta-distribution alpha; 0.0 = off")
     return ap.parse_args()
 
 
@@ -90,8 +94,9 @@ def train_one_synth(p: float, seed: int, args: argparse.Namespace, device: str) 
     optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9,
                                 nesterov=True, weight_decay=args.wd)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
-    loss_fn = nn.CrossEntropyLoss()
+    loss_fn = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
     augment = TrainAugment()
+    mixup_alpha = args.mixup_alpha
 
     n = len(X_train)
     indices = np.arange(n)
@@ -107,8 +112,15 @@ def train_one_synth(p: float, seed: int, args: argparse.Namespace, device: str) 
             xb = torch.from_numpy(augment(X_train[batch_idx])).to(device)
             yb_t = torch.from_numpy(y_train[batch_idx]).long().to(device)
             optimizer.zero_grad()
-            logits = model(xb)
-            loss = loss_fn(logits, yb_t)
+            if mixup_alpha > 0:
+                lam = float(np.random.beta(mixup_alpha, mixup_alpha))
+                perm = torch.randperm(xb.size(0), device=device)
+                xb_mix = lam * xb + (1 - lam) * xb[perm]
+                logits = model(xb_mix)
+                loss = lam * loss_fn(logits, yb_t) + (1 - lam) * loss_fn(logits, yb_t[perm])
+            else:
+                logits = model(xb)
+                loss = loss_fn(logits, yb_t)
             loss.backward()
             optimizer.step()
             running_loss += loss.item() * len(batch_idx)
