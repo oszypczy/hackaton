@@ -139,16 +139,19 @@ def generate_one(
     # Use the codebase's overridden `generate`. It accepts the unified-arch
     # batched inputs directly and calls `prepare_multimodal_inputs` internally
     # (see src/lmms/models/unified_mllm.py:99). Per src/README.md.
-    gen_out = model.generate(
-        batch_input_ids=[input_ids],
-        batch_labels=[torch.full_like(input_ids, -100)],
-        batch_X_modals=[{"<image>": image_tensor}],
-        max_new_tokens=max_new_tokens,
-        do_sample=False,
-        num_beams=1,
-        pad_token_id=tokenizer.pad_token_id,
-        eos_token_id=tokenizer.eos_token_id,
-    )
+    # autocast: matches inference_example.py — projector outputs FP32 but LLM
+    # weights are bf16; without autocast we hit "mat1 float != mat2 bf16".
+    with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+        gen_out = model.generate(
+            batch_input_ids=[input_ids],
+            batch_labels=[torch.full_like(input_ids, -100)],
+            batch_X_modals=[{"<image>": image_tensor}],
+            max_new_tokens=max_new_tokens,
+            do_sample=False,
+            num_beams=1,
+            pad_token_id=tokenizer.pad_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+        )
 
     # When inputs_embeds-based, generate returns only new tokens (no input prepended).
     new_tokens = gen_out[0]
