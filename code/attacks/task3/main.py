@@ -58,6 +58,8 @@ def parse_args() -> argparse.Namespace:
                    help="Add stronger Binoculars features (Pythia-1.4b/2.8b)")
     p.add_argument("--use-xl-bino", action="store_true",
                    help="Add XL Binoculars features (Pythia-2.8b/6.9b, ~20GB GPU)")
+    p.add_argument("--use-fdgpt", action="store_true",
+                   help="Add Fast-DetectGPT analytical curvature features (Pythia-2.8b)")
     p.add_argument("--use-kgw", action="store_true",
                    help="Add direct KGW reference detection features (multi-tokenizer)")
     p.add_argument("--use-kgw-v2", action="store_true",
@@ -396,6 +398,12 @@ def main() -> None:
         fb_xl = extract_cached("bino_xl", all_texts, binoculars_xl.extract,
                                args.cache_dir, args.force_extract)
         parts.append(fb_xl.reset_index(drop=True))
+
+    if args.use_fdgpt:
+        from features import fast_detectgpt
+        fb_fd = extract_cached("fdgpt", all_texts, fast_detectgpt.extract,
+                               args.cache_dir, args.force_extract)
+        parts.append(fb_fd.reset_index(drop=True))
 
     if args.use_kgw:
         from features import branch_kgw
