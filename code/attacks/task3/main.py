@@ -64,6 +64,8 @@ def parse_args() -> argparse.Namespace:
                    help="Add direct KGW reference detection features (multi-tokenizer)")
     p.add_argument("--use-kgw-v2", action="store_true",
                    help="Add KGW v2 features (extra hash_keys + h=2 multigram, gpt2 only)")
+    p.add_argument("--use-unigram-direct", action="store_true",
+                   help="Add Unigram direct z-score features (Zhao ICLR 2024, key=0 default)")
     p.add_argument("--classifier", choices=["lgbm", "logreg"], default="logreg",
                    help="Classifier: logreg (continuous output) or lgbm (default was lgbm)")
     p.add_argument("--logreg-C", type=float, default=0.05,
@@ -416,6 +418,12 @@ def main() -> None:
         fb_kgw2 = extract_cached("kgw_v2", all_texts, branch_kgw_v2.extract,
                                  args.cache_dir, args.force_extract)
         parts.append(fb_kgw2.reset_index(drop=True))
+
+    if args.use_unigram_direct:
+        from features import unigram_direct
+        fb_uni = extract_cached("unigram_direct", all_texts, unigram_direct.extract,
+                                args.cache_dir, args.force_extract)
+        parts.append(fb_uni.reset_index(drop=True))
 
     # ── 3. Build feature matrix
     X_full = pd.concat(parts, axis=1).fillna(0.0).values.astype(np.float32)
