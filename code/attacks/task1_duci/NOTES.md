@@ -299,3 +299,107 @@ Beyond 0.60 risk overshooting if true mean is below.
 - 200ep R18 synth (in queue) — expected mean ~0.52-0.53
 - 200ep R50 synth — should converge better than 80ep, give R50 arch-matched honest signal
 - 200ep R152 synth — risky, may still not converge
+
+## SUB-6/7 — precision + arch-matched did NOT improve public score
+
+**SUB-6 (full precision, same predictions as SUB-5):** score stayed at 0.066667.
+- Hypothesis: leaderboard rounds at 6 digits, our Δ predictions (0.4648 vs 0.465) → ΔMAE < 1e-5, invisible.
+- Organizer hint: "więcej liczb po przecinku jest lepiej" — keep precision **for extended test set** (where true p may have higher resolution), even though public leaderboard doesn't show benefit.
+
+**SUB-7 (hybrid arch-matched: R18 80ep + R50 200ep + R18 fallback for R152):**
+- Predictions: arch=1 model_1X bumped from [0.444, 0.499, 0.554] (SUB-5) to [0.528, 0.575, 0.620].
+- Mean p̂ rose from 0.516 (SUB-5) → 0.541.
+- **Score on leaderboard: still 0.066667 — i.e. SUB-7 was ≥0.066667 (worse or equal).**
+- Inference: real R50 model_1X p ≈ R18-calibration values (0.444-0.554), NOT R50-calibration values (0.528-0.620). R50 200ep arch-matched OVERSHOOTS for the 3 public R50 targets.
+
+## Critical insights (lessons learned)
+
+### 1. R152 untrainable in our setup
+- 80ep loss flat ~4.6 (random for 100-class)
+- 200ep loss 4.0 acc 0.06 — slightly improves but signal still too weak
+- **Verdict**: arch-matched R152 broken; use R18 fallback for arch=2.
+
+### 2. R50 trains slowly with our recipe
+- 20ep: flat (no signal across p)
+- 80ep: noisy (non-monotonic at p=0.75 vs 1.0)
+- 200ep: clean monotonic signal (LOO 0.04, range 7.44 → 0.05)
+- **Verdict**: R50 200ep gives valid arch-matched signal — but on **public 3 R50 targets**, R18 calibration is closer to truth.
+
+### 3. R18 calibration saturates around 80 epochs
+- 20ep mean p̂ 0.443
+- 50ep mean p̂ 0.498
+- 80ep mean p̂ 0.516 ← **OPTIMAL**
+- 100ep mean p̂ 0.505 ← starts dropping
+- 200ep mean p̂ 0.480 ← drops further (model better generalizes at p=0, narrowing range)
+
+Linear trend +0.01 mean ≈ -0.0017 score (until SUB-7 broke trend by overshooting).
+
+### 4. Score quantization on leaderboard
+- 3 teams at exactly 0.086667 (= 0.78/9).
+- Our 0.066667 = 0.6/9.
+- Suggests sum_of_absolute_errors stable to ~1e-3 quantization.
+- Precision improvements <1e-3 per target → invisible on public leaderboard.
+- BUT extended test set may show benefit (organizer feedback).
+
+### 5. Public leaderboard != private/extended
+- 3/9 public targets, 6/9 private.
+- Hyper-tuning to public 3 → high variance on extended.
+- **Decision**: keep SUB-5 (R18 80ep, mean 0.516) as principled honest predictor for extended set.
+
+## Final submission strategy
+
+| Submission | Mean p̂ | Score (public) | Generalization |
+|---|---|---|---|
+| SUB-5 (R18 80ep all archs) | 0.516 | 0.066667 | **HIGH** — single principled signal |
+| SUB-6 (precise) | 0.516 | 0.066667 | Same |
+| SUB-7 (arch-matched + R50 200ep) | 0.541 | ≥0.066667 | Lower — risky push |
+| Mid-point (SUB-5/SUB-7 avg arch=1) | 0.528 | TBD | LOW — leaderboard fitting |
+
+**Final pick (without further iteration): SUB-5.** Honest, principled, knows nothing about public 3 targets.
+
+If we want one more principled try: **80ep R18 with label smoothing 0.1** in train_synth recipe — may better match organizer's training behavior (less aggressive memorization), giving signal range closer to real targets'.
+
+## Logs of all iterations (chronological)
+
+1. **Phase 0 diagnostics** — G0a/G0b PASS. POP_z conf delta confirmed signal exists.
+2. **Phase 1 single-ref RMIA** — degenerate (TPR=FPR), all p̂ → 0.025 clamp. SKIPPED.
+3. **Phase 2 multi-ref RMIA 8x R18 50ep** — synth val MAE 0.018 BUT real submission MAE **0.463** (memorization regime mismatch).
+4. **Phase 2 retry — 20ep R18 refs** — SUB-2 = 0.4549. Marginal improvement, regime still mismatched.
+5. **Phase 4 MLE pivot** — SUB-3 (20ep R18 mean_loss d=1) = **0.0790**. Massive breakthrough.
+6. **Phase 4 calibration push** — SUB-4 (50ep R18) = **0.0723**. Going to 50ep widened signal range.
+7. **Phase 4 push further** — SUB-5 (80ep R18) = **0.0667** 🥉 3rd place.
+8. **Phase 4 precision** — SUB-6 (full float64) — same 0.066667.
+9. **Phase 4 arch-matched** — SUB-7 (R18 80ep + R50 200ep) — likely 0.067-0.075 (no leaderboard improvement).
+
+## Ref/synth checkpoint inventory (for handover)
+
+`/p/scratch/training2615/kempinski1/Czumpers/DUCI/`:
+- `refs/` — 8x R18 50ep (initial)
+- `refs_10ep/`, `refs_20ep/`, `refs_30ep/` — diagnostic ref banks
+- `synth_targets/` — 5x R18 50ep p∈{0,.25,.5,.75,1}
+- `synth_targets_10ep/`, `synth_targets_20ep/`, `synth_targets_30ep/` — diagnostic
+- `synth_targets_20ep_extra/` — 8 extra p points R18 20ep (0.1, 0.2, 0.3, 0.4, 0.6, 0.7, 0.8, 0.9)
+- `synth_targets_20ep_seed2/` — 5x R18 20ep BASE_SEED=2000
+- `synth_targets_20ep_r50/` — 5x R50 20ep (NOT CONVERGED — DO NOT USE)
+- `synth_targets_20ep_r152/` — 5x R152 20ep (NOT CONVERGED — DO NOT USE)
+- `synth_targets_50ep_r18/` — 5x R18 50ep (re-trained for arch=0)
+- `synth_targets_80ep_r18/` — 5x R18 80ep ← **BEST FOR R18 CALIB**
+- `synth_targets_80ep_r50/` — 5x R50 80ep (noisy, LOO 0.13 — questionable)
+- `synth_targets_80ep_r50_extra/`, `_seed2/` — 13 R50 80ep total
+- `synth_targets_100ep_r18/`, `200ep_r18/` — saturated/regressed
+- `synth_targets_200ep_r50/` — 5x R50 200ep (clean signal, LOO 0.04)
+- `synth_targets_200ep_r152/` — 5x R152 200ep (still won't converge, LOO 1.06)
+
+`/p/scratch/training2615/kempinski1/Czumpers/DUCI/submission_*.csv` — all variant outputs preserved.
+
+## What to do with ~17h left (as of 2026-05-09 ~17:00)
+
+Conservative path (recommended):
+1. Keep SUB-5 as final. Done.
+2. Optional: train 1-2 more synth variants with label smoothing 0.1 / mixup → may match organizer recipe better.
+3. Final: select submission with HIGHEST GENERALIZATION (least public-fit), not lowest leaderboard score.
+
+Aggressive path (only if confident):
+1. Try mid-point SUB-5/SUB-7 — submit, observe.
+2. If improves → maybe truth lies in midpoint zone for arch=1.
+3. WARNING: mid-point fits public 3 R50 targets, may HURT on extended.
