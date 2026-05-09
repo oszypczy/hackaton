@@ -876,3 +876,22 @@ User's intuition: true_p ~ 0.5 (uniform [0,1]) → SUB-9 mean 0.52 wins.
 Maini + Strategy 2 predict mean ~0.05-0.27 → likely WRONG direction but **orthogonal hedge** under (b) scoring.
 Strategy 3 (narrow grid training) gambit: if true_p concentrated [0.4, 0.6], narrow synth bank → curve more accurate near 0.5 → potentially BIGGEST upside.
 
+
+### 00:35 — Strategy 3 narrow training BLOCKED by disk quota
+
+Disk quota exceeded on scratch — partial training:
+- R18 narrow: 4/5 .pt saved (missing p=0.60). 14740579 FAILED on save.
+- R50 narrow: 2/5 saved (missing 0.50, 0.55, 0.60). 14740580 FAILED.
+- R152 narrow: 0/5 saved. 14740581 FAILED.
+
+Cause: teammate uploaded large models. Waiting for cleanup before resubmit.
+
+Maini extract jobs (small JSON outputs) are NOT affected — letting them run:
+- 14740367 synth_7k_r50: 4/5 done, 18min left
+- 14740529 synth_7k_r152 sub: running
+- 14740531 targets_r152 sub: running
+- 14740583 targets_r50: running
+
+Submissions in queue while waiting for quota fix:
+- sid=845 Strategy 2 solo (R152 broken, R18+R50 LOO 0.01)
+- sid=868 Strategy 2 hybrid (R18+R50 + R152=0.5 SUB-9 fallback) — submitted via auto retry queue
