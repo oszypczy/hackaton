@@ -68,6 +68,8 @@ def parse_args() -> argparse.Namespace:
                    help="Add stylometric features (CPU only, fast)")
     p.add_argument("--use-better-liu", action="store_true",
                    help="Add extended semantic features (Liu/Semantic detector)")
+    p.add_argument("--use-roberta", action="store_true",
+                   help="Add RoBERTa-base mean-pooled embedding (768 features, requires C<=0.001)")
     p.add_argument("--use-kgw", action="store_true",
                    help="Add direct KGW reference detection features (multi-tokenizer)")
     p.add_argument("--use-kgw-v2", action="store_true",
@@ -436,6 +438,12 @@ def main() -> None:
         fb_bl = extract_cached("better_liu", all_texts, better_liu.extract,
                                args.cache_dir, args.force_extract)
         parts.append(fb_bl.reset_index(drop=True))
+
+    if args.use_roberta:
+        from features import roberta_features
+        fb_rob = extract_cached("roberta", all_texts, roberta_features.extract,
+                                args.cache_dir, args.force_extract)
+        parts.append(fb_rob.reset_index(drop=True))
 
     if args.use_kgw:
         from features import branch_kgw
