@@ -63,6 +63,15 @@ def _green_frac(token_ids: list[int], mask: np.ndarray) -> float:
     return sum(1 for t in valid if mask[t]) / len(valid)
 
 
+def _sha256_str(key: int) -> int:
+    return int.from_bytes(hashlib.sha256(str(key).encode()).digest()[:4], "little")
+
+
+def _sha256_int64(key: int) -> int:
+    import struct
+    return int.from_bytes(hashlib.sha256(struct.pack("<q", key)).digest()[:4], "little")
+
+
 # All seed variants to try (derived from watermark_key=0 under different hash functions)
 _SEED_CONFIGS = [
     # (description, seed, fraction)
@@ -72,10 +81,17 @@ _SEED_CONFIGS = [
     ("k1_f50_direct",   1, 0.5),
     ("k42_f50_direct", 42, 0.5),
     ("k2_f50_direct",   2, 0.5),
+    # SHA256_str(key) variants — gridsearch winner: key=9999 sep=0.435
+    ("k9999_f25_sha256str", _sha256_str(9999), 0.25),   # seed=1525845384
+    ("k9999_f50_sha256str", _sha256_str(9999), 0.50),
+    ("k0_f25_sha256str",    _sha256_str(0),    0.25),
+    ("k100_f25_sha256str",  _sha256_str(100),  0.25),
     # SHA256(int64(key)) variants
-    ("k0_f50_sha", int.from_bytes(hashlib.sha256(np.int64(0).tobytes()).digest()[:4], "little"), 0.5),
-    ("k0_f25_sha", int.from_bytes(hashlib.sha256(np.int64(0).tobytes()).digest()[:4], "little"), 0.25),
-    ("k1_f50_sha", int.from_bytes(hashlib.sha256(np.int64(1).tobytes()).digest()[:4], "little"), 0.5),
+    ("k0_f50_sha",  _sha256_int64(0), 0.5),
+    ("k0_f25_sha",  _sha256_int64(0), 0.25),
+    ("k1_f50_sha",  _sha256_int64(1), 0.5),
+    ("k9999_f25_sha256int64", _sha256_int64(9999), 0.25),  # seed=1450176100
+    ("k100_f25_sha256int64",  _sha256_int64(100),  0.25),
 ]
 
 VOCAB_SIZE = 50257  # GPT-2

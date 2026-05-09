@@ -15,16 +15,20 @@ import numpy as np
 import torch
 from typing import Any
 
-_tokenizer: Any = None
-_cache: dict = {}
+_tokenizers: dict[str, Any] = {}
 
 
-def _get_tokenizer():
-    global _tokenizer
-    if _tokenizer is None:
+def _get_tokenizer(name: str = "gpt2"):
+    if name not in _tokenizers:
         from transformers import AutoTokenizer
-        _tokenizer = AutoTokenizer.from_pretrained("gpt2")
-    return _tokenizer
+        _tokenizers[name] = AutoTokenizer.from_pretrained(name)
+    return _tokenizers[name]
+
+
+TOKENIZER_VOCAB: dict[str, int] = {
+    "gpt2": 50257,
+    "mistralai/Mistral-7B-v0.1": 32000,
+}
 
 
 # ─── Hash function variants ──────────────────────────────────────────────────
@@ -121,29 +125,37 @@ def _zscore_selfhash(token_ids: list[int], vocab: int, key: int,
 
 # ─── Configs to try ─────────────────────────────────────────────────────────
 
-# (key, gamma, h, hash_fn_name)
+# (key, gamma, h, hash_fn_name, tokenizer_name)
 CONFIGS = [
-    # Default key from lm-watermarking README, most likely variants
-    (15485863, 0.25, 4, "v2"),  # Knuth hash, most likely
-    (15485863, 0.25, 4, "v1"),  # simple multiplicative
-    (15485863, 0.5, 4, "v2"),
-    # WaterSeeker LLaMA key
-    (33554393, 0.25, 4, "v2"),
-    # Small key (default candidate)
-    (0, 0.25, 4, "v2"),
-    (1, 0.25, 4, "v2"),
+    # GPT-2 tokenizer (vocab 50257)
+    (15485863, 0.25, 4, "v2", "gpt2"),  # default key, Knuth hash
+    (15485863, 0.25, 4, "v1", "gpt2"),  # simple multiplicative
+    (15485863, 0.5,  4, "v2", "gpt2"),
+    (33554393, 0.25, 4, "v2", "gpt2"),  # WaterSeeker LLaMA key
+    (0,        0.25, 4, "v2", "gpt2"),
+    (1,        0.25, 4, "v2", "gpt2"),
+    # Mistral tokenizer (vocab 32000) — likely used for generation
+    (15485863, 0.25, 4, "v2", "mistralai/Mistral-7B-v0.1"),
+    (15485863, 0.25, 4, "v1", "mistralai/Mistral-7B-v0.1"),
+    (15485863, 0.5,  4, "v2", "mistralai/Mistral-7B-v0.1"),
+    (33554393, 0.25, 4, "v2", "mistralai/Mistral-7B-v0.1"),
+    (0,        0.25, 4, "v2", "mistralai/Mistral-7B-v0.1"),
 ]
-
-VOCAB_SIZE = 50257  # GPT-2
 
 
 def extract(text: str) -> dict[str, float]:
-    tok = _get_tokenizer()
-    token_ids = tok.encode(str(text), add_special_tokens=False)
+    # tokenize once per unique tokenizer
+    token_id_cache: dict[str, list[int]] = {}
 
     out: dict[str, float] = {}
-    for key, gamma, h, fn_name in CONFIGS:
-        col = f"kgw_sh_k{key}_g{int(gamma*100)}_h{h}_{fn_name}"
-        z = _zscore_selfhash(token_ids, VOCAB_SIZE, key, gamma, h, fn_name)
+    for key, gamma, h, fn_name, tok_name in CONFIGS:
+        if tok_name not in token_id_cache:
+            tok = _get_tokenizer(tok_name)
+            token_id_cache[tok_name] = tok.encode(str(text), add_special_tokens=False)
+        token_ids = token_id_cache[tok_name]
+        vocab = TOKENIZER_VOCAB[tok_name]
+        tok_short = "gpt2" if tok_name == "gpt2" else "mistral"
+        col = f"kgw_sh_k{key}_g{int(gamma*100)}_h{h}_{fn_name}_{tok_short}"
+        z = _zscore_selfhash(token_ids, vocab, key, gamma, h, fn_name)
         out[col] = z
     return out

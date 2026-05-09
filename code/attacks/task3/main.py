@@ -68,6 +68,8 @@ def parse_args() -> argparse.Namespace:
                    help="Add Unigram direct z-score features (Zhao ICLR 2024, key=0 default)")
     p.add_argument("--use-kgw-selfhash", action="store_true",
                    help="Add KGW selfhash z-score features (h=4 anchored minhash PRF, ICLR 2024)")
+    p.add_argument("--use-sir", action="store_true",
+                   help="Add SIR (Liu 2024) semantic watermark detection features (needs model checkpoint)")
     p.add_argument("--classifier", choices=["lgbm", "logreg"], default="logreg",
                    help="Classifier: logreg (continuous output) or lgbm (default was lgbm)")
     p.add_argument("--logreg-C", type=float, default=0.05,
@@ -432,6 +434,12 @@ def main() -> None:
         fb_ksh = extract_cached("kgw_selfhash", all_texts, kgw_selfhash.extract,
                                 args.cache_dir, args.force_extract)
         parts.append(fb_ksh.reset_index(drop=True))
+
+    if args.use_sir:
+        from features import sir_direct
+        fb_sir = extract_cached("sir", all_texts, sir_direct.extract,
+                                args.cache_dir, args.force_extract)
+        parts.append(fb_sir.reset_index(drop=True))
 
     # ── 3. Build feature matrix
     X_full = pd.concat(parts, axis=1).fillna(0.0).values.astype(np.float32)
