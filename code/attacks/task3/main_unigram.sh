@@ -7,8 +7,8 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --gres=gpu:1
 #SBATCH --time=02:00:00
-#SBATCH --output=/p/scratch/training2615/kempinski1/Czumpers/task3/output/%j_unigram.out
-#SBATCH --error=/p/scratch/training2615/kempinski1/Czumpers/task3/output/%j_unigram.err
+#SBATCH --output=/p/scratch/training2615/kempinski1/Czumpers/repo-%u/output/%j_unigram.out
+#SBATCH --error=/p/scratch/training2615/kempinski1/Czumpers/repo-%u/output/%j_unigram.err
 
 set -euo pipefail
 
