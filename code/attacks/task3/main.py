@@ -64,6 +64,8 @@ def parse_args() -> argparse.Namespace:
                    help="Add stronger branch_a features (Pythia-2.8b)")
     p.add_argument("--use-multi-lm", action="store_true",
                    help="Add multi-LM PPL features (OPT-1.3b)")
+    p.add_argument("--use-multi-lm-v2", action="store_true",
+                   help="Add extended multi-LM PPL (Phi-2/Qwen2/Llama-chat/Mistral-instruct)")
     p.add_argument("--use-stylometric", action="store_true",
                    help="Add stylometric features (CPU only, fast)")
     p.add_argument("--use-better-liu", action="store_true",
@@ -430,6 +432,12 @@ def main() -> None:
         fb_mlm = extract_cached("multi_lm", all_texts, multi_lm_ppl.extract,
                                 args.cache_dir, args.force_extract)
         parts.append(fb_mlm.reset_index(drop=True))
+
+    if args.use_multi_lm_v2:
+        from features import multi_lm_v2
+        fb_mlm2 = extract_cached("multi_lm_v2", all_texts, multi_lm_v2.extract,
+                                 args.cache_dir, args.force_extract)
+        parts.append(fb_mlm2.reset_index(drop=True))
 
     if args.use_stylometric:
         from features import stylometric
