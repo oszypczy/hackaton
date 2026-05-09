@@ -20,7 +20,7 @@ REPO=$SCRATCH/repo-${USER}
 TASK_CACHE=$SCRATCH/task3/cache
 TASK_OUT=$SCRATCH/task3
 mkdir -p "$TASK_CACHE" "$TASK_OUT/output"
-source "$SCRATCH/repo-${USER}/venv/bin/activate"
+source "$SCRATCH/llm-watermark-detection/.venv/bin/activate"
 export HF_HOME="$SCRATCH/.cache"
 
 if [ ! -d "$HF_HOME/hub/models--allenai--OLMo-2-1124-13B-Instruct" ]; then

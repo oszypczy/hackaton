@@ -24,7 +24,7 @@ TASK_OUT=$SCRATCH/task3
 
 mkdir -p "$TASK_CACHE" "$TASK_OUT/output"
 
-source "$SCRATCH/repo-${USER}/venv/bin/activate"
+source "$SCRATCH/llm-watermark-detection/.venv/bin/activate"
 
 export HF_HOME="$SCRATCH/.cache"
 
