@@ -38,6 +38,13 @@ export HUGGINGFACE_HUB_CACHE=/p/scratch/training2615/kempinski1/Czumpers/.cache/
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 
+# Codebase hardcodes `cache_dir = ~/.cache/huggingface/hub` in
+# src/lmms/models/__init__.py:35 (ignores HF_HOME). Symlink to shared scratch
+# cache so the hardcoded path resolves to our pre-downloaded models.
+# $HOME is shared between login + compute on JURECA → idempotent.
+mkdir -p "$HOME/.cache/huggingface"
+ln -sfn "$HUGGINGFACE_HUB_CACHE" "$HOME/.cache/huggingface/hub"
+
 echo "[main.sh] CUDA_HOME=$CUDA_HOME  HF_HOME=$HF_HOME  HF_HUB_OFFLINE=$HF_HUB_OFFLINE"
 
 # venv with pre-built deps (torch 2.11+CUDA 13, py3.12)
