@@ -40,3 +40,29 @@ Then submit:
 ```bash
 just submit task3 submissions/task3_watermark_detection.csv
 ```
+
+## Planned tests (single command)
+
+```bash
+bash code/attacks/task3/run_all_tests.sh /absolute/path/to/Dataset.zip cuda
+```
+
+It runs:
+- ablations: `A+BC`, `A+BC+D`, `A+BC+Binoculars`, `FULL` across truncation stress `{none,50,100,200}`
+- bootstrap and CV metrics into `code/attacks/task3/results/ablation_report.json`
+- full model train+infer (`submissions/task3_watermark_detection_full.csv`)
+- conservative model train+infer (`submissions/task3_watermark_detection_conservative.csv`)
+
+## Pick best and submit
+
+Show ranking first, then ask for confirmation before submit:
+
+```bash
+python code/attacks/task3/pick_best_and_submit.py
+```
+
+Non-interactive submit:
+
+```bash
+python code/attacks/task3/pick_best_and_submit.py --yes
+```
