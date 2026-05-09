@@ -4,11 +4,12 @@
 
 Format: `NN — Title (Venue) [SprintML?] — Use for: …`
 
-## 1. Required (organizers' email)
-- **01** — Carlini 2023, *Extracting Training Data from DMs* (USENIX 2023). Use for: Challenge C primary baseline.
-- **02** — Maini, Jia, Papernot, Dziedzic 2024, *LLM Dataset Inference* (NeurIPS 2024) [SprintML]. Use for: Challenge A primary; SprintML eval template.
-- **03** — Zawalski 2025, *CoDeC: Data Contamination via ICL* (NeurIPS Workshop 2025). Use for: "is this benchmark contaminated?"; novel angle for A.
-- **04** — Kirchenbauer 2023, *A Watermark for LLMs* (ICML 2023). Use for: Challenge B primary.
+## 1. Required (organizers' email + task PDFs)
+- **01** — Carlini 2023, *Extracting Training Data from DMs* (USENIX 2023). Use for: Task 2 PII baseline (generative-model extraction analogue); Carlini 2023 ref [2] from task 2 PDF.
+- **02** — Maini, Jia, Papernot, Dziedzic 2024, *LLM Dataset Inference* (NeurIPS 2024) [SprintML]. Use for: Task 1 DUCI primary; SprintML eval template.
+- **03** — Zawalski 2025, *CoDeC: Data Contamination via ICL* (NeurIPS Workshop 2025). Use for: "is this benchmark contaminated?"; novel angle for Task 1.
+- **04** — Kirchenbauer 2023, *A Watermark for LLMs* (ICML 2023). Use for: Task 3 watermark detection primary.
+- **05** — Carlini, Tramèr, Wallace et al. 2021, *Extracting Training Data from LLMs* (USENIX 2021). Use for: Task 2 PII — six MIA features; **context-dependency (Sec 6.5)**; insertion-frequency threshold (Sec 7); task 2 PDF ref [1]. Added 2026-05-09.
 
 ## 2. Supplementary
 - **08** — *Watermarks Provably Removable* (NeurIPS 2024). Use for: Task 3 watermark robustness.

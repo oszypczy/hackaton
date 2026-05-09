@@ -57,6 +57,21 @@ Per-paper entry format:
 - **Key params:** γ=0.25, δ=2.0 (defaults).
 - **Cross-refs:** 08 Provably Removable, 21 Watermark Stealing, 22 DIPPER, 23 Recursive Para, 24 WAVES.
 
+### 05 — Carlini, Tramèr, Wallace, Jagielski, Herbert-Voss, Lee, Roberts, Brown, Song, Erlingsson, Oprea, Raffel 2021, *Extracting Training Data from Large Language Models* (USENIX 2021)
+- File: `txt/05_carlini2021_extracting_training_data_llm.txt` | ~25k | arXiv: 2012.07805
+- **Use for:** Task 2 (PII) foundational — six MIA features, context-dependency, insertion-frequency threshold (task 2 PDF ref [1])
+- **Key sections** (grep in file):
+  - "5.1 Improved Sampling" — terms: `temperature`, `decay`, `Internet`, `Common Crawl`
+  - "5.2 Improved Membership Inference" — terms: `Perplexity`, `Small`, `Medium`, `zlib`, `Lowercase`, `Window`, `sliding window`
+  - "6.3 Examples of Memorized Content" — terms: `78 examples`, `phone numbers`, `addresses`, `IRC`
+  - "6.5 Memorization is Context-Dependent" — terms: `context-dependent`, `3.14159`, `prefix`, `824 digits`
+  - "7 Correlating Memorization with Model Size" — terms: `33 times`, `eidetic`, `insertion frequency`, `1.5 billion`
+  - "8 Mitigating" — terms: `differential privacy`, `de-duplicate`, `vetting`, `auditing`
+- **Core idea:** generate-and-rank — sample N candidates from prefixes (top-n / temperature-decay / Internet-conditioned), rank by 6 MIA features, manually confirm. Context dominates: exact training-time prefix → up to 30× more extraction.
+- **Key result:** 604 verbatim memorized samples from GPT-2 XL; 78 PII (phone, address, social media) extracted; **33 insertions** sufficient for full memorization at 1.5B params.
+- **Implications for our task:** target is *intentionally overfit* → threshold k≈1; reconstruct dialogue format VERBATIM up to `[REDACTED]` boundary; six MIA features = direct ranker for multiple-sample scoring.
+- **Cross-refs:** 25 Nasr (chat-divergence successor for aligned models), 15 Carlini Stealing (logit extraction), 18 LiRA (sample-level MIA), 13 NeMo (where memorization lives).
+
 ## 2. Supplementary papers
 
 ### 08 — *Watermarks Provably Removable* (NeurIPS 2024)
