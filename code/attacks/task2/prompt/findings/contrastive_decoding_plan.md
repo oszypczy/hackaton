@@ -275,3 +275,45 @@ Per research §2.1: contrastive decoding for memorization extraction shows stron
 Estimated wall-clock: 1.5h implementation + 30 min eval = **~2h to gate decision**. Same wall-clock as the K-shot path → we test both within 2h.
 
 Good luck. Report progress in this file.
+
+## Progress (CD session)
+
+### 2026-05-09 ~23:30 — implementation done, smoke pending
+
+Setup:
+- Worktree `/Users/arturkempinski/hackaton-cd/`, branch `task2-prompt-cd` (off task2-prompt @ e0a9313)
+- Cluster clone `/p/scratch/.../Czumpers/repo-kempinski1-cd/` cp'd from main clone, switched to task2-prompt-cd
+- shadow_lmm config diff vs target: IDENTICAL → tokenizer/embed shape compatible
+
+Implementation (commit `19c793a`):
+- `attack.py:generate_one_cd` — manual decode loop with KV-cache reuse
+  - first step: prepare_multimodal_inputs on both models, super().forward(inputs_embeds=…) to get full-prompt logits + past_key_values
+  - subsequent steps: forward(input_ids=[next_token], past_key_values=past) → 1-token incremental decode
+  - CD score: plausibility filter (expert top-k=50) → α·target − β·amateur, argmax
+  - α=1.0 β=0.5 default (standard CD config)
+- `main.py`: `--use_cd` / `--shadow_model_dir` / `--cd_alpha` / `--cd_beta` / `--cd_topk`
+- `main.sh`: STRATEGY=cd_decoding short-circuit → uses CD_TEMPLATE (default direct_probe) + sets --use_cd + reads CD_ALPHA/CD_BETA/CD_TOPK env vars
+- `_patch_attn_no_flash` made idempotent (CD path loads target+amateur, double-patch was wasteful)
+
+Smoke test: `sbatch main.sh eval 20 blank cd_decoding` → job 14740097 PD (Priority).
+Cancelled + resubmitted as 14740220 with --time=00:15:00 (backfill kicked in immediately).
+
+### 2026-05-09 ~23:25 — smoke 20 OK, full 840 running
+
+Smoke 14740220 (20 samples, blank, α=1.0 β=0.5 topk=50, time 0:42):
+- CREDIT  0.0719  (DP baseline ~0.245, **−0.17**)
+- EMAIL   0.5549  (DP ~0.579, −0.02)
+- PHONE   0.3173  (DP ~0.370, −0.05)
+- OVERALL 0.3146  (DP 0.398,  −0.08)
+
+Hypothesis: shadow_lmm produces *the same 4-4-4-4 placeholder format on CREDIT* as
+target (both trained on the same generic PII pattern), so β·amateur cancels
+the very tokens we want. EMAIL/PHONE less affected (more diverse memorized
+content). N=7 per CREDIT bucket → high variance, full 840 needed.
+
+Pipeline verified: KV-cache reuse works, both models load via two
+`load_model_and_tools` calls, idempotent attn patch holds. ~2 sec/sample.
+
+Full 840 eval: job 14740294 (--time=00:45:00).
+Gate: OVERALL ≥ 0.418 (= DP 0.398 + 0.02 noise floor) → predict task/. If fail,
+ablate β ∈ {0.3, 1.0} or per-PII route (DP on CREDIT, CD on EMAIL/PHONE).

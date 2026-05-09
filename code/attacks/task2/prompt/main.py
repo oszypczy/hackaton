@@ -98,6 +98,15 @@ def cli() -> argparse.Namespace:
     p.add_argument("--cd_beta", type=float, default=0.5)
     p.add_argument("--cd_topk", type=int, default=50,
                    help="Plausibility top-k from expert (target) logits.")
+    p.add_argument(
+        "--cd_pii_types",
+        type=str,
+        default="CREDIT,EMAIL,PHONE",
+        help="Comma-separated PII types to apply CD to. Others fall back to "
+             "non-CD generate_one with same --strategy. Useful for per-PII "
+             "routing (e.g. 'EMAIL,PHONE' to skip CD on CREDIT where shadow "
+             "tlumi 4-4-4-4 format anchor).",
+    )
     return p.parse_args()
 
 
@@ -163,10 +172,13 @@ def main() -> None:
         print("[main] amateur model loaded.")
 
     use_prefix = not args.no_prefix
+    cd_types = {t.strip().upper() for t in args.cd_pii_types.split(",") if t.strip()}
+    if args.use_cd:
+        print(f"[main] CD applies to PII types: {sorted(cd_types)}")
     rows: list[dict] = []
     t0 = time.time()
     for i, s in enumerate(samples):
-        if args.use_cd:
+        if args.use_cd and s.pii_type in cd_types:
             raw = generate_one_cd(
                 model, amateur_model, tokenizer, image_processor, image_size,
                 get_fmt_q, s,
