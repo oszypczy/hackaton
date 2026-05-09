@@ -367,10 +367,55 @@ Cost: 50/type × 3 = 150 samples × 6 strategii = 900 forwardów ≈ 16 min na 1
 - [x] **Multi-eval 14738761** blank-mode n=150: direct_probe / role_play_dba +0.07, system_override / completion_format szkodzi
 - [x] **Multi-eval 14738997** scrubbed-mode n=150: scrub gorszy calibrator niż blank, ranking zachowany
 - [x] Image-scrub PoC delivered (`scrub_image.py`, 280/280 PNG, lokalnie, pytesseract M4-only)
-- [ ] **Full eval 840 blank-mode** dla top 3 strategii (osobne joby): baseline / direct_probe / role_play_dba — sanity check stabilności
-- [ ] **Predict 14739020** direct_probe → submit anchor v2 (expected ~0.40)
-- [ ] Po confirmed full evals: testować WARIANTY direct_probe (różne wording) na multi_eval
+- [x] **Full eval 840 blank-mode** (jobs 14739071-073): baseline 0.316, direct_probe 0.398, role_play_dba 0.399 — lift stabilny vs n=150
+- [x] **Predict 14739020** direct_probe → submit anchor v2 → **leaderboard 0.381** (+0.034 vs v1, +0.071 vs v0)
+- [x] **3-agent analysis** (method depth + literature + hybrid) → 4 paths zsyntetyzowane w `findings/synthesis.md`
+- [x] **Pinto + PII-Scope downloaded + verified** (agent #4) → korekty w NOTES.md anchor papers section
+- [ ] **P1 (per_pii_route) + P2 (verbatim_prefix) evale** lecą (jobs 14739383, 14739384)
+- [ ] Po wynikach P1/P2 → decyzja: predict task/ + submit v3
+- [ ] **P5/P6/P7 z paper analysis** (Template-D phrasing, val_pii one-shot demos, training-Q reverse-eng) — kandydaci na v4+
+- [ ] (Optional) P3 K-shot ensemble — drogie, low priority
 - [ ] (Out of scope path A) Shadow logprob diff (Path B murdzek2)
+
+## Phase 9 — 3-agent analysis + paper download (2026-05-09 ~21:00-21:30)
+
+Po v2 submit (0.381) spawned 3 background agents do brainstorming kierunków:
+
+### Konwergencja (zob. `findings/synthesis.md`)
+| Recommendation | depth | papers | hybrid |
+|---|:---:|:---:|:---:|
+| Per-PII routing (DP→EMAIL/PHONE, BL→CC) | ✓ | | ✓ |
+| K-shot candidate + logprob ranking | | ✓ | ✓ |
+| EMAIL candidate-domain re-ranking | ✓ | | |
+| Verbatim-prefix BYPASS chat template | | ✓ | |
+
+### Pinto + PII-Scope verification (agent #4, 2026-05-09 21:30)
+Downloaded i sparsowane:
+- `references/papers/pinto_2407.08707.pdf` + txt
+- `references/papers/pii_scope_2410.06704.pdf` + txt
+
+**Kluczowe korekty NOTES.md anchor papers:**
+| Wcześniejsza claim w NOTES.md | Faktycznie |
+|---|---|
+| PII-Scope: 5 templates T1-T5 | **4 templates A/B/C/D** |
+| 5× boost from template diversity | **5.4× = 4 templates × 64 top-k samples = 256 queries aggregated** vs single-query best (2.6%→14.0%) |
+| Pinto: blackout + arbitrary probe | `(I⁻ᵃ, Q_original)` — exact training question, NOT probe |
+| Q-paraphrasing minor effect | **Pinto §5.2: paraphrasing Q drops extraction MORE than image perturbations** (dominant lever) |
+
+Implikacja: **direct_probe to PARAPHRASE** per Pinto's klasyfikacji — expected to underperform vs recovered literal training question.
+
+### P1 + P2 strategies (commit 0f051d4)
+- `per_pii_route(sample)`: dispatch by sample.pii_type. CREDIT → baseline (preserves 4-4-4-4 prefix format), EMAIL/PHONE → direct_probe.
+- `verbatim_prefix(sample)`: skip `tokenizer.apply_chat_template`. Raw `formatted_q + " " + assistant_prefix`. Per Carlini'21 §6.5 + Nasr'23 §5.
+
+Sbatchowane (jobs 14739383, 14739384, blank-mode 840 each, ~14 min). Wynik pending.
+
+### Submission log update
+| Time | ID | Strategy | Score | Δ |
+|---|---|---|---|---|
+| 19:00 | 198 | baseline (v0_fixed, leading-zero only) | 0.31 | — |
+| 20:23 | 334 | baseline (v1 + EMAIL/PHONE post-process fallbacks) | 0.347 | +0.037 |
+| 21:09 | 444 | direct_probe (v2) | **0.381** | +0.034 |
 
 ## Multi-strategy findings — kluczowe (jobs 14738761 / 14738997)
 
