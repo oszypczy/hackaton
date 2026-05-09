@@ -568,3 +568,211 @@ Final scoring: organizer takes MAE on the OTHER 6/9 (66%) of the SAME 9 models, 
 - 11 submission CSVs
 
 **Critical: `synth_targets_80ep_r18/` is THE one that gave winner SUB-9.**
+
+## ============================================================
+## Phase B (2026-05-09 evening) — Tong RMIA re-attempt with matched regime
+## ============================================================
+
+> **Trigger:** organizer hint do Olka — "p NIE jest skwantowane, snap_10 może być public-fit". Plus
+> wskazówka że Tong 2025 paper (paper #05) jest THE method dla tego task'u. Decyzja:
+> reattempt Tong RMIA + Eq.4 z poprawnie regime-matched refs i sprawdzić czy bije SUB-9.
+
+### Phase A — probe regime (per-target POP_z accuracy)
+
+`probe_regime.py` (nowy skrypt): for each (target | ref | synth) compute POP_z top-1 acc.
+
+| kind | arch | epochs | POP_z acc mean (n=8) |
+|---|---|---|---|
+| **target** | R18 | — | **0.272** (range 0.245-0.292) |
+| **target** | R50 | — | **0.267** (range 0.255-0.286) |
+| **target** | R152 | — | **0.268** (range 0.251-0.298) |
+| ref R18 N=2000 | 0 | 10 | 0.122 |
+| ref R18 N=2000 | 0 | 20 | 0.150 |
+| ref R18 N=2000 | 0 | 30 | 0.159 |
+| ref R18 N=2000 | 0 | 50 | 0.168 |
+| synth R18 N=2000 | 0 | 80 | 0.175 |
+| synth R18 N=2000 | 0 | 100 | 0.177 |
+| synth R18 N=2000 | 0 | 200 | 0.185 (saturated) |
+| synth R50 N=2000 | 1 | 200 | 0.129 |
+| synth R152 N=2000 | 2 | 200 | 0.056 |
+
+**Wniosek: nasze refs/synth N=2000 SATURUJĄ przy 0.17-0.19** nawet @200ep. Targety @0.27 są
+**0.08 powyżej naszego ceiling**. Wszystkie 9 targetów cluster blisko siebie (0.245-0.298) niezależnie od arch.
+
+### Recipe match found: N=7000 + 100 epochs
+
+**Test:** `train_ref --p-fraction 0.5 --n-total 7000 --epochs 100` (1010 MIXED + 5990 POP_filler bootstrap).
+**Wynik: POP_z acc = 0.269** ≈ target 0.27. ✓
+
+Verified across 8 seeds × 100ep N=7000 R18 → mean POP_z 0.265 (std ~0.005).
+R50 @ N=7000 100ep → POP_z ~0.27 (matched too). R152 @ N=7000 100ep → POP_z slightly lower.
+
+**Interpretacja:** organizer prawdopodobnie używał N≈7000 + 100ep (lub równoważne effective steps).
+Task spec: `(p · MIXED) + ((1-p) · held_out)` z fixed N. Spec nie precyzuje N, my znaleźliśmy
+empirycznie że 7000 dopasowuje POP_z accuracy.
+
+### Trained matched-regime banks (sbatch parallel A100)
+
+Wszystkie 3 archs, każdy 8 refs (Bernoulli p=0.5) + 5 synth (p ∈ {0,0.25,0.5,0.75,1.0}).
+N=7000 100ep każdy (~71s R18, ~250s R50, ~500s R152 na A100).
+
+Saved at:
+- `Czumpers/DUCI/refs_n7000_100ep/` (R18, 8× refs)
+- `Czumpers/DUCI/refs_n7000_100ep_r50/` (R50)
+- `Czumpers/DUCI/refs_n7000_100ep_r152/` (R152)
+- `Czumpers/DUCI/synth_targets_n7000_100ep_r18/` (R18, 5 p values)
+- (R50 + R152 synth analogicznie)
+
+### Tong RMIA + Eq.4 results
+
+`main.py` na R18 cross-arch refs → all 9 targets:
+
+| LOO MAE on synth (validate_synth.py) | β* | TPR̂ | FPR̂ | Verdict |
+|---|---|---|---|---|
+| **0.0278** | 0.750 | 0.875 | 0.289 | **G2C PASS** (target Tong 0.018, our 0.028) |
+
+Ale predictions na real targets (sub_id=614):
+- Mean p̂ = **0.090** (vs SUB-9 mean 0.522)
+- Range [0.025, 0.179]
+- Public score: **gorszy od 0.0533** (didn't update leaderboard)
+
+`main_arch_matched.py` z R18+R50+R152 banks (sub_id=724):
+- Mean 0.085, R152 model_22 jumped 0.156→0.179
+- Public score: **też gorszy**
+
+### Diagnoza: MIXED conf gap (decisive)
+
+`probe_mixed.py`: target acc + conf na MIXED:
+
+| model | acc_MIXED | conf_MIXED | loss_MIXED |
+|---|---|---|---|
+| target model_00 (R18) | 0.285 | **0.183** | 3.24 |
+| target model_02 (R18) | 0.438 | **0.292** | 2.45 |
+| target model_22 (R152) | 0.357 | **0.266** | 2.73 |
+| **target avg (n=9)** | **0.34** | **0.25** | **2.91** |
+| synth N=7000 100ep p=0.0 | 0.258 | 0.223 | 4.12 |
+| synth N=7000 100ep p=0.25 | 0.453 | 0.422 | 3.04 |
+| synth N=7000 100ep p=0.50 | 0.638 | **0.620** | 2.03 |
+| synth N=7000 100ep p=1.00 | 1.000 | 0.998 | 0.002 |
+
+**Target MIXED conf 0.25 odpowiada synth p ∈ [0, 0.25]** w naszym matched-regime calibration.
+Mapuje na p~0.10 (zgodnie z Tong RMIA + re-MLE matched).
+
+**Ale SUB-9 (predictions 0.4-0.6, mean 0.522) score 0.0533** mówi że **public 3 truth ~0.5**.
+Sprzeczność: target's MIXED stats sugerują low p, ale public score dowodzi high p.
+
+### Failed recipe variants — bias gap between target & synth nieomijalny
+
+Wszystkie testowane przy N=7000 100ep p=0.5 (cel: matchnąć target conf 0.27):
+
+| Variant | MIXED acc | MIXED conf | Notes |
+|---|---|---|---|
+| Vanilla 100ep | 0.638 | 0.620 | baseline |
+| 30ep | 0.621 | 0.584 | mniej epochs - barely lower |
+| Mixup α=0.2 | 0.650 | 0.571 | nadal HIGH |
+| Label smoothing 0.1 | 0.631 | 0.544 | trochę niżej |
+| Label smoothing 0.3 | 0.632 | 0.432 | aggressive ale conf nadal 0.43 |
+| **AutoAugment + Cutout 8x8** | 0.676 | 0.638 | **NIE pomogło, conf wzrosło** |
+| ImageNet pretrained init | — | — | POP_z 0.125, gorzej niż random init |
+
+**Żadna recipe variation nie zbliża MIXED conf do target's 0.27.** Best (LS=0.3) zatrzymuje na 0.43.
+
+### Re-MLE z matched-regime synth — KEY counterintuitive result
+
+User question: czy lepszy synth = lepsza calibration MLE?
+
+`mle.py --synth-dir synth_targets_n7000_100ep_r18`:
+
+```
+[mle] preds: 00=0.025  01=0.062  02=0.084  10=0.025  11=0.027  12=0.064  20=0.025  21=0.025  22=0.050
+```
+
+**Mean 0.043 — predicts much LOWER niż MLE 80ep N=2000 (mean 0.516, score 0.0667).**
+
+**Why:** N=7000 synth at p=0 ma mean_loss 4.12 (vs N=2000 80ep p=0 mean_loss 6.07 — wider).
+Target's mean_loss 2.93:
+- N=2000 calib: maps to p ≈ (6.07-2.93)/6.07 ≈ **0.52** ✓ matches SUB-5
+- N=7000 calib: maps to p ≈ (4.12-2.93)/4.12 ≈ **0.29**, w precyzyjnym Welch'u → **0.04**
+
+**SUB-9 magic NIE jest "good calibration"** — to **lucky alignment**: N=2000 80ep synth's compressed
+mean_loss curve happens to map target's mean_loss to ~0.5, co pokrywa się z prawdą per public score.
+Better synth (N=7000) gives "more honest" calibration but predicts LOW p.
+
+### Submisje today
+
+| sub_id | Method | Mean p̂ | Public score |
+|---|---|---|---|
+| (pre) | SUB-9 (snap_10 of MLE 80ep N=2000) | 0.522 | **0.053333** ← still best |
+| 614 | Tong RMIA matched cross-arch | 0.090 | gorszy (didn't update) |
+| 683 | Ensemble avg(SUB-5, Tong) | 0.300 | gorszy |
+| 724 | Tong RMIA arch-matched FULL | 0.085 | gorszy |
+
+### Constant offset analysis: Tong vs MLE 80ep
+
+Per-target różnice (MLE 80ep − Tong matched):
+
+| target | MLE 80ep | Tong matched | Δ |
+|---|---|---|---|
+| 00 | 0.465 | 0.042 | -0.423 |
+| 01 | 0.568 | 0.135 | -0.433 |
+| 02 | 0.594 | 0.179 | -0.415 |
+| 10 | 0.444 | 0.019 | -0.425 |
+| 11 | 0.499 | 0.062 | -0.437 |
+| 12 | 0.554 | 0.090 | -0.464 |
+| 20 | 0.478 | 0.000 | -0.478 |
+| 21 | 0.491 | 0.072 | -0.419 |
+| 22 | 0.549 | 0.156 | -0.393 |
+
+**Δ jest UNIFORMA (-0.39 to -0.48, std ~0.025)** → Tong i MLE dają **dokładnie ten sam ranking**, tylko shifted constant. Brak różnicowej informacji między metodami.
+
+### Wnioski / why no method beats SUB-9
+
+1. **Target's MIA signature jest UNIQUE** w sposób którego nie odtwarza żadna nasza recipe
+   variation. MIXED conf 0.27 mimo POP_z 0.27 oznacza że targety **memorize MIXED bardzo słabo**
+   (członkowie conf ~0.5 vs nasze ~1.0) **mimo standardowego POP_z generalization**. Szukam:
+   - Stronger reg niż LS=0.3 (sprawdzimy: dropout, stochastic depth?)
+   - Different optimizer (Adam? small LR? warmup?)
+   - Different N (very large like 50000? distillation?)
+   - Different augmentation (CutMix? MixCut? RandAugment?)
+   Żadnego nie znaleźliśmy.
+
+2. **Held-out filler ≠ POPULATION** (per task spec) — nasze synth memorize POP_filler heavily,
+   target's "filler" jest nieznane. Pr(z) bias w RMIA jest fundamentalny.
+
+3. **Class balance enforcement** w organizer's training (per spec) — nasza Bernoulli sampling NIE
+   wymusza balansu. Drobne ale realne źródło recipe gap.
+
+4. **SUB-9 wins by lucky alignment** — N=2000 80ep synth's "miscalibrated" but compressed mean_loss
+   curve happens to predict target's mean_loss to right p range. Snap_10 finalizes accuracy on grid.
+
+### Strategic outcome
+
+**SUB-9 (snap_10) = 0.0533 is our ceiling.** 4 submissions cover hedge under scoring rule (b):
+- 1 high-mean (SUB-9)
+- 3 low-mean (sub 614, 683, 724)
+- Admin tracks all → best wins on private 6 if rule (b)
+- If rule (a): only public-best matters → SUB-9 wins automatically
+
+Final answer waits for admin confirmation of (a) vs (b).
+
+### Code added today
+
+| File | Purpose |
+|---|---|
+| `probe_regime.py` | POP_z accuracy diagnostic per model (target/ref/synth) |
+| `probe_mixed.py` | MIXED accuracy + conf + loss diagnostic |
+| `rmia_mle.py` | RMIA score as MLE signal (regime-robust attempt) |
+| `main_arch_matched.py` | Tong RMIA + Eq.4 with per-arch ref banks |
+| `launch_matched_regime.sh` | sbatch launcher for parallel ref/synth training |
+| `train_ref.py` (extended) | --imagenet-init, --n-total, --aug-mode flags |
+| `train_synth.py` (extended) | --n-total, --aug-mode flags |
+
+### Next-iteration ideas (untested)
+
+1. **Maini DI fallback** (paper #06) — completely different methodology (gradient-based, blind walk, MinGD).
+   Different bias direction possibly. ~2-3h work.
+2. **Yeom 2018 loss-based MIA** — simpler per-sample loss thresholding, not per-target.
+3. **Train shadow with Adam optimizer + warmup + smaller LR** — possible recipe match.
+4. **Try CIFAR-100-LT or corrupted variants as held_out filler** — match organizer's possibly-OOD held_out.
+
+**Final state: SUB-9 (0.0533) zostaje na leaderboardzie jako primary. 3 low-p submissions hedge.**
