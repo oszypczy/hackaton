@@ -64,13 +64,33 @@
 
 → Adding olmo+judges HURTS at our scale (noise > signal).
 
-## 🚀 Pseudo-labeling results (BREAKTHROUGH)
+## 🚀 Pseudo-labeling results (BREAKTHROUGH — full sweep)
 
-| Frac | Round 0 OOF | Round 1 OOF | Round 2 OOF |
+### Single-seed sweep:
+| Frac | Round 0 | Round 1 | Round 2 |
 |---|---|---|---|
-| 0.10 | 0.7778 | 0.7926 (+1.5pp) | 0.7815 |
-| 0.20 | 0.7778 | 0.8111 (+3.3pp) | 0.8111 |
-| **0.30** | 0.7778 | **0.8444 (+6.7pp) ⭐** | 0.8259 |
+| 0.05 | 0.7778 | 0.7630 (worse, too few) | - |
+| 0.10 | 0.7778 | 0.7926 | 0.7815 |
+| 0.15 | 0.7778 | 0.7963 | - |
+| 0.20 | 0.7778 | 0.8111 | 0.8111 |
+| 0.25 | 0.7778 | 0.8185 | - |
+| **0.30** | 0.7778 | **0.8444** | 0.8259 |
+| 0.35 | 0.7778 | 0.8778 | - |
+| 0.40 | 0.7778 | 0.9074 | - |
+| **0.50** | 0.7778 | **0.9333** ⭐ | - |
+
+### 5-seed pseudo (multi-seed for stability):
+| Frac | Mean OOF | Range |
+|---|---|---|
+| 0.30 | 0.867 | 0.844-0.885 |
+| 0.40 | 0.911 | 0.904-0.915 |
+| 0.50 | **0.936** | 0.930-0.944 |
+
+### Submission queue (Q6, fires 22:16-22:34 UTC):
+1. `pseudo_meta_ensemble.csv` — rank-mean of 15 runs (3f × 5s) — most robust
+2. `pseudo_multiseed_f050.csv` — 5 seeds × f=0.50 rank-mean (highest OOF)
+3. `pseudo_multiseed_f040.csv` — 5 seeds × f=0.40 rank-mean
+4. `pseudo_f030.csv` — single config, OOF 0.8444
 
 Pseudo-label = take top-X% confident "positive" + bottom-X% confident "negative" from test set,
 add as training labels. Works because: small labeled (540) + large unlabeled (2250) — test set
