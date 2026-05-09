@@ -5,9 +5,29 @@
 
 ---
 
-## TL;DR — Current state (2026-05-09 ~22:49 UTC)
+## TL;DR — Current state (2026-05-09 ~23:02 UTC)
 
-**🎯 LB plateau confirmed at 0.2841** — pseudo-label OOF 0.94 → SAME LB. Going from 18 → 24 features (multan1's olmo_13b + judges) unlocked the +0.025 jump from 0.259. But pseudo-label OOF inflation is mostly artifact (no LB gain).
+**🎯 LB plateau at 0.2841** — confirmed across 5 submissions:
+- pseudo_meta_ensemble (15-config rank-mean): 0.2841
+- super_pseudo_f050 (24f + pseudo OOF 0.96): 0.2841
+- super baseline (24f no pseudo OOF 0.80): 0.2841
+- mega_ensemble (15-config no pseudo): 0.2841
+- pseudo_f030 baseline (OOF 0.84): 0.2841
+
+**🆕 SIR detector working** — checkpoint downloaded (Gemini gigaprompt URL: `MarkLLM-sir/transform_model_cbert.pth`, SHA256 verified). MLP arch: 1024→500→500→500→300 (NOT vocab-projection!). SIR-only OOF=0.03 (no signal alone). SIR+SUPER baseline OOF=0.7667 (slight hurt, -3.7pp). SIR+SUPER+pseudo f=0.50 OOF=0.97. Submitting SIR variants in master queue.
+
+**Master queue (in flight, 23:05-23:50)**: 9 CSVs:
+1. sir_pseudo_f050 (NEW, OOF 0.97)
+2. sir_hybrid baseline (NEW)
+3. sir_pseudo_f030 (NEW)
+4. iter_super_3r
+5. mega_best (single best run OOF 0.80)
+6. select_k (multan1's SelectKBest)
+7. pseudo_f040 baseline
+8. iter_super_5r
+9. pseudo_multiseed_f050 (5-seed × f=0.50)
+
+Tomorrow 12:30 UTC eval on FULL test set (private 70%) — diverse submissions matter for that.
 
 Submitted with super features (24 cols):
 - pseudo_meta_ensemble: 0.2841

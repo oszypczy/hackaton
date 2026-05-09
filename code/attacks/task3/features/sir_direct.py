@@ -1,114 +1,147 @@
-"""SIR (Liu 2024 ICLR) watermark detection features.
+"""SIR (Liu 2024 ICLR) Semantic Invariant Robust Watermark — projection features.
 
-Semantic Invariant Robust Watermark — uses a trained BERT embedding model
-plus a transformation MLP to produce per-token watermark logits.
+The official transform_model_cbert.pth maps BERT (1024) → 300-dim semantic space:
+  Linear(1024, 500) → TransformLayer(500) → TransformLayer(500) → Linear(500, 300)
+Where TransformLayer = Linear(500,500) + ReLU.
 
-Reference: THU-BPM/Robust_Watermark, arxiv 2310.06356.
-Default: compositional-bert-large-uncased (1024-dim) → MLP → vocab(50257).
+We use the projected embeddings as features:
+- Token-projection norms (mean/std/min/max)
+- Consecutive cosine similarities (semantic consistency)
+- Distance to mean (centroid signature)
+- Self-similarity matrix statistics
 
-Requires:
-  - HF model: perceptiveshawty/compositional-bert-large-uncased
-  - Checkpoint: $TASK_CACHE/../sir_model/transform_model_cbert.pth
-    (download via code/attacks/task3/download_sir_model.sh)
+Reference: THU-BPM/Robust_Watermark, MarkLLM-sir HF repo.
 """
-from __future__ import annotations
 
-import math
+from __future__ import annotations
 import os
 from pathlib import Path
-from typing import Any
+from typing import Dict
 
 import numpy as np
+import torch
+import torch.nn as nn
 
-_embedder: Any = None
-_transform_model: Any = None
-_tokenizer: Any = None
-
-# Path to the MLP checkpoint — resolved via env var or default
-_CHECKPOINT = Path(
-    os.environ.get(
-        "SIR_CHECKPOINT",
-        "/p/scratch/training2615/kempinski1/Czumpers/task3/sir_model/transform_model_cbert.pth",
-    )
-)
 _BERT_NAME = "perceptiveshawty/compositional-bert-large-uncased"
+_CHECKPOINT_PATH = os.environ.get(
+    "SIR_CHECKPOINT",
+    "/p/scratch/training2615/kempinski1/Czumpers/task3/sir_model/transform_model_cbert.pth",
+)
+_MAX_TOKENS = 256
+
+
+class _TransformLayer(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.fc = nn.Linear(dim, dim)
+
+    def forward(self, x):
+        return torch.nn.functional.relu(self.fc(x))
+
+
+class _TransformModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.layers = nn.Sequential(
+            nn.Linear(1024, 500),
+            _TransformLayer(500),
+            _TransformLayer(500),
+            nn.Linear(500, 300),
+        )
+
+    def forward(self, x):
+        return self.layers(x)
+
+
+_tokenizer = None
+_embedder = None
+_transform_model = None
+_device = None
 
 
 def _load_models():
-    global _embedder, _transform_model, _tokenizer
-    if _embedder is not None:
+    global _tokenizer, _embedder, _transform_model, _device
+    if _transform_model is not None:
         return
 
-    import torch
-    import torch.nn as nn
-    from transformers import AutoModel, AutoTokenizer
-
+    from transformers import AutoTokenizer, AutoModel
+    print(f"  [sir] Loading {_BERT_NAME}...")
     _tokenizer = AutoTokenizer.from_pretrained(_BERT_NAME)
     _embedder = AutoModel.from_pretrained(_BERT_NAME)
-    _embedder.eval()
-    _embedder.to("cuda" if torch.cuda.is_available() else "cpu")
 
-    class TransformModel(nn.Module):
-        def __init__(self, input_dim: int = 1024, output_dim: int = 50257):
-            super().__init__()
-            self.fc1 = nn.Linear(input_dim, 2048)
-            self.relu = nn.ReLU()
-            self.fc2 = nn.Linear(2048, output_dim)
+    _device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    _embedder = _embedder.to(_device).eval()
 
-        def forward(self, x):
-            return self.fc2(self.relu(self.fc1(x)))
+    print(f"  [sir] Loading transform MLP from {_CHECKPOINT_PATH}...")
+    if not Path(_CHECKPOINT_PATH).exists():
+        raise FileNotFoundError(f"SIR checkpoint missing: {_CHECKPOINT_PATH}")
 
-    device = next(_embedder.parameters()).device
-    if _CHECKPOINT.exists():
-        _transform_model = TransformModel()
-        _transform_model.load_state_dict(
-            __import__("torch").load(_CHECKPOINT, map_location=device, weights_only=True)
-        )
-        _transform_model.eval()
-        _transform_model.to(device)
-    else:
-        _transform_model = None
-        print(f"[sir_direct] WARNING: checkpoint not found at {_CHECKPOINT}, skipping SIR features")
+    _transform_model = _TransformModel()
+    sd = torch.load(_CHECKPOINT_PATH, map_location="cpu", weights_only=True)
+    _transform_model.load_state_dict(sd)
+    _transform_model = _transform_model.to(_device).eval()
+    print(f"  [sir] Models loaded.")
 
 
-def _compute_sir_zscore(text: str) -> float:
-    """Compute per-token watermark score and normalize to z-score."""
-    import torch
-
+@torch.no_grad()
+def _compute_sir_features(text: str) -> Dict[str, float]:
     _load_models()
-    if _transform_model is None:
-        return 0.0
 
-    device = next(_embedder.parameters()).device
-    tokens = _tokenizer.encode(text, return_tensors="pt").to(device)
-    seq_len = tokens.size(1)
-    if seq_len < 10:
-        return 0.0
+    inputs = _tokenizer(text, return_tensors="pt", truncation=True, max_length=_MAX_TOKENS)
+    inputs = {k: v.to(_device) for k, v in inputs.items()}
 
-    accumulated_score = 0.0
-    count = 0
-    with torch.no_grad():
-        # stride by 4 to avoid O(n^2) cost; still samples enough positions
-        for t in range(5, seq_len, max(1, (seq_len - 5) // 100 + 1)):
-            context = tokens[:, :t]
-            actual_token = tokens[0, t].item()
-            if actual_token >= 50257:
-                continue
-            outputs = _embedder(context)
-            cls_emb = outputs.last_hidden_state[:, 0, :]  # (1, 1024)
-            wm_logits = _transform_model(cls_emb)         # (1, 50257)
-            token_score = wm_logits[0, actual_token].item()
-            accumulated_score += token_score
-            count += 1
+    out = _embedder(**inputs)
+    hidden = out.last_hidden_state[0]  # (n_tokens, 1024)
 
-    if count < 5:
-        return 0.0
+    proj = _transform_model(hidden)  # (n_tokens, 300)
+    proj_np = proj.cpu().numpy()
 
-    # Calibrate: empirical mean/std from clean texts ~0 ± 1 (rough estimate)
-    # The z-score normalizes by sqrt(count); mean_expected is 0 for clean text.
-    return accumulated_score / math.sqrt(count)
+    n = proj_np.shape[0]
+    if n < 2:
+        return {f"sir_d{i}": 0.0 for i in range(20)}
+
+    norms = np.linalg.norm(proj_np, axis=1)
+    mean_proj = proj_np.mean(axis=0)
+    proj_norm = proj_np / (norms[:, None] + 1e-9)
+    cos_sims = (proj_norm[:-1] * proj_norm[1:]).sum(axis=1)
+    centered = proj_np - mean_proj[None, :]
+    dist_to_mean = np.linalg.norm(centered, axis=1)
+
+    self_sim = proj_norm @ proj_norm.T
+    np.fill_diagonal(self_sim, 0.0)
+
+    feats = {
+        "sir_norm_mean": float(norms.mean()),
+        "sir_norm_std": float(norms.std()),
+        "sir_norm_min": float(norms.min()),
+        "sir_norm_max": float(norms.max()),
+        "sir_cos_mean": float(cos_sims.mean()),
+        "sir_cos_std": float(cos_sims.std()),
+        "sir_cos_min": float(cos_sims.min()),
+        "sir_cos_max": float(cos_sims.max()),
+        "sir_dist_mean": float(dist_to_mean.mean()),
+        "sir_dist_std": float(dist_to_mean.std()),
+        "sir_dist_max": float(dist_to_mean.max()),
+        "sir_n_tokens": float(n),
+        "sir_mean_proj_norm": float(np.linalg.norm(mean_proj)),
+        "sir_mean_proj_max": float(np.max(np.abs(mean_proj))),
+        "sir_mean_proj_std": float(mean_proj.std()),
+        "sir_var_ratio": float(np.var(proj_np, axis=0).max() / (np.var(proj_np).sum() + 1e-9)),
+        "sir_self_sim_mean": float(self_sim.sum() / max(1, n * (n - 1))),
+        "sir_self_sim_max": float(self_sim.max()),
+        "sir_max_dev": float(((dist_to_mean - dist_to_mean.mean()) / (dist_to_mean.std() + 1e-9)).max()),
+        "sir_z_norms": float((norms.max() - norms.mean()) / (norms.std() + 1e-9)),
+    }
+    return feats
 
 
-def extract(text: str) -> dict[str, float]:
-    z = _compute_sir_zscore(str(text))
-    return {"sir_zscore": z}
+def extract(text: str) -> Dict[str, float]:
+    """Extract SIR features for a text."""
+    try:
+        return _compute_sir_features(text)
+    except FileNotFoundError as e:
+        print(f"  [sir] WARN: {e}")
+        return {f"sir_d{i}": 0.0 for i in range(20)}
+    except Exception as e:
+        print(f"  [sir] WARN: failed: {e}")
+        return {f"sir_d{i}": 0.0 for i in range(20)}
