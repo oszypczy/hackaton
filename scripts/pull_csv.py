@@ -15,7 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 TASK_MAP: dict[str, dict[str, str]] = {
     "task1": {"cluster_dir": "DUCI", "local_name": "task1_duci.csv"},
     "task2": {"cluster_dir": "P4Ms-hackathon-vision-task", "local_name": "task2_pii.csv"},
-    "task3": {"cluster_dir": "llm-watermark-detection", "local_name": "task3_watermark.csv"},
+    "task3": {"cluster_dir": "task3", "local_name": "task3_watermark.csv"},
 }
 
 CLUSTER_BASE = "/p/scratch/training2615/kempinski1/Czumpers"
