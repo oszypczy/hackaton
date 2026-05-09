@@ -63,13 +63,15 @@ def evaluate(model, X, y, resolution: int, mean: torch.Tensor, std: torch.Tensor
 
 
 def main() -> None:
-    print(f"Device: {DEVICE}, DUCI_ROOT: {DUCI_ROOT}")
+    print(f"Device: {DEVICE}, DUCI_ROOT: {DUCI_ROOT}", flush=True)
+    if DEVICE == "cuda":
+        print(f"GPU: {torch.cuda.get_device_name(0)} (count={torch.cuda.device_count()})", flush=True)
 
     X = np.load(DUCI_ROOT / "DATA" / "POPULATION" / "X.npy")
     y = np.load(DUCI_ROOT / "DATA" / "POPULATION" / "y.npy")
     if y.ndim == 2:
         y = y.argmax(1)
-    print(f"POPULATION: X={X.shape} {X.dtype}, y={y.shape} {y.dtype}, classes={int(y.max()) + 1}")
+    print(f"POPULATION: X={X.shape} {X.dtype}, y={y.shape} {y.dtype}, classes={int(y.max()) + 1}", flush=True)
 
     combos = [
         ("32+CIFAR",   32,  CIFAR_MEAN, CIFAR_STD),
@@ -81,17 +83,28 @@ def main() -> None:
 
     model_ids = [f"model_{a}{i}" for a in (0, 1, 2) for i in (0, 1, 2)]
     results: dict[str, list[float]] = {}
+    t_start = time.time()
 
-    for mid in model_ids:
+    for idx, mid in enumerate(model_ids, 1):
         t0 = time.time()
+        print(f"\n[{idx}/9] {mid} - loading...", flush=True)
         model = load_model(mid)
-        accs = [evaluate(model, X, y, res, mean, std) for _, res, mean, std in combos]
+        print(f"      loaded in {time.time() - t0:.1f}s, running 4 combos:", flush=True)
+        accs = []
+        for ci, (name, res, mean, std) in enumerate(combos, 1):
+            t1 = time.time()
+            print(f"      [{ci}/4] {name:11} ...", end="", flush=True)
+            acc = evaluate(model, X, y, res, mean, std)
+            print(f" acc={acc:.3f} ({time.time() - t1:.1f}s)", flush=True)
+            accs.append(acc)
         del model
         if DEVICE == "cuda":
             torch.cuda.empty_cache()
         results[mid] = accs
-        print(f"{mid}  " + "  ".join(f"{n}={a:.3f}" for n, a in zip(combo_names, accs))
-              + f"  ({time.time() - t0:.1f}s)")
+        elapsed = time.time() - t_start
+        eta = (elapsed / idx) * (len(model_ids) - idx)
+        print(f"      [{idx}/9] done ({time.time() - t0:.1f}s)  "
+              f"elapsed {elapsed:.0f}s  ETA {eta:.0f}s", flush=True)
 
     print("\n--- per-arch mean acc on POPULATION ---")
     archs = {
