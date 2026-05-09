@@ -36,6 +36,8 @@ CODEBASE = Path(os.environ.get(
     "CODEBASE",
     "/p/scratch/training2615/kempinski1/Czumpers/p4ms_codebase/p4ms_hackathon_warsaw_code-main"
 ))
+# unified_config.py uses os.listdir("config/models") — relative to codebase root
+os.chdir(str(CODEBASE))
 sys.path.insert(0, str(CODEBASE))
 sys.path.insert(0, str(CODEBASE / "scripts"))
 
