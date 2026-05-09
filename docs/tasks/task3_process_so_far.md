@@ -86,11 +86,20 @@
 | 0.40 | 0.911 | 0.904-0.915 |
 | 0.50 | **0.936** | 0.930-0.944 |
 
-### Submission queue (Q6, fires 22:16-22:34 UTC):
-1. `pseudo_meta_ensemble.csv` — rank-mean of 15 runs (3f × 5s) — most robust
-2. `pseudo_multiseed_f050.csv` — 5 seeds × f=0.50 rank-mean (highest OOF)
-3. `pseudo_multiseed_f040.csv` — 5 seeds × f=0.40 rank-mean
-4. `pseudo_f030.csv` — single config, OOF 0.8444
+### Submission queue (Q6 → Q7 super, fires 22:22-22:38 UTC):
+1. `task3_super_pseudo_f050.csv` — SUPER 24 features + pseudo f=0.50 — OOF **0.9630** ⭐⭐
+2. `task3_super_pseudo_f040.csv` — SUPER + pseudo f=0.40 — OOF 0.9519
+3. `task3_super_pseudo_f030.csv` — SUPER + pseudo f=0.30 — OOF 0.9370
+4. `task3_super.csv` — SUPER baseline no pseudo — OOF 0.8037
+
+### 🆕 SUPER FEATURES (24 features incl multan1's olmo_13b + judges) — added 22:17 UTC
+
+| Variant | OOF | Δ from 18-feat |
+|---|---|---|
+| SUPER baseline (no pseudo) C=0.05 | **0.8037** | +2.6pp |
+| SUPER + pseudo f=0.30 | 0.9370 | +5.2pp |
+| SUPER + pseudo f=0.40 | 0.9519 | +4.5pp |
+| SUPER + pseudo f=0.50 | **0.9630** ⭐⭐ | +3.0pp (NEW HIGH) |
 
 Pseudo-label = take top-X% confident "positive" + bottom-X% confident "negative" from test set,
 add as training labels. Works because: small labeled (540) + large unlabeled (2250) — test set
