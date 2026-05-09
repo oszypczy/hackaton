@@ -56,6 +56,8 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--batch", type=int, default=BATCH)
     ap.add_argument("--p-fraction", type=float, default=0.5,
                     help="Bernoulli(p) probability that x_i ∈ MIXED is included")
+    ap.add_argument("--imagenet-init", action="store_true",
+                    help="initialize from ImageNet pretrained weights (regime-match probe)")
     return ap.parse_args()
 
 
@@ -133,7 +135,25 @@ def train_one(args: argparse.Namespace) -> None:
     print(f"[train_ref] split: total={len(X_train)} mixed={len(mixed_idx)} filler={len(filler_idx)}",
           flush=True)
 
-    model = build_resnet(args.arch, device=device, num_classes=100)
+    if args.imagenet_init:
+        # Regime-match probe: load ImageNet pretrained then replace fc head for 100 classes
+        import torchvision.models as tvm
+        from .targets import ARCH
+        arch_fn = ARCH[args.arch]
+        weights_map = {
+            "0": "ResNet18_Weights",
+            "1": "ResNet50_Weights",
+            "2": "ResNet152_Weights",
+        }
+        wm = getattr(tvm, weights_map[args.arch]).IMAGENET1K_V1
+        model = arch_fn(weights=wm)
+        # Replace 1000-class fc with 100-class
+        in_feat = model.fc.in_features
+        model.fc = nn.Linear(in_feat, 100)
+        model = model.to(device)
+        print(f"[train_ref] initialized from ImageNet pretrained ({weights_map[args.arch]})", flush=True)
+    else:
+        model = build_resnet(args.arch, device=device, num_classes=100)
     optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9,
                                 nesterov=True, weight_decay=args.wd)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
