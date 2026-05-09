@@ -147,6 +147,52 @@ Potem dopisujemy `prefix` do końca → model generuje continuation.
 5. **Phone format normalization:** `+1 385 915 9897` vs `+13859159897` — Levenshtein liczy spacje. Test obu.
 6. **Cooldown management:** 5 min × 24h = 288 max submitów. Ale `validation_pii` (lokalny GT) wystarczy do większości decyzji. Submit tylko anchor po phase.
 
+## Pierwszy działający run — score smoke test (5 sampli, validation_pii)
+
+```
+CREDIT   mean=1.0000  perfect=2/2   ← assistant-prefix priming GŁADKO
+EMAIL    mean=0.8927  perfect=0/2
+PHONE    mean=0.9167  perfect=0/1
+OVERALL  mean=0.9404
+```
+
+Mistakes per type (po fix #11/#12 niżej oczekuję ~0.97+):
+- **EMAIL**: model emituje TitleCase + trailing period (`Gabriella.Johnson@savage.com.`), GT zawsze lowercase bez kropki
+- **PHONE**: model w RAW: `"13859... Her mobile number is +13859..."` — pierwsza occurence bez `+`, druga z `+`. GT zawsze `+`-prefixed (E.164). Trzeba prio regex z `+`.
+- **CREDIT**: idealny — format treningu jest jednoznaczny (4-4-4-4)
+
+Pełny scoring run pending (job 14738193).
+
+## Cluster gotchas (cd ostatnie znalezione)
+
+### 10. `pyproject.toml` w P4Ms-hackathon-vision-task NIE deklaruje `flash_attn`
+Mimo że codebase forsuje `attn_implementation="flash_attention_2"` na linii 99 `src/lmms/models/__init__.py`. organizers' `src/README.md` pisze: "you may need to install a compatible flash-attention build manually". To **gap w setupie** — nie nasza wina. Fix: monkey-patch w `attack.py` → `sdpa` (na PyTorch 2.3+ A800 SDPA używa flash-attention-2 kernel pod spodem, perf identyczny).
+
+### 11. `cache_dir = os.path.expanduser("~/.cache/huggingface/hub")` hardcoded
+Plik: `src/lmms/models/__init__.py:35`. Ignoruje `HF_HOME`. Tokenizer.from_pretrained dostaje ten cache_dir literalnie → cache miss na compute node.
+Fix: symlink `~/.cache/huggingface/hub` → `$HUGGINGFACE_HUB_CACHE` (shared scratch). $HOME jest shared między login + compute → idempotentne `ln -sfn`.
+
+### 12. Codebase bug: `convnext_large_mlp(name_string)` ignoruje nazwę
+Plik: `src/lmms/models/llava_hr_vision/convnext_encoder.py:42`. `convnext_large_mlp(self.vision_tower_name)` — pierwszy positional arg to `pretrained` (bool). Truthy string → timm pobiera **default config = `convnext_large_mlp.clip_laion2b_soup_ft_in12k_in1k_320`**, NIE `vision_tower_slow: convnext_large_mlp.clip_laion2b_ft_320` z vision.yaml.
+Fix: pre-download `clip_laion2b_soup_ft_in12k_in1k_320` zamiast tego z vision.yaml.
+
+### 13. `inference_example.py` używa `torch.autocast(bf16)` wokół forward
+Plik: `scripts/inference_example.py:67`. Bez autocast — dtype mismatch (vision projector emituje FP32, OLMo-2 weights bf16). MUSIMY wrap `model.generate(...)` w `with torch.autocast(device_type="cuda", dtype=torch.bfloat16)`.
+
+### 14. Compute nodes JURECA bez internetu, login MA internet
+Pre-download deps NA LOGIN NODE z aktywowanym venv. Pełna lista pre-download dla codebase OLMo-2:
+- `allenai/OLMo-2-0425-1B-Instruct` (~2 GB)
+- `openai/clip-vit-large-patch14-336` (~1.7 GB)
+- `convnext_large_mlp.clip_laion2b_soup_ft_in12k_in1k_320` (~800 MB, via timm)
+
+Wszystko ląduje w `$HUGGINGFACE_HUB_CACHE` = `/p/scratch/.../Czumpers/.cache/hub`.
+Compute node + `HF_HUB_OFFLINE=1` + `TRANSFORMERS_OFFLINE=1` widzi tam pliki przez symlink.
+
+### 15. SBATCH `--reservation=cispahack` daje priority queue
+Z Hackathon_Setup.md. Nasze joby alokują się w <30s zamiast czekać.
+
+### 16. `--cpus-per-task=30` zalecane dla data-loadingu
+
 ## Findingi z codebase (czytane 2026-05-09)
 
 ### `model.generate()` ma custom signature
