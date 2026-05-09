@@ -58,6 +58,8 @@ def parse_args() -> argparse.Namespace:
                     help="Bernoulli(p) probability that x_i ∈ MIXED is included")
     ap.add_argument("--imagenet-init", action="store_true",
                     help="initialize from ImageNet pretrained weights (regime-match probe)")
+    ap.add_argument("--n-total", type=int, default=0,
+                    help="total training set size; 0 = |MIXED|. Probe larger N for regime match.")
     return ap.parse_args()
 
 
@@ -68,24 +70,33 @@ def set_seed(seed: int) -> None:
     torch.cuda.manual_seed_all(seed)
 
 
-def build_split(seed: int, p_fraction: float) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict]:
+def build_split(seed: int, p_fraction: float, n_total: int = 0
+                ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict]:
     """Sample (mixed_subset_indices, filler_indices), build (X_train, y_train) numpy.
 
+    n_total: total training set size; 0 = |MIXED|.
     Returns: X_train (N, 32, 32, 3) uint8, y_train (N,) int64, mixed_idx, filler_idx, manifest fragment.
     """
     rng = np.random.default_rng(seed)
     X_m, y_m = load_mixed()
     X_p, y_p = load_population()
+    if n_total <= 0:
+        n_total = len(X_m)
 
     # Bernoulli(p_fraction) over MIXED to determine which to include
     mask_m = rng.random(len(X_m)) < p_fraction
     mixed_idx = np.where(mask_m)[0]
+    if mixed_idx.size > n_total:
+        mixed_idx = rng.choice(mixed_idx, size=n_total, replace=False)
 
-    # Fill from POPULATION_filler (indices 0-4999) to total = |MIXED|
-    n_fill = len(X_m) - mixed_idx.size
+    # Fill from POPULATION_filler to total = n_total
+    n_fill = n_total - mixed_idx.size
     filler_lo, filler_hi = POPULATION_FILLER_RANGE
     filler_pool = np.arange(filler_lo, filler_hi)
-    filler_idx = rng.choice(filler_pool, size=n_fill, replace=False)
+    if n_fill > len(filler_pool):
+        filler_idx = rng.choice(filler_pool, size=n_fill, replace=True)  # bootstrap
+    else:
+        filler_idx = rng.choice(filler_pool, size=n_fill, replace=False)
 
     X_train = np.concatenate([X_m[mixed_idx], X_p[filler_idx]])
     y_train = np.concatenate([y_m[mixed_idx], y_p[filler_idx]])
@@ -131,7 +142,8 @@ def train_one(args: argparse.Namespace) -> None:
     print(f"[train_ref] device={device} arch={args.arch} seed={args.seed} epochs={args.epochs}",
           flush=True)
 
-    X_train, y_train, mixed_idx, filler_idx, manifest_frag = build_split(args.seed, args.p_fraction)
+    X_train, y_train, mixed_idx, filler_idx, manifest_frag = build_split(
+        args.seed, args.p_fraction, n_total=args.n_total)
     print(f"[train_ref] split: total={len(X_train)} mixed={len(mixed_idx)} filler={len(filler_idx)}",
           flush=True)
 
