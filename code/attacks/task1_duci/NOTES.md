@@ -164,6 +164,18 @@ Per-arch mean top-1 accuracy on POPULATION (10k):
 - 2026-05-09 — Preprocessing = `(32×32, CIFAR-100 mean/std)` chosen by smoke test on POPULATION acc. Architecture-agnostic winner (same for ResNet18/50/152). 224×224 collapses to near-random.
 - 2026-05-09 — Use **P4Ms venv** to run task1 code (`/p/scratch/.../P4Ms-hackathon-vision-task/.venv/bin/python`). DUCI/.venv has no torchvision; P4Ms (torch 2.3.0+cu121) loads DUCI .pkl without ABI issues. Read-only access — no shared state mutation. (Long-term may want user-local venv; for now P4Ms is fine.)
 - 2026-05-09 — **Phase 0 diagnostics PASS.** G0a: linear probe AUC=0.4912 (≤0.55, pools i.i.d., no domain shift). G0b: 9/9 positive conf-deltas. Per-arch mean deltas: R18 +0.063, R50 +0.043, R152 +0.038. R152 model_20 has min delta +0.002 (likely p≈0). MIA signal confirmed across all targets — proceed to RMIA pipeline.
+- 2026-05-09 — **Phase 1 (single-ref) FAILED degenerately.** With 1 ref, Youden's LOO impossible; fallback path (ref as both target and ref-bank) gave TPR̂=1.0, FPR̂=0.997, gap=0.003 → all p̂ collapsed to 0.025 after clamp. RMIA per-target ordering WAS correct (matched conf-delta perfectly), only calibration broken.
+- 2026-05-09 — **Phase 2 (8 R18 refs @ 50ep) — synth val PASS but real submission FAILED.** β*=0.800, TPR̂=0.906, FPR̂=0.262, Youden gap +0.644. Synth val MAE=0.018 (better than Tong paper 1-ref baseline 0.087). SUB-1 to API: HTTP 200, score **0.463 — 9/9 last on leaderboard**. Top 3 teams: 0.054, 0.061, 0.069. Predictions all in [0.025, 0.122], mean 0.06 → suggests systematic UNDERESTIMATE.
+- 2026-05-09 — **Diagnosis confirmed: memorization regime mismatch.** POP_z acc real targets = 0.27 (from G0b smoke). Our refs: 50ep → ~60%+ POP_z acc (over-memorized); 10ep → 0.12 POP_z acc (under). Cross-validation table:
+
+| Refs | Synth | MAE | Verdict |
+|---|---|---|---|
+| 50ep | 50ep | 0.018 | self-consistent |
+| **50ep** | **10ep** | **0.371** | **predicts real-submission MAE 0.46 — same regime mismatch** |
+| 10ep | 50ep | 0.122 | reverse mismatch |
+| 10ep | 10ep | 0.023 | self-consistent |
+
+Sweet spot: ref POP_z acc ≈ 0.27 ⇒ ~20 epochs (extrapolated 0.12 @ 10ep → ~0.27 @ 20ep). Plan: train 8 R18 refs + 5 synth @ 20ep, re-run main on real targets, submit SUB-2.
 
 ## Phase 0 — diagnostics output (2026-05-09)
 
