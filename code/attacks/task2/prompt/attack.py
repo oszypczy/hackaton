@@ -130,11 +130,11 @@ def generate_one(
 
     # Tokenize like the codebase collator does (tokenize then convert_to_ids).
     token_ids = tokenizer.convert_tokens_to_ids(tokenizer.tokenize(prompt_text))
-    input_ids = torch.tensor(token_ids, dtype=torch.long)
+    input_ids = torch.tensor(token_ids, dtype=torch.long, device=model.device)
 
     # Image preprocessing
     pil_img = load_image(sample.image_bytes, image_size)
-    image_tensor = preprocess_image_to_tensor(pil_img, image_processor)
+    image_tensor = preprocess_image_to_tensor(pil_img, image_processor).to(model.device)
 
     # Use the codebase's overridden `generate`. It accepts the unified-arch
     # batched inputs directly and calls `prepare_multimodal_inputs` internally
@@ -142,7 +142,7 @@ def generate_one(
     gen_out = model.generate(
         batch_input_ids=[input_ids],
         batch_labels=[torch.full_like(input_ids, -100)],
-        batch_X_modals=[{"<image>": image_tensor.to(model.device)}],
+        batch_X_modals=[{"<image>": image_tensor}],
         max_new_tokens=max_new_tokens,
         do_sample=False,
         num_beams=1,
