@@ -83,6 +83,8 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 PII_TYPES   = ("EMAIL", "CREDIT", "PHONE")
 PII_KW      = {"EMAIL": "email", "CREDIT": "credit", "PHONE": "phone"}
+# PHONE instructions sometimes say "telephone"/"contact number" instead of "phone"
+PII_KW_ALT  = {"PHONE": ("telephone", "number", "contact", "mobile")}
 PRED_MIN, PRED_MAX = 10, 100
 # Answer seeds — appended to prompt to match fine-tuning output prefix
 ANSWER_SEED = {
@@ -90,6 +92,29 @@ ANSWER_SEED = {
     "CREDIT": "The credit card number is ",
     "PHONE":  "The phone number is ",
 }
+
+
+def find_conv_turn(sample, pii_type: str) -> dict:
+    """Return the conversation turn for the given PII type. Robust against
+    variations in instruction phrasing (e.g. 'telephone' instead of 'phone')."""
+    kw = PII_KW[pii_type]
+    conv = sample["conversation"]
+    turn = next((t for t in conv if kw in t["instruction"].lower()), None)
+    if turn is None:
+        for alt in PII_KW_ALT.get(pii_type, ()):
+            turn = next((t for t in conv if alt in t["instruction"].lower()), None)
+            if turn is not None:
+                break
+    if turn is None and pii_type == "PHONE":
+        # last resort: take the turn that isn't EMAIL or CREDIT
+        email_kw, credit_kw = PII_KW["EMAIL"], PII_KW["CREDIT"]
+        turn = next(
+            (t for t in conv
+             if email_kw not in t["instruction"].lower()
+             and credit_kw not in t["instruction"].lower()),
+            conv[-1],
+        )
+    return turn or conv[0]
 
 
 # ── Model loading ──────────────────────────────────────────────────────────────
@@ -137,11 +162,7 @@ def preprocess_image(sample, img_proc, img_size: int, device) -> torch.Tensor:
 # ── Build prompt token ids (no answer) ────────────────────────────────────────
 def build_prompt_ids(sample, pii_type: str, tokenizer, device,
                      seed_answer: bool = False) -> torch.Tensor:
-    kw = PII_KW[pii_type]
-    conv_turn = next(
-        (t for t in sample["conversation"] if kw in t["instruction"].lower()),
-        sample["conversation"][0],
-    )
+    conv_turn = find_conv_turn(sample, pii_type)
     instruction = get_formatted_question(conv_turn["instruction"], "image")
     data = sample_to_chat_template(
         {"conversation": [{"instruction": instruction, "output": ""}]}, tokenizer
@@ -157,11 +178,7 @@ def build_prompt_ids(sample, pii_type: str, tokenizer, device,
 
 # ── Build full ids + labels for loss scoring ──────────────────────────────────
 def build_answer_ids_labels(sample, pii_type: str, answer: str, tokenizer, device):
-    kw = PII_KW[pii_type]
-    conv_turn = next(
-        (t for t in sample["conversation"] if kw in t["instruction"].lower()),
-        sample["conversation"][0],
-    )
+    conv_turn = find_conv_turn(sample, pii_type)
     instruction = get_formatted_question(conv_turn["instruction"], "image")
     data = sample_to_chat_template(
         {"conversation": [{"instruction": instruction, "output": answer}]}, tokenizer
@@ -316,12 +333,7 @@ def run_inspect(target, shadow, tokenizer, img_proc, img_size,
             break
         print(f"\n--- sample {i} user_id={sample['user_id']} ---")
         for pii_type in PII_TYPES:
-            gt_turn = next(
-                (t for t in sample["conversation"]
-                 if PII_KW[pii_type] in t["instruction"].lower()),
-                sample["conversation"][0],
-            )
-            gt = gt_turn["output"]
+            gt = find_conv_turn(sample, pii_type)["output"]
             raw = generate_answer(target, sample, pii_type, tokenizer, img_proc, img_size,
                                   do_sample=False, seed_answer=seed_answer,
                                   max_new_tokens=max_new_tokens)
@@ -340,12 +352,7 @@ def run_val(target, shadow, tokenizer, img_proc, img_size,
 
     for i, sample in enumerate(ds):
         for pii_type in PII_TYPES:
-            gt_turn = next(
-                (t for t in sample["conversation"]
-                 if PII_KW[pii_type] in t["instruction"].lower()),
-                sample["conversation"][0],
-            )
-            gt = gt_turn["output"]
+            gt = find_conv_turn(sample, pii_type)["output"]
             pred = enforce_length(
                 predict(sample, pii_type, target, shadow, tokenizer, img_proc, img_size,
                         seed_answer=seed_answer, max_new_tokens=max_new_tokens),
