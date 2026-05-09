@@ -895,3 +895,51 @@ Maini extract jobs (small JSON outputs) are NOT affected — letting them run:
 Submissions in queue while waiting for quota fix:
 - sid=845 Strategy 2 solo (R152 broken, R18+R50 LOO 0.01)
 - sid=868 Strategy 2 hybrid (R18+R50 + R152=0.5 SUB-9 fallback) — submitted via auto retry queue
+
+### 01:00 — Maini full + mle_combine wide+narrow
+
+**ALL 9 organizer targets** Maini extracted (R18+R50+R152). All synth banks 5/5.
+
+**Maini MLE per-arch (CPU-only run on cluster login):**
+- R18: LOO-MAE **0.0025** (PASS) — bank=synth_2k_r18, signal=mean_mixed_laplace, deg=1
+- R50: LOO-MAE **0.0164** (PASS) — bank=synth_7k_r50, signal=delta_gaussian, deg=1
+- R152: LOO-MAE **0.3000** (FAIL) — synth_7k_r152 saturated (median=0 across all p), useless. Fallback to 0.5.
+
+**Maini predictions (mean 0.264):**
+```
+R18:  00=0.117, 01=0.249, 02=0.299
+R50:  10=0.022, 11=0.076, 12=0.115
+R152: 20=0.500, 21=0.500, 22=0.500 (fallback)
+```
+
+**Submitted: sid=965 (Maini full)**.
+
+**Variants queued** (auto_submit_queue background):
+- Maini shifted (mean→0.5 via +0.236 add): R152 → 0.736 (NOTE: clipped)
+- Maini × SUB-9 avg (mean 0.39)
+
+### mle_combine wide+narrow GAME CHANGER
+
+Combined `synth_targets_n7000_100ep_r{18,50,152}` (5pts each) + `synth_targets_narrow_r{18,50}` (5pts each, p∈{0.4,0.45,0.5,0.55,0.6}).
+
+**LOO-MAE per arch (mle_combine, signal=mean_loss_mixed deg=2):**
+- R18: **0.0125** (10 points)
+- R50: **0.0271** (10 points)
+- R152: **0.3847** (5 points wide only — broken bank still)
+
+**Predictions (mean 0.485 — VERY close to 0.5!):**
+```
+R18:  00=0.204, 01=0.353, 02=0.392
+R50:  10=0.382, 11=0.445, 12=0.507
+R152: 20=0.576, 21=0.683, 22=0.826
+```
+
+This matches user's intuition that true_p ~ 0.5 with narrow distribution. **MAJOR CANDIDATE**.
+
+**Built 2 CSV variants (queued for submit):**
+- `task1_duci_mle_combine_widenarrow.csv` (mean 0.485)
+- `task1_duci_mle_combine_r152sub9.csv` (R152→0.5, mean 0.420)
+
+### Disk quota issues persistent
+
+Can't write directly to scratch repo submissions/ — quota errors keep popping up. Workaround: `python -m ... --out /tmp/X.csv && cp /tmp/X.csv scratch/repo/submissions/X.csv`. Or pull via scp.
