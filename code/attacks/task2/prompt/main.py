@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 from attack import generate_one, load_model_and_tools
-from format import extract_pii, validate_pred
+from format import email_fallback_from_question, extract_pii, validate_pred
 from loader import load_parquets
 from scorer import score_batch, _sanity
 
@@ -92,6 +92,11 @@ def main() -> None:
             s, max_new_tokens=args.max_new_tokens, use_prefix=use_prefix,
         )
         extracted = extract_pii(raw, s.pii_type)
+        # EMAIL fallback: when model emits non-email content (phone/CC/twitter),
+        # `extracted` lacks '@'. Build firstname.lastname@example.com from the
+        # question — gives ~0.6 sim vs ~0.0 from raw phone digits.
+        if s.pii_type == "EMAIL" and "@" not in extracted:
+            extracted = email_fallback_from_question(s.question)
         pred = validate_pred(extracted, s.pii_type)
         row = {
             "user_id": s.user_id,
