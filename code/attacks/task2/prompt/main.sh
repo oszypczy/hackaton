@@ -38,6 +38,10 @@ export HUGGINGFACE_HUB_CACHE=/p/scratch/training2615/kempinski1/Czumpers/.cache/
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 
+# Unbuffered Python stdout — sbatch logs to file, not TTY, so default block
+# buffering hides progress prints until job ends. Force flush per-line.
+export PYTHONUNBUFFERED=1
+
 # Codebase hardcodes `cache_dir = ~/.cache/huggingface/hub` in
 # src/lmms/models/__init__.py:35 (ignores HF_HOME). Symlink to shared scratch
 # cache so the hardcoded path resolves to our pre-downloaded models.

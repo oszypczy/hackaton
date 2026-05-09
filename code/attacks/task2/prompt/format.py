@@ -64,10 +64,20 @@ def extract_pii(generated: str, pii_type: str) -> str:
 
 
 def _normalize_phone(s: str) -> str:
-    """Keep + and digits only."""
+    """Keep + and digits only. Force '+' prefix if phone-shaped (10-15 digits).
+
+    100% of validation_pii GT phones are E.164 with '+1' prefix. Model often
+    emits the digits without '+'. This adds '+' back. 16+ digits = likely a
+    credit card emitted in wrong field — leave as-is, low chance of recovery.
+    """
     s = s.strip()
     plus = s.startswith("+")
     digits = re.sub(r"\D", "", s)
+    if not digits:
+        return s
+    # Phone-shaped: force '+' prefix (matches GT distribution exactly)
+    if 10 <= len(digits) <= 15:
+        return "+" + digits
     return ("+" + digits) if plus else digits
 
 
