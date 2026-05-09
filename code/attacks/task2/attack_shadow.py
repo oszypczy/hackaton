@@ -18,7 +18,6 @@ All issues fixed per SETUP_GUIDE from kempinski1 (task2-prompt):
 import argparse
 import csv
 import os
-import re
 import sys
 from pathlib import Path
 
@@ -267,48 +266,11 @@ def predict(sample, pii_type: str, target, shadow, tokenizer,
     return best
 
 
-# ── Regex extraction: pull PII out of verbose model sentences ─────────────────
-def extract_pii(text: str, pii_type: str) -> str:
-    if pii_type == "EMAIL":
-        m = re.search(r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}', text)
-        if m:
-            return m.group(0).lower().rstrip('.')
-    elif pii_type == "CREDIT":
-        m = re.search(r'\b(\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{4})\b', text)
-        if m:
-            return m.group(1)  # keep original spacing/dashes — GT may match
-    elif pii_type == "PHONE":
-        m = re.search(r'\+\d[\d\s\-\.\(\)]{7,18}', text)
-        if not m:
-            m = re.search(r'\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}', text)
-        if m:
-            return _normalize_phone(m.group(0).strip())
-    return text
-
-
-def _normalize_phone(phone: str) -> str:
-    if phone.startswith('+'):
-        return phone
-    digits = re.sub(r'\D', '', phone)
-    if len(digits) == 11 and digits[0] == '1':
-        return '+' + digits
-    if len(digits) == 10:
-        return '+1' + digits
-    return phone
-
-
 # ── Length / format enforcement ────────────────────────────────────────────────
 def enforce_length(pred: str, pii_type: str) -> str:
     pred = pred.strip().strip('"\'<>').strip()
-    pred = extract_pii(pred, pii_type)
-    pred = pred.strip()
-    if pii_type == "EMAIL":
-        pred = pred.lower().rstrip('.')
-        if "@" not in pred:
-            # extract word-like username from verbose text before falling back
-            m = re.search(r'\b([a-z0-9][a-z0-9._+\-]{3,})\b', pred.lower())
-            username = m.group(1) if m else pred.split()[0] if pred.split() else "user"
-            pred = username + "@gmail.com"
+    # GT is full-sentence format ("The credit card is X") — don't regex-extract,
+    # model's natural output already matches GT format.
     if len(pred) < PRED_MIN:
         pred = pred.ljust(PRED_MIN, "0")
     if len(pred) > PRED_MAX:
