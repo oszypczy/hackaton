@@ -317,3 +317,38 @@ Pipeline verified: KV-cache reuse works, both models load via two
 Full 840 eval: job 14740294 (--time=00:45:00).
 Gate: OVERALL ≥ 0.418 (= DP 0.398 + 0.02 noise floor) → predict task/. If fail,
 ablate β ∈ {0.3, 1.0} or per-PII route (DP on CREDIT, CD on EMAIL/PHONE).
+
+### 2026-05-10 ~00:00 — full 840 FAILED gate, CD loses on all 3 types
+
+Job 14740294 (840 samples, blank, α=1.0 β=0.5 topk=50, 29.9 min):
+- CREDIT  0.0832  (DP 0.2312, **−0.148**, −64% relative)
+- EMAIL   0.4998  (DP 0.5785, **−0.079**, −14%)
+- PHONE   0.3108  (DP 0.3700, **−0.059**, −16%)
+- OVERALL 0.2980  (DP 0.3932, **−0.095**)
+
+CD is **uniformly worse** — per-PII routing won't save it.
+
+Diagnosis (matches research §2.1 caveats):
+The research recommends "stock OLMo-2-1B-base (no PII fine-tune)" as amateur.
+Our shadow_lmm is **fine-tuned on the same PII-VQA task with disjoint PII** —
+i.e. it produces the same formatted output (4-4-4-4 for CREDIT, name@... for
+EMAIL, +1... for PHONE) just without the *content* the target memorized.
+β·shadow then cancels both format AND any tokens the shadow happens to
+predict via format prior, dragging target's memorized content below the
+plausibility cutoff.
+
+Cluster has `allenai/OLMo-2-0425-1B` (true base) in cache, BUT integration
+requires bridging unified_mllm's multimodal pipeline with a text-only LM
+that has no `<image>` special token and a different vocab size. ~1h code,
+uncertain payoff.
+
+### Decision: kill CD path, no submit
+
+OVERALL 0.298 is far below v2 direct_probe submitted score (0.381 LB).
+Submitting would regress by ~0.08 — not worth it. Hand off to:
+- main session (K-shot + Lev medoid) for CREDIT-dominant gains via §3.x
+- v2 direct_probe baseline (0.381 LB) as floor
+
+Time remaining ~12h. Higher-EV moves: monitor main session results,
+potentially merge CSVs (DP-CREDIT + CD-EMAIL/PHONE was the only routing
+that *could* have helped, but CD lost on those too).
