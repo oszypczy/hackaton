@@ -107,11 +107,10 @@ def load_splits(data_dir: Path | None) -> tuple[pd.DataFrame, pd.DataFrame, pd.D
                 val = df_all[df_all["_split"] == "val"].drop(columns=["_split"]).reset_index(drop=True)
                 test = df_all[df_all["_split"] == "test"].drop(columns=["_split"]).reset_index(drop=True)
             else:
-                # Last resort: divide by known sizes 360/180/2250
-                print("  No split column — dividing by known sizes 360/180/2250")
-                train = df_all.iloc[:360].reset_index(drop=True)
-                val = df_all.iloc[360:540].reset_index(drop=True)
-                test = df_all.iloc[540:].reset_index(drop=True)
+                raise ValueError(
+                    f"No split column found. Columns: {df_all.columns.tolist()}\n"
+                    f"Sample row: {df_all.iloc[0].to_dict()}"
+                )
 
     # Normalize column names
     for df in (train, val, test):
