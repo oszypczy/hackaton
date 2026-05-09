@@ -20,7 +20,11 @@ class BranchAExtractor:
     def __init__(self, cfg: BranchAConfig):
         self.cfg = cfg
         self.tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
-        self.model = AutoModelForCausalLM.from_pretrained(cfg.model_name)
+        use_fp16 = cfg.device.startswith("cuda")
+        self.model = AutoModelForCausalLM.from_pretrained(
+            cfg.model_name,
+            torch_dtype=torch.float16 if use_fp16 else torch.float32,
+        )
         self.model.to(cfg.device)
         self.model.eval()
 

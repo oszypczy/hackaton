@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,10 +9,17 @@ from pathlib import Path
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
+import torch
 from sklearn.linear_model import LogisticRegression
 
 import main as task3_main
 from cv_utils import bootstrap_tpr_ci, make_stratified_folds, tpr_at_fpr
+
+
+def _free_gpu():
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 
 @dataclass
@@ -115,6 +123,9 @@ def _run_variant(base_args: argparse.Namespace, variant: Variant, trunc_words: i
         "bootstrap_tpr_q95": float(q95),
     }
     report.update(_length_slice_report(oof_cal, y, lengths))
+    # Free GPU memory before next variant to avoid OOM
+    del branch_a, branch_bc, branch_bigram, branch_d, binoculars, x_all
+    _free_gpu()
     return report
 
 

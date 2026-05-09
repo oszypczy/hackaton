@@ -19,10 +19,12 @@ class BinocularsConfig:
 class BinocularsExtractor:
     def __init__(self, cfg: BinocularsConfig):
         self.cfg = cfg
+        use_fp16 = cfg.device.startswith("cuda")
+        dtype = torch.float16 if use_fp16 else torch.float32
         self.obs_tok = AutoTokenizer.from_pretrained(cfg.observer_model)
-        self.obs_mod = AutoModelForCausalLM.from_pretrained(cfg.observer_model).to(cfg.device).eval()
+        self.obs_mod = AutoModelForCausalLM.from_pretrained(cfg.observer_model, torch_dtype=dtype).to(cfg.device).eval()
         self.per_tok = AutoTokenizer.from_pretrained(cfg.performer_model)
-        self.per_mod = AutoModelForCausalLM.from_pretrained(cfg.performer_model).to(cfg.device).eval()
+        self.per_mod = AutoModelForCausalLM.from_pretrained(cfg.performer_model, torch_dtype=dtype).to(cfg.device).eval()
 
     @torch.no_grad()
     def _avg_neg_logprob(self, text: str, tok, model) -> float:

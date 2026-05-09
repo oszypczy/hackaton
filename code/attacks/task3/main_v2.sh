@@ -21,14 +21,14 @@ if [[ "${MODE}" == "train" ]]; then
     --zip-val-split valid \
     --artifacts-path "${ARTIFACTS}" \
     --device "${DEVICE}" \
-    --a-model "EleutherAI/pythia-2.8b" \
+    --a-model "EleutherAI/pythia-1.4b" \
     --bc-tokenizer gpt2 \
     --bc-extra-tokenizers "facebook/opt-1.3b" \
     --use-bigram \
     --use-branch-d \
     --use-binoculars \
-    --binoculars-observer "EleutherAI/pythia-2.8b" \
-    --binoculars-performer "EleutherAI/pythia-6.9b" \
+    --binoculars-observer "EleutherAI/pythia-1.4b" \
+    --binoculars-performer "EleutherAI/pythia-2.8b" \
     --num-leaves 31 \
     --max-depth 6 \
     --num-boost-round 600
@@ -43,17 +43,16 @@ elif [[ "${MODE}" == "infer" ]]; then
     --out-csv "${OUT_CSV}" \
     --expected-rows 2250 \
     --device "${DEVICE}" \
-    --a-model "EleutherAI/pythia-2.8b" \
+    --a-model "EleutherAI/pythia-1.4b" \
     --bc-tokenizer gpt2 \
     --bc-extra-tokenizers "facebook/opt-1.3b" \
     --use-bigram \
     --use-branch-d \
     --use-binoculars \
-    --binoculars-observer "EleutherAI/pythia-2.8b" \
-    --binoculars-performer "EleutherAI/pythia-6.9b"
+    --binoculars-observer "EleutherAI/pythia-1.4b" \
+    --binoculars-performer "EleutherAI/pythia-2.8b"
 
 elif [[ "${MODE}" == "ablation" ]]; then
-  # Run full ablation suite to find best variant
   python code/attacks/task3/experiments.py \
     --data-source zip \
     --zip-path "${ZIP_PATH}" \
@@ -61,9 +60,8 @@ elif [[ "${MODE}" == "ablation" ]]; then
     --zip-val-split valid \
     --results-path code/attacks/task3/results/ablation_v2.json \
     --device "${DEVICE}" \
-    --a-model "EleutherAI/pythia-2.8b" \
+    --a-model "EleutherAI/pythia-1.4b" \
     --bc-tokenizer gpt2 \
-    --use-bigram \
     --bc-extra-tokenizers "facebook/opt-1.3b"
 
 else
