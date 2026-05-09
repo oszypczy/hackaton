@@ -22,8 +22,8 @@ CLUSTER_BASE = "/p/scratch/training2615/kempinski1/Czumpers"
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 2:
-        print("Usage: pull_csv.py <task1|task2|task3>", file=sys.stderr)
+    if len(argv) < 2:
+        print("Usage: pull_csv.py <task1|task2|task3> [remote_filename]", file=sys.stderr)
         return 2
     task_name = argv[1]
     if task_name not in TASK_MAP:
@@ -31,7 +31,8 @@ def main(argv: list[str]) -> int:
         return 2
 
     task = TASK_MAP[task_name]
-    remote = f"{CLUSTER_BASE}/{task['cluster_dir']}/submission.csv"
+    remote_file = argv[2] if len(argv) > 2 else "submission.csv"
+    remote = f"{CLUSTER_BASE}/{task['cluster_dir']}/{remote_file}"
     local_dir = REPO_ROOT / "submissions"
     local_dir.mkdir(exist_ok=True)
     local_path = local_dir / task["local_name"]
