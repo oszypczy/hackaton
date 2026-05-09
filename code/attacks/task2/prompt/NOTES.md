@@ -80,10 +80,14 @@ assert abs(Levenshtein.normalized_distance("abc","ab") - 1/3) < 1e-9
 
 ## Anchor papers
 
-- **Pinto et al. ICML'24** (arXiv:2407.08707) — *Extracting Training Data from DocVQA*. **Najbliższy publikowany analog.** Recipe: blackoutowane PII region + original question → model emituje PII. Działa nawet gdy obrazek ma blackout (kluczowy precedens dla naszego setupu).
-- **PII-Scope** (arXiv:2410.06704 v2) — multi-query attack daje **5× boost** vs single-query. 5 templates (T1-T5 w TODO).
-- **Carlini'21 USENIX** — paper #11 w `references/papers/txt/11_*.txt`. Six MIA features, context-dependency Sec 6.5, insertion-frequency threshold Sec 7. Baseline foundation.
-- **Nasr'23** — paper #25 w `references/papers/txt/25_*.txt`. Chat-divergence attack ("repeat the word X forever"). **Prawie na pewno NIE zadziała** (nasz model nie jest RLHF-aligned). 1 ablation, 50 sampli, zamykamy temat.
+> ⚠ **Pinto / PII-Scope claims here were partially WRONG before 2026-05-09 21:30** —
+> oba papery dopobrane z arXiv i zweryfikowane przez agenta. Pełen verified analysis:
+> `findings/paper_analysis_pinto_piiscope.md` + sekcja w `findings/synthesis.md`.
+
+- **Pinto et al. ICML'24** (arXiv:2407.08707, txt: `references/papers/txt/pinto_docvqa_2407.txt`) — *Extracting Training Data from DocVQA*. Recipe: `(I⁻ᵃ, Q_original)` = image with answer-OCR-bbox whited out + **EXACT training-time question** (NOT arbitrary probe). §5.2: Q-paraphrasing drops extraction MORE than image perturbation — question phrasing is the dominant lever.
+- **PII-Scope** (arXiv:2410.06704 v2, txt: `references/papers/txt/pii_scope_2410.txt`) — multi-query attack. **4 templates (A/B/C/D), nie 5 T1-T5**. Template D ("---Original Message---\nFrom: {Name} [mailto:") wygrywa bo to literalny substring z Enron training data. **5.4× boost = 4 templates × 64 top-k samples = 256 queries aggregated** vs single-query best (2.6% → 14.0%), nie z template diversity samej.
+- **Carlini'21 USENIX** — paper #11 w `references/papers/txt/11_*.txt`. Six MIA features, context-dependency Sec 6.5 (824 vs 25 digits of pi recall), insertion-frequency threshold Sec 7. Baseline foundation.
+- **Nasr'23** — paper #25 w `references/papers/txt/25_*.txt`. §5: chat template wrapper IS the alignment defense for aligned chat models — extraction must bypass it.
 
 ## Kluczowe obserwacje (2026-05-09)
 
