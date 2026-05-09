@@ -72,12 +72,27 @@
 
 ## Submissions queue (pending leaderboard outcomes)
 
-- 23:28Z: r152_all_06 (3 changes vs SUB-9 — R152→0.6)
-  - If improves → R152 hypothesis confirmed → try r152 single-flips at 23:58Z+
-  - If no change → R152 not in public 3, or R152 truth ≠ 0.6
-- 23:58Z (next slot): dense_R18all_snap10 (shifts mean from 0.522 → 0.422)
-  - Tests if true mean is lower than SUB-9 suggests
-- 00:28Z+: based on prior outcomes
+- 22:47Z: flip10_flip22 (sub 907) → NO IMPROVEMENT
+- 23:08-23:49Z: many retries got HTTP 429 due to cooldown (each retry resets +10 min)
+- 23:58:30Z: compound_swap_00d_22u (mean preserved swap)
+  - SUB-9 = [0.5, 0.6, 0.6, 0.4, 0.5, 0.6, 0.5, 0.5, 0.5]
+  - This = [0.4, 0.6, 0.6, 0.4, 0.5, 0.6, 0.5, 0.5, 0.6]
+  - Tests: 00 lower (closer to 0.4) AND 22 higher (closer to 0.6)
+
+## New synth banks trained (post-Maini)
+
+| Bank | wd | N | fc_norm | mean p̂ for targets |
+|---|---|---|---|---|
+| synth_80ep_r18 (default) | 5e-4 | 2000 | 19.5 | ~0.51 (gave SUB-9) |
+| synth_80ep_r18_wd0 | 0 | 2000 | 22.5 | ~0.60 |
+| synth_80ep_r18_wd5e3 | 5e-3 | 2000 | 10.6 | ~0.25 |
+| synth_80ep_r18_wd1e2 | 1e-2 | 2000 | **8.95** (closest to org 7.81) | ~0.20 |
+| synth_n7000_80ep_r18_wd5e3 | 5e-3 | 7000 | 9.4 | ~0.07 |
+| synth_targets_80ep_r18_wd5e2 | 5e-2 | 2000 | TBD | TBD (training done) |
+
+**Key finding:** organizer's fc_norm 7.81 closest matches synth_wd1e2 (8.95). But wd1e2 mean p̂ predicts ~0.20 (way below empirical evidence ~0.5). So organizer's recipe is NOT wd=0.01 + N=2000.
+
+**Conclusion:** SUB-9 calibration (wd=5e-4 N=2000 80ep, mean 0.51) is "lucky alignment" — best public-score calibration. Improving requires PER-TARGET flips, not global recalibration.
 
 ## Strategy notes
 
