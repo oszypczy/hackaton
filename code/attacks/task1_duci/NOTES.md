@@ -268,3 +268,34 @@ Crude `p̂` ranking from conf-delta (NOT submission-quality, just sanity check o
 - 80ep + 100ep R18 synth — extrapolate to higher mean p̂
 - R50 80ep dense (5+8 extra+5 seed2 = 18 pts) — smoother arch-matched fit for R50 targets
 - Per-arch mixed regime: R18 50ep for arch=0/2, R50 80ep dense for arch=1
+
+## SUB-5 — 3rd place 🥉
+
+**Method:** MLE 80ep R18 mean_loss d=1 (all archs use R18 calibration).
+- Mean p̂ = 0.516, range [0.44, 0.59]
+- LOO-MAE 0.006 (best so far)
+- **Score: 0.0667** — 3rd place on public leaderboard.
+  - 1: TQ2 0.0537
+  - 2: Nepal 0.0609
+  - **3: Czumpers 0.0667**
+  - 4: APT 0.0690 (overtaken)
+
+## Trend extrapolation
+
+| SUB | Mean p̂ | Score | Δ mean | Δ score |
+|---|---|---|---|---|
+| 3 | 0.443 | 0.0790 | — | — |
+| 4 | 0.498 | 0.0723 | +0.055 | -0.0067 |
+| 5 | 0.516 | 0.0667 | +0.018 | -0.0056 |
+
+Approx slope: 0.0123 score per +0.073 mean → 0.168 score/mean unit.
+
+To beat #2 Nepal (need -0.006): mean ≈ 0.55
+To beat #1 TQ2 (need -0.013): mean ≈ 0.59
+Beyond 0.60 risk overshooting if true mean is below.
+
+## Pending
+
+- 200ep R18 synth (in queue) — expected mean ~0.52-0.53
+- 200ep R50 synth — should converge better than 80ep, give R50 arch-matched honest signal
+- 200ep R152 synth — risky, may still not converge
