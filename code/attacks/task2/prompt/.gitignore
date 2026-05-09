@@ -1,0 +1,8 @@
+output/
+codebase/
+*.parquet
+*.csv
+*.log
+*.json
+__pycache__/
+*.pyc
