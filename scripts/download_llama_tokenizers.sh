@@ -61,6 +61,7 @@ models = [
     ('Qwen/Qwen2-0.5B-Instruct', False),                  # public, 0.5B
     ('meta-llama/Llama-2-7b-chat-hf', True),              # gated, 7B chat
     ('mistralai/Mistral-7B-Instruct-v0.1', True),         # gated, 7B instruct
+    ('allenai/OLMo-2-1124-7B-Instruct', False),           # public, 7B (amplifies OLMo-1B breakthrough)
 ]
 
 for name, needs_auth in models:
