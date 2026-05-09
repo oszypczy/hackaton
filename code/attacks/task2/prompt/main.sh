@@ -12,16 +12,21 @@
 #SBATCH --error=/p/scratch/training2615/kempinski1/Czumpers/repo-kempinski1/code/attacks/task2/prompt/output/log_%j.txt
 
 # Usage:
-#   sbatch main.sh eval                    # eval on validation_pii (840 GT)
-#   sbatch main.sh predict                 # full task/ -> submission_v0.csv
-#   sbatch main.sh eval 100                # smoke: 100 samples
+#   sbatch main.sh eval                          # eval on validation_pii (840 GT)
+#   sbatch main.sh predict                       # full task/ -> submission_v0.csv
+#   sbatch main.sh eval 100                      # smoke: 100 samples
+#   sbatch main.sh eval - blank                  # image ablation: blank image
+#   sbatch main.sh eval 100 noise                # smoke + noise image
 set -euo pipefail
 
 MODE="${1:-eval}"
 LIMIT_ARG=""
-if [[ -n "${2:-}" ]]; then
+if [[ -n "${2:-}" && "${2:-}" != "-" ]]; then
     LIMIT_ARG="--limit ${2}"
 fi
+IMAGE_MODE="${3:-original}"
+IMAGE_ARG="--image_mode ${IMAGE_MODE}"
+TS_TAG="${IMAGE_MODE}"
 
 DATA_DIR="/p/scratch/training2615/kempinski1/Czumpers/P4Ms-hackathon-vision-task"
 CODEBASE_DIR="/p/scratch/training2615/kempinski1/Czumpers/p4ms_codebase/p4ms_hackathon_warsaw_code-main"
@@ -70,24 +75,26 @@ mkdir -p "$ATTACK_DIR/output"
 TS=$(date +%Y%m%d_%H%M%S)
 case "$MODE" in
     eval)
-        OUT_LOG="$ATTACK_DIR/output/eval_v0_${TS}.json"
+        OUT_LOG="$ATTACK_DIR/output/eval_v0_${TS_TAG}_${TS}.json"
         python "$ATTACK_DIR/main.py" \
             --mode eval \
             --codebase_dir "$CODEBASE_DIR" \
             --data_dir "$DATA_DIR" \
             --output_log "$OUT_LOG" \
-            $LIMIT_ARG
+            $LIMIT_ARG \
+            $IMAGE_ARG
         ;;
     predict)
-        OUT_CSV="$ATTACK_DIR/output/submission_v0_${TS}.csv"
-        OUT_LOG="$ATTACK_DIR/output/predict_v0_${TS}.json"
+        OUT_CSV="$ATTACK_DIR/output/submission_v0_${TS_TAG}_${TS}.csv"
+        OUT_LOG="$ATTACK_DIR/output/predict_v0_${TS_TAG}_${TS}.json"
         python "$ATTACK_DIR/main.py" \
             --mode predict \
             --codebase_dir "$CODEBASE_DIR" \
             --data_dir "$DATA_DIR" \
             --output_csv "$OUT_CSV" \
             --output_log "$OUT_LOG" \
-            $LIMIT_ARG
+            $LIMIT_ARG \
+            $IMAGE_ARG
         ;;
     *)
         echo "Unknown mode: $MODE (use 'eval' or 'predict')"

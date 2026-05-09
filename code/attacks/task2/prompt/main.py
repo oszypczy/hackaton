@@ -52,6 +52,12 @@ def cli() -> argparse.Namespace:
     )
     p.add_argument("--device", type=str, default="cuda")
     p.add_argument("--dtype", type=str, default="bf16")
+    p.add_argument(
+        "--image_mode",
+        choices=["original", "blank", "noise"],
+        default="original",
+        help="Image ablation: 'original' uses real image, 'blank' = mid-gray, 'noise' = random pixels.",
+    )
     return p.parse_args()
 
 
@@ -90,6 +96,7 @@ def main() -> None:
         raw = generate_one(
             model, tokenizer, image_processor, image_size, get_fmt_q,
             s, max_new_tokens=args.max_new_tokens, use_prefix=use_prefix,
+            image_mode=args.image_mode,
         )
         extracted = extract_pii(raw, s.pii_type)
         # EMAIL fallback: when model emits non-email content (phone/CC/twitter),

@@ -111,6 +111,31 @@ def preprocess_image_to_tensor(
     return px[0].unsqueeze(0)  # shape: (1, C, H, W)
 
 
+def _build_image_tensor(
+    image_bytes: bytes,
+    image_size: int,
+    image_processor,
+    mode: str,
+) -> torch.Tensor:
+    """Build image input tensor under one of:
+    - 'original': decode PNG, resize, CLIP-process
+    - 'blank':    mid-gray placeholder (no visual signal)
+    - 'noise':    random uniform pixels (sanity baseline)
+    Used for image-ablation experiments (Phase 5).
+    """
+    if mode == "original":
+        pil_img = load_image(image_bytes, image_size)
+    elif mode == "blank":
+        pil_img = Image.new("RGB", (image_size, image_size), color=(127, 127, 127))
+    elif mode == "noise":
+        import numpy as np
+        arr = np.random.randint(0, 256, size=(image_size, image_size, 3), dtype=np.uint8)
+        pil_img = Image.fromarray(arr)
+    else:
+        raise ValueError(f"unknown image_mode: {mode!r}")
+    return preprocess_image_to_tensor(pil_img, image_processor)
+
+
 @torch.no_grad()
 def generate_one(
     model,
@@ -121,6 +146,7 @@ def generate_one(
     sample: Sample,
     max_new_tokens: int = 50,
     use_prefix: bool = True,
+    image_mode: str = "original",
 ) -> str:
     """Generate one PII prediction. Returns the raw (post-prefix) text."""
     prefix = derive_assistant_prefix(sample.scrubbed_output) if use_prefix else ""
@@ -132,9 +158,10 @@ def generate_one(
     token_ids = tokenizer.convert_tokens_to_ids(tokenizer.tokenize(prompt_text))
     input_ids = torch.tensor(token_ids, dtype=torch.long, device=model.device)
 
-    # Image preprocessing
-    pil_img = load_image(sample.image_bytes, image_size)
-    image_tensor = preprocess_image_to_tensor(pil_img, image_processor).to(model.device)
+    # Image preprocessing — supports image_mode for ablation
+    image_tensor = _build_image_tensor(
+        sample.image_bytes, image_size, image_processor, image_mode
+    ).to(model.device)
 
     # Use the codebase's overridden `generate`. It accepts the unified-arch
     # batched inputs directly and calls `prepare_multimodal_inputs` internally
