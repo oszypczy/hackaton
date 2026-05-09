@@ -71,16 +71,15 @@ def estimate_pr_x(ref_conf_x: np.ndarray, ref_train_mask_x: np.ndarray) -> np.nd
     n_out = out_mask.sum(axis=0)  # (N_x,) number of out refs per x
     sum_out = (ref_conf_x * out_mask).sum(axis=0)  # (N_x,)
 
-    # Fallback for x's with zero out refs: linear-approx average across in-refs
+    # Fallback for x's with zero out refs: reverse linear approx on in-mean
     has_out = n_out > 0
     pr_x_out = np.where(has_out, sum_out / np.maximum(n_out, 1), 0.0)
 
     if not has_out.all():
-        # for x_i with all refs IN: apply reverse linear approx per ref then average
-        in_only = ~has_out
-        f_avg = ref_conf_x[:, in_only].mean(axis=0)  # (N_x_in_only,)
-        pr_x_out_fallback = (f_avg - (1 - A_LINEAR)) / A_LINEAR
-        pr_x_out = np.where(in_only, pr_x_out_fallback, pr_x_out)
+        # x_i with all refs IN: average their f's, apply reverse linear approx
+        f_avg_all = ref_conf_x.mean(axis=0)  # (N_x,)
+        pr_x_out_fallback = (f_avg_all - (1 - A_LINEAR)) / A_LINEAR  # (N_x,)
+        pr_x_out = np.where(has_out, pr_x_out, pr_x_out_fallback)
 
     return np.clip(pr_x_out, EPS, 1.0)
 
