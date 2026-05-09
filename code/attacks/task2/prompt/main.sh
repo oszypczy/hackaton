@@ -6,8 +6,8 @@
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:1
 #SBATCH --time=03:00:00
-#SBATCH --output=output/log_%j.txt
-#SBATCH --error=output/log_%j.txt
+#SBATCH --output=/p/scratch/training2615/kempinski1/Czumpers/repo-kempinski1/code/attacks/task2/prompt/output/log_%j.txt
+#SBATCH --error=/p/scratch/training2615/kempinski1/Czumpers/repo-kempinski1/code/attacks/task2/prompt/output/log_%j.txt
 
 # Usage:
 #   sbatch main.sh eval                    # eval on validation_pii (840 GT)
@@ -24,16 +24,16 @@ fi
 DATA_DIR="/p/scratch/training2615/kempinski1/Czumpers/P4Ms-hackathon-vision-task"
 CODEBASE_DIR="/p/scratch/training2615/kempinski1/Czumpers/p4ms_codebase/p4ms_hackathon_warsaw_code-main"
 
-# Unzip codebase to scratch (idempotent)
-if [[ ! -d "$CODEBASE_DIR" ]]; then
-    echo "[main.sh] unzipping codebase..."
-    mkdir -p "$(dirname "$CODEBASE_DIR")"
-    unzip -q "$DATA_DIR/task2_standalone_codebase.zip" -d "$(dirname "$CODEBASE_DIR")"
-fi
-
 # venv with pre-built deps (torch 2.11+CUDA 13, py3.12)
 VENV="$DATA_DIR/.venv"
 source "$VENV/bin/activate"
+
+# Unzip codebase to scratch (idempotent). Use python's zipfile — `unzip` not on PATH.
+if [[ ! -d "$CODEBASE_DIR" ]]; then
+    echo "[main.sh] unzipping codebase..."
+    mkdir -p "$(dirname "$CODEBASE_DIR")"
+    python -m zipfile -e "$DATA_DIR/task2_standalone_codebase.zip" "$(dirname "$CODEBASE_DIR")"
+fi
 
 # Codebase needs config/vision.yaml at CWD (see unified_arch.py:14)
 cd "$CODEBASE_DIR"
