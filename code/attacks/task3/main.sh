@@ -23,8 +23,10 @@ mkdir -p "$TASK_CACHE" "$TASK_OUT/output"
 
 source "$SCRATCH/repo-${USER}/venv/bin/activate"
 
+export PATH=/usr/bin:$PATH
+
 cd "$REPO"
-git pull --ff-only
+/usr/bin/git pull --ff-only
 
 # Phase 2: all branches, GPU (binoculars uses CUDA automatically)
 python code/attacks/task3/main.py \
