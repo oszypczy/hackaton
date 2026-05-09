@@ -23,6 +23,8 @@ fi
 
 DATA_DIR="/p/scratch/training2615/kempinski1/Czumpers/P4Ms-hackathon-vision-task"
 CODEBASE_DIR="/p/scratch/training2615/kempinski1/Czumpers/p4ms_codebase/p4ms_hackathon_warsaw_code-main"
+# Hardcoded: sbatch copies the script to /var/spool/.../jobs/<id>, so $0 is unreliable.
+ATTACK_DIR="/p/scratch/training2615/kempinski1/Czumpers/repo-kempinski1/code/attacks/task2/prompt"
 
 # venv with pre-built deps (torch 2.11+CUDA 13, py3.12)
 VENV="$DATA_DIR/.venv"
@@ -38,7 +40,6 @@ fi
 # Codebase needs config/vision.yaml at CWD (see unified_arch.py:14)
 cd "$CODEBASE_DIR"
 
-ATTACK_DIR="$(dirname "$(realpath "$0")")"
 mkdir -p "$ATTACK_DIR/output"
 
 TS=$(date +%Y%m%d_%H%M%S)
