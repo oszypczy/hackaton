@@ -66,22 +66,36 @@ on first load (`assert X.shape == (2000, 32, 32, 3)` etc.).
 `task_template.py` builds via `torchvision.models.resnetXX(weights=None, num_classes=100)`
 (ImageNet-style head, `conv1=7×7`).
 
-**⚠ Loading failed both ways with `torch.load`:**
-- `weights_only=True` → "Unsupported operand 149"
-- `weights_only=False` → "Invalid magic number; corrupt file?"
+**Loader RESOLVED 2026-05-09:** `.pkl` files = stdlib `pickle.dump` of a raw `OrderedDict` state_dict (NOT via `torch.save`). Use:
 
-→ blocker — see Open question #1.
+```python
+import pickle
+with open(p, "rb") as f:
+    state_dict = pickle.load(f)
+model.load_state_dict(state_dict)
+```
 
-## Open questions (blocking code)
+`torch.load` fails because:
+- `weights_only=True` (default torch ≥2.6) trips on opcode 149 = pickle proto-4 `FRAME` (weights-only unpickler doesn't support FRAME)
+- `weights_only=False` falls through to `_legacy_load` which expects torch's magic-number header — file has none (no `torch.save` wrapper)
 
-1. **`.pkl` load path** — what does the organizer use? Hypotheses:
-   - (a) Plain Python binary dump of a `nn.Module` instance (not via `torch.save`) → load with stdlib `pickle`
-   - (b) Lightning / dill / joblib serializer
-   - (c) gzip-compressed Python binary dump → check magic bytes via `file MODELS/model_00.pkl` first
-   - **Action:** read `task_template.py` end-to-end — it almost certainly ships the canonical loader call we need.
-2. **Input resolution** — 32×32 or 224×224? Decide by `model.conv1.weight.shape` after a successful load.
-3. **`state_dict` vs full `Module`?** — depends on (1).
-4. **Normalization** — CIFAR-100 std mean=`[0.5071,0.4867,0.4408]`/std=`[0.2675,0.2565,0.2761]`, or something else? Check inside `task_template.py`.
+The shipped `task_template.py` uses `torch.load(...)` — it would fail in cluster's torch 2.11. We override with `pickle.load`. All 9 files verified compatible with this loader (2026-05-09).
+
+**Architecture verified across all 9 checkpoints:**
+| Files | Keys | conv1 | fc | → arch |
+|---|---|---|---|---|
+| `model_0?` | 122 | (64,3,7,7) | (100,512) | ResNet18 |
+| `model_1?` | 320 | (64,3,7,7) | (100,2048) | ResNet50 |
+| `model_2?` | 932 | (64,3,7,7) | (100,2048) | ResNet152 |
+
+All ImageNet-style heads (7×7 conv1, NOT CIFAR-style 3×3). 100-class output ⇒ CIFAR-100.
+
+## Open questions
+
+1. ✅ **RESOLVED — `.pkl` load** = `pickle.load` (see Models section above).
+2. ✅ **RESOLVED — `state_dict` vs `Module`** = raw `OrderedDict` state_dict.
+3. **Input resolution** — 32×32 (raw CIFAR) vs 224×224 (upsampled)? `conv1=7×7` works on both, just downsamples differently. Decide by running fwd-pass on POPULATION at each resolution → pick whichever gives high accuracy.
+4. **Normalization** — CIFAR-100 stats (mean=`[0.5071,0.4867,0.4408]`/std=`[0.2675,0.2565,0.2761]`) vs ImageNet (mean=`[0.485,0.456,0.406]`/std=`[0.229,0.224,0.225]`)? Try both during smoke test, pick higher acc.
 5. **Public 3 / Private 6 split** — which `model_id`s are public? Spec doesn't reveal → treat all 9 as equally important. **Implication:** never tune thresholds against a subset of 9.
 
 ## Method recap (from STATUS.md research session)
@@ -100,11 +114,11 @@ on first load (`assert X.shape == (2000, 32, 32, 3)` etc.).
 
 ## Plan / next moves (rough order)
 
-1. **Resolve Open Q #1** — read `task_template.py` for canonical loader; one experiment loading `model_00.pkl`. Confirm input resolution + state_dict vs Module.
-2. **Smoke test** on login node — load all 9 models + `np.load` MIXED/POPULATION, run 1 forward pass per model, check accuracy on POPULATION (ground-truth labels exist so this is a sanity check).
-3. **Implement RMIA single-ref** (Tong Eq. 4 debias) — `code/attacks/task1_duci/main.py`. Start with ResNet-18 ref only (smallest, cheapest).
+1. ✅ Loader resolved (Open Q #1, #2 done).
+2. **Smoke test** on login node — load all 9 models with `pickle.load`, `np.load` MIXED/POPULATION, fwd pass on POPULATION at 32×32 and 224×224 with both norm options → pick the (resolution, norm) combo that gives high acc on POPULATION. Resolves Open Q #3, #4.
+3. **Implement RMIA single-ref** (Tong Eq. 4 debias) — `main.py`. Start with ResNet-18 ref only (smallest, cheapest). Compute m̂_i on MIXED + estimate (TPR, FPR) globally on POPULATION-vs-MIXED-not-in-train.
 4. **First submission** — even crude p̂ → CSV. We need the score signal early to calibrate.
-5. **Train reference model(s)** if needed, sbatch on `dc-gpu`.
+5. **Train reference model(s)** if needed, sbatch on `dc-gpu`. (Tong shows 1 ref already gives MAE ~0.087 on CIFAR-100/WRN28-2.)
 6. **Cross-arch validation** — does ResNet-18 ref work for ResNet-50/152 targets? If yes, big win.
 
 ## Things NOT to do
@@ -119,3 +133,4 @@ on first load (`assert X.shape == (2000, 32, 32, 3)` etc.).
 (append as we go — date + decision + reason)
 
 - 2026-05-09 — Branch `task1` adopted; consolidated notes here. (`task1_duci.md` stays as spec.)
+- 2026-05-09 — Loader = stdlib `pickle.load` (NOT `torch.load`). All 9 .pkl = raw OrderedDict state_dicts. ImageNet-style heads (conv1=7×7) confirmed across all archs. Note: shipped `task_template.py` ships a `torch.load`-based loader that fails in cluster's torch 2.11 — we override it.
