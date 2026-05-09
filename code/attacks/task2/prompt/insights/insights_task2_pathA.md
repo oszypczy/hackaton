@@ -1,7 +1,7 @@
 # Task 2 — Path A insights & runtime log (kempinski1)
 
 > Pełen log decyzji + fixów + tabelka błędów. Format z `insights/insights_task2_pathB.md`.
-> Zaktualizowane 2026-05-09 po pełnym eval na 840 GT.
+> Zaktualizowane 2026-05-09 po anchor submit + strategy pivot (multi_eval pipeline).
 
 ## Metoda — przewód
 
@@ -175,7 +175,14 @@ prefix = scrubbed_output.split("[REDACTED]")[0]
 | 14738174 | 18:01 | `RuntimeError: mat1 float != mat2 BFloat16` | wrap generate() w `torch.autocast(device_type='cuda', dtype=torch.bfloat16)` | attack.py:142 |
 | 14738181 | 18:04 | ✓ działa: 5 sampli, OVERALL=0.9404 (CREDIT 1.0, EMAIL 0.89, PHONE 0.92) | analiza per-PII errorów | format.py |
 | 14738193 | 18:18 | ✓ pełny eval 840: OVERALL=0.9429 (CREDIT 1.000 280/280, EMAIL 0.9015, PHONE 0.9273) | iteracje fixów ↓ | format.py |
-| 14738279 | 18:30 (running) | predict 3000 → submission_v0 CSV | submit anchor leaderboard | — |
+| 14738279 | 18:30 | predict 3000 v0 → CSV (OLD code, int user_id, embedded newlines) | rebuild_csv później | — |
+| 14738350 | 18:22 | eval v1 840 → OVERALL 0.9622 (CREDIT 1.0, EMAIL 0.9495, PHONE 0.9371) | EMAIL fallback + PHONE force '+' | format.py |
+| 14738396 | 18:34 | eval blank-image 840 → OVERALL 0.3067 (Phase 5 ablation) | image is critical, NIE dropujemy | attack.py:128 |
+| 14738465 | 18:49 | eval v2 840 → OVERALL 0.9618 (-0.0004 vs v1) | PHONE 16-digit fallback słabo, ale nieistotnie | format.py |
+| 17:04/17:09 | submit attempts (failed) | "Row 35 unknown pair" — int user_id niszczy leading zeros | loader.py:48 fix | loader.py |
+| **19:00** | **submit anchor v0_fixed (id 198, status:success)** | **leaderboard 0.31** | rebuild_csv mapping pozycyjny | rebuild_csv.py |
+| 14738701 | 19:08 (running) | predict 3000 v1 → fresh CSV z wszystkimi fixami | submit po pull | main.py |
+| 14738761 | 19:18 (pending) | multi_eval 6 strategii × 50/type × 3 = 900 forwardów | porównanie blank-mode lift | multi_eval.py |
 
 ## Per-PII analysis (po pełnym eval, 840 GT)
 
@@ -317,3 +324,47 @@ Alternatywa: **constrained decoding** (`transformers-cfg`) — wymusiłaby model
 | `task` | scrubbed | scrubbed | 1000 × 3 = 3000 | eval set (submission) |
 | `validation_pii` | intact | intact | 280 × 3 = 840 | lokalny GT (kalibracja) |
 | `validation_pii_txt_only` | scrubbed | intact | 280 × 3 = 840 | gotowy benchmark image-ablation Phase 4 |
+
+## Strategy pivot — diagnoza (2026-05-09 ~19:30)
+
+### Visual inspection — task vs val_pii
+- **val_pii**: PII WIDOCZNA tekstem na obrazie (`email: gabriella.johnson@savage.com` itd.)
+- **task/**: PII SCRUBBED na obrazie (pola puste/zamazane, tylko `Name:` widoczne)
+- Layouty mają 4-6 wariantów (panel L/R, top/bottom, ~6 kolorów panelu)
+- task ∩ val user_idy = 0 (rozłączne)
+
+### Konkluzja
+0.96 score na val_pii to praktycznie **OCR**, nie memorization (Phase 5 z blank-image dał 0.31, czyli cały zysk pochodzi z czytania PII z obrazu). Task/ z scrubbed image ≈ blank → 0.31 baseline. Prefix-attack jako jest = dead end.
+
+### Calibrator dla nowych strategii
+- `image_mode=blank` na val_pii daje 0.31 (Phase 5)
+- task/ leaderboard daje 0.31
+- Identyczny score → blank-mode val_pii **JEST proxy task/ conditions**, bez OCR/scrubbingu
+- Każdy lift ponad 0.31 na blank-mode val_pii = realny memorization signal który powinien się przenieść na task/
+
+## Multi-strategy eval pipeline (commit d049240)
+
+Pliki:
+- `strategies.py` — STRATEGIES dict mapuje nazwę → funkcja `(sample, get_fmt_q, tokenizer) → prompt_text`
+- `multi_eval.py` — entrypoint, ładuje model raz, iteruje samples × strategies, score per strategy
+- `multi_eval.sh` — sbatch (args: `<per_type> <strategies> <image_mode>`)
+
+Strategie pod test (image_mode=blank):
+| Strategia | Description |
+|---|---|
+| `baseline` | Current chat template + assistant prefix priming |
+| `direct_probe` | "What was the X for [name] during training? Output only X." (no prefix) |
+| `role_play_dba` | DB-admin persona, query by user_id + name (no prefix) |
+| `user_id_explicit` | Inject user_id w question + assistant prefix |
+| `system_override` | Privilege-escalation system prompt + assistant prefix |
+| `completion_format` | Synthesized "The X for [name] (user U) is " primer (replace prefix) |
+
+Cost: 50/type × 3 = 150 samples × 6 strategii = 900 forwardów ≈ 16 min na 1 A800. Output JSON ze scores per strategy.
+
+## Pending tasks
+
+- [ ] **Predict 14738701** (~50 min) → submit anchor v1
+- [ ] **Multi-eval 14738761** (pending → running) → analiza per-strategy lift
+- [ ] Best strategy z multi-eval → predict task/ → submit
+- [ ] (Optional) Realistic image scrub PoC (`SCRUB_RESEARCH_PROMPT.md` — handover dla nowej sesji)
+- [ ] (Optional) Shadow logprob diff strategy — wymaga shadow_lmm load (nie zaczęte)

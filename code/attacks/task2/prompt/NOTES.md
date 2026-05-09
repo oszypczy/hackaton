@@ -1,7 +1,7 @@
 # Path A — NOTES
 
 > Living document. Append, never delete. Source of truth dla decyzji.
-> Last updated: 2026-05-09.
+> Last updated: 2026-05-09 (post-anchor submit + strategy pivot).
 
 ## Co konkretnie submitujemy
 
@@ -313,6 +313,91 @@ W `batch_X_modals` klucz to literalnie `"<image>"` z bracketami (NIE `"image"`).
 
 ### 9. Tokenizacja tak jak collator: `convert_tokens_to_ids(tokenize(s))`
 NIE `tokenizer.encode()` ani `tokenizer(s).input_ids`. Powód: codebase używa pierwszego sposobu i dodaje special tokens przez `add_tokens(special_tokens=True)` (unified_arch.py:553).
+
+## CSV format bugs found post-predict v0 (2026-05-09 ~19:00)
+
+### Bug #1 — `user_id` w parquet jest STRING z leading zeros
+- `loader.py:48` robił `int(row["user_id"])` → niszczył leading zeros (`'0687761693' → 687761693`)
+- 110/1000 task user_idów ma leading zero (df.user_id.str.startswith('0').sum() == 110)
+- **Server reject:** `"Row 35: unknown (id, pii_type) pair (687761693, CREDIT)"` — server matchuje na PEŁNY 10-char string z zeros
+- Sample submission CSV `id` też jest 10-char zero-padded string (`'0687761693'`)
+- **Fix (commit bc1d9ff):** `Sample.user_id: str` + `str(row["user_id"]).strip()` + walidacja `len==10 and isdigit()`. Loader raise on malformed.
+
+### Bug #2 — embedded newlines w `pred`
+- Model czasem generuje multi-line text → `csv.writer` zapisuje quoted string z `\n` w środku
+- 38/3000 wierszy v0 dump miało embedded `\n` w pred field
+- `wc -l` policzy każdy `\n` jako linię → naive line-counter widzi 3004 zamiast 3001
+- **Fix (commit bc1d9ff):** `validate_pred` zamienia `\r\n` na spację + collapse via `re.sub(r"\s+", " ", ...)` → strip. CSV writer dostaje sanitized strings.
+
+### Bug #3 — `submit.py` walidator naive line-count
+- `sum(1 for _ in f)` po readline header → liczy fizyczne linie, nie CSV records
+- **Fix (commit a79690e):** `csv.reader` + per-row checks (column count, length 10-100, no embedded newlines)
+
+### Bug #4 — submit log mówił FAILED przy success
+- Server response `{status, submission_id, message}` — bez pola `score`
+- `_log` patrzył `response.get("score")` → zawsze None → log mówił FAILED mimo HTTP 200 + status:success
+- **Fix (commit a79690e):** log używa `status` + `submission_id`, on failure dodaje `message`
+
+### Utility — `rebuild_csv.py`
+Mapuje pozycyjnie raw_generation z istniejącego JSON dump → poprawne string user_idy (z parquet) + sanityzacja → CSV. Pozwala odtworzyć poprawne CSV bez 52-min predict.
+
+## Strategy pivot — diagnoza po anchor submit (leaderboard 0.31)
+
+### Dane: task/ ∩ val_pii user_idy = ZERO
+```python
+len(task_uids & val_uids) == 0       # disjoint sets
+len(task_uids) == 1000
+len(val_uids) == 280
+```
+
+### Visual inspection (sample 20 par)
+- **val_pii image** (Gabriella Johnson): infobox PEŁNE — `email: gabriella.johnson@savage.com`, `Card: 4986 6022 6865 7288`, `Tel: +13859159897` widoczne tekstem na obrazie
+- **task/ image** (Crystal Serrano): infobox SCRUBBED — pola `email:`, `Tel:`, `Card:` są puste/zamazane, tylko `Name:` widoczne
+- Layouty obu folderów mają 4-6 wariantów (panel lewa/prawa, top/bottom, 6+ kolorów panelu)
+
+### Konkluzja: 0.96 na val_pii to OCR, nie memorization
+- Phase 5 ablation z blank-image: val_pii spada do 0.31 (zob. wyżej)
+- Task/ leaderboard score: 0.31 — **identyczny z blank-image val_pii**
+- Czyli scrubbed task/ image ≈ blank image z perspektywy modelu
+- Cały zysk prefix-attack na val_pii pochodzi z OCR widocznej PII na obrazie. Bez tego — baseline halucynacja.
+
+### Co to oznacza dla strategii
+- Prefix-attack jako jest = dead end na task/. Każdy submit z tą metodą ≈ 0.31.
+- Trzeba zmienić paradygmat: **memorization extraction prompts** (model widział te user_idy w treningu — task spec mówi "intentionally OVERFITTED on a sensitive VQA dataset").
+- Calibrator gotowy bez OCR/scrubowania: `image_mode=blank` na val_pii ≈ task/. Każdy lift ponad 0.31 baseline = real memorization signal.
+
+## Phase 6 — multi-strategy eval pipeline (commit d049240)
+
+Stworzony żeby porównać N promptów na jednym GPU w jednym jobie (zamiast N evali × 14 min).
+
+Pliki:
+- `strategies.py` — 6 prompt-buildery (baseline, direct_probe, role_play_dba, user_id_explicit, system_override, completion_format)
+- `multi_eval.py` — entrypoint, ładuje model raz, iteruje samples × strategies
+- `multi_eval.sh` — sbatch (`sbatch multi_eval.sh <per_type> <strategies> <image_mode>`)
+
+Default: 50 samples per pii_type × 3 typy × 6 strategii = 900 forwardów ≈ 16 min na 1 GPU.
+
+Stratified sampling (seed=7) z `validation_pii` żeby balansować typy. Każda strategia używa identycznego sample subset → rzetelne porównanie.
+
+Output JSON:
+```
+{
+  "config": {strategies, image_mode, per_type, ...},
+  "per_strategy": {
+    "<name>": {"scores": {CREDIT, EMAIL, PHONE, OVERALL}, "rows": [...]}
+  }
+}
+```
+
+## Submission attempts log (2026-05-09)
+
+| Time | Submission ID | CSV md5 | Status | Score (leaderboard) | Notes |
+|---|---|---|---|---|---|
+| 17:04 | (failed) | ab03e3...d3dad | FAILED | — | clean CSV (no embedded newlines), ale int user_id → "Row 35 unknown pair" |
+| 17:09 | (failed) | eb73010...0d067 | FAILED | — | rebuild_csv NIE BYŁ JESZCZE z fix — same problem (int user_id) |
+| 19:00 (anchor v0_fixed) | 198 | eb73010...0d067 | success | 0.31 | rebuild_csv z poprawnymi string user_id (after `loader.py:48` fix). Identyczny CSV (raw v0 predict + leading-zero fix only) |
+
+Plan: predict 14738701 → CSV z wszystkimi format fixami → submit anchor v1. Spodziewany ~0.32-0.34 (drobne lift z EMAIL fallback działającymi prawidłowo na halucynacje).
 
 ## Komendy quick reference
 
