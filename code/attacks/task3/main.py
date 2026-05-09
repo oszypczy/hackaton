@@ -56,6 +56,8 @@ def parse_args() -> argparse.Namespace:
                    help="Add bigram greenlist features (KGW/Kirchenbauer-specific)")
     p.add_argument("--use-strong-bino", action="store_true",
                    help="Add stronger Binoculars features (Pythia-1.4b/2.8b)")
+    p.add_argument("--use-xl-bino", action="store_true",
+                   help="Add XL Binoculars features (Pythia-2.8b/6.9b, ~20GB GPU)")
     p.add_argument("--use-kgw", action="store_true",
                    help="Add direct KGW reference detection features (multi-tokenizer)")
     p.add_argument("--use-kgw-v2", action="store_true",
@@ -388,6 +390,12 @@ def main() -> None:
         fb_strong = extract_cached("bino_strong", all_texts, binoculars_strong.extract,
                                    args.cache_dir, args.force_extract)
         parts.append(fb_strong.reset_index(drop=True))
+
+    if args.use_xl_bino:
+        from features import binoculars_xl
+        fb_xl = extract_cached("bino_xl", all_texts, binoculars_xl.extract,
+                               args.cache_dir, args.force_extract)
+        parts.append(fb_xl.reset_index(drop=True))
 
     if args.use_kgw:
         from features import branch_kgw
