@@ -10,11 +10,13 @@ AI tools are explicitly allowed during the competition.
 When user asks about state, next steps, papers, or attack techniques — read in this order, stop as soon as you have enough:
 
 1. **`TODO.md`** (root) — current state, what's blocked, what's next
-2. **`references/papers/MAPPING_INDEX.md`** (~700 words) — lean router. One line per paper: number, title, "use for". For grep terms + key sections jump to the matching entry in `MAPPING.md` (rich, ~3.1k words; load on demand).
+2. **`docs/tasks/task<N>_*.md`** — autoritatywne taski (revealed 12:00 2026-05-09)
+3. **`references/papers/MAPPING_INDEX.md`** (~700 words) — lean router for paper corpus. One line per paper: number, title, "use for". For grep terms + key sections jump to the matching entry in `MAPPING.md` (rich, ~3.1k words; load on demand).
 
-Only if 1–2 don't have the answer:
+Only if 1–3 don't have the answer:
 - Open `docs/deep_research/0N_*.md` (**30–55 KB each, ~7–14k tokens** — heavy, justify before loading)
-- Open a paper PDF (`references/papers/NN_*.pdf`, **0.8–22 MB**, often 30k+ tokens — last resort)
+- Read `references/papers/txt/NN_*.txt` (extracted text — preferred over PDF)
+- Raw `references/papers/NN_*.pdf` only if `.txt` lost something critical (rare)
 
 ## Retrieval rules
 
@@ -39,6 +41,8 @@ Current status: see @docs/STATUS.md
 | **1 — DUCI** | `docs/tasks/task1_duci.md` | `11-duci` | 9 ResNet models, predict fraction of MIXED (CIFAR100) used in training; MAE ↓ |
 | **2 — PII Extraction** | `docs/tasks/task2_pii_extraction.md` | `27-p4ms` | Extract EMAIL/CREDIT/PHONE from multimodal LMM via scrubbed images; 1−NormLevenshtein ↑ |
 | **3 — Watermark Detection** | `docs/tasks/task3_watermark_detection.md` | `13-llm-watermark-detection` | Multi-type watermark (Kirchenbauer/Liu/Zhao); 2250 test, score [0,1]; TPR@1%FPR ↑ |
+
+⚠ **Task 3 known gotcha:** `submission_template.py` na klastrze mówi "Exactly 2400 rows" + "ids 1 to 2250" — sprzeczność. Trzymamy się **2250** (zgodnie z PDF). Jeśli pierwszy submit zwróci "Missing N expected ids" — sprobować 2400. Patrz `docs/SUBMISSION_FLOW.md`.
 
 Pełny flow submisji + endpoint + cooldowns → `docs/SUBMISSION_FLOW.md`.
 Cluster workflow + sbatch template + ACL rules → `docs/CLUSTER_WORKFLOW.md`.
@@ -84,17 +88,7 @@ scripts/juelich_exec.sh "python train.py --epochs 5"
 
 Jeśli odpowiedź "tak" lub "może" → **najpierw zapytaj usera**, nawet jeśli `juelich_exec.sh` nie blokuje komendy. Bezpieczeństwo skryptu pokrywa najgorsze przypadki, ale nie zna kontekstu (czyje pliki, czyje joby).
 
-**Safety rules baked into `juelich_exec.sh`:**
-- `rm`, `rmdir`, `dd`, `mkfs`, `git reset --hard`, `scancel` (no ID), `truncate`, `chown` → **BLOCKED** (exit 2). Use `--force` only if user explicitly asks.
-- `sbatch`, `scancel <id>`, `| bash` → **asks [y/N]** — always show user what will run and wait for their confirmation before calling.
-- Read-only ops (`ls`, `cat`, `squeue`, `sinfo`, `python`, `uv`) → free, no prompt needed.
-
-**Niezablokowane, ale wymagają ostrożności (Claude pyta usera zanim odpali):**
-- `cp`, `mv`, `tar -x`, redirekty `> file` / `>> file` w `$PROJECT` / `$SCRATCH`
-- `git push`, `git checkout -- .`, `git stash drop`
-- `pip install` / `uv pip install` w shared envie (zamiast tego user-local venv)
-- `sbatch` z dużą liczbą GPU lub długim time-limit (zjada budżet projektu dla całego teamu)
-- modyfikacja katalogów z prefixem teammate'a (np. `kempinski1/`, jeśli ty jesteś innym userem)
+**Safety:** wrapper blokuje destrukcyjne wzorce (`rm`, `dd`, `git reset --hard`, etc.) i pyta y/N o `sbatch` / `scancel <id>` / `| bash`. Read-only (`ls`, `cat`, `squeue`, `python`) idą bez prompta. Dla `cp`/`mv`/redirektów do `$SCRATCH`, `pip install` w shared envie, modyfikacji cudzych folderów — **zapytaj usera** mimo że wrapper nie blokuje. Pełna lista: `head -120 scripts/juelich_exec.sh`.
 
 **If socket is dead** (>4h since connect or machine rebooted): tell user to run `! scripts/juelich_connect.sh` again. Do not attempt to restart it yourself.
 
@@ -152,7 +146,7 @@ CLAUDE.md                                    # this file
 TODO.md                                      # ACTIVE — hackathon tracker
 SUBMISSION_LOG.md                            # one-liner per successful /submit
 requirements.txt
-Justfile                                     # eval / baseline / extract-papers
+Justfile                                     # eval / baseline / submit / pull-csv / extract-papers
 .claudeignore                                # PDFs, fixtures, lockfiles
 .claude/
   settings.json                              # token-hygiene defaults
@@ -167,6 +161,9 @@ data/                                        # task data (populated from HF/Jül
 submissions/                                 # submission files
 docs/
   STATUS.md                                  # volatile project state (out of CLAUDE.md prefix)
+  CLUSTER_WORKFLOW.md                        # JURECA workflow, branch model, sbatch template
+  SUBMISSION_FLOW.md                         # endpoint, CSV format, API key, cooldowns
+  JURECA_TEAMMATE_SETUP.md                   # setup guide for non-owner teammates
   FAQ.md                                     # team Q&A — append on every recurring question
   LEARNINGS.md                               # session insights — append on every /compact
   DAY_OF.md                                  # day-of checklist and playbook
@@ -187,16 +184,14 @@ scripts/
   extract_papers.sh                          # pdftotext → references/papers/txt/
   juelich_connect.sh                         # sets up ControlMaster socket (TOTP required)
   juelich_exec.sh                            # runs commands on Jülich via socket
+  submit.py                                  # POST CSV to organizer API + log
+  pull_csv.py                                # fetch submission.csv from cluster
 references/
-  papers/                                    # 17 PDFs total
-    MAPPING_INDEX.md                         # lean router — READ FIRST (~700 words)
-    MAPPING.md                               # rich per-paper entries (grep terms + sections, ~3.1k words)
-    txt/                                     # pre-extracted .txt from PDFs
-    01–04 required (organizers' email)
-    08     supplementary (Watermarks Provably Removable)
-    09–13, 15, 18  hidden SprintML papers
-    20–25 competition-ready tools (Min-K%++, Watermark Stealing, DIPPER,
-          Recursive Paraphrasing, WAVES, ChatGPT divergence)
+  papers/                                    # 19 PDFs (01-04 required + 05-25 supplementary)
+    MAPPING_INDEX.md                         # ⚠ ALWAYS READ FIRST (lean router, ~700 words)
+    MAPPING.md                               # rich per-paper entries (~3.1k words; jump to entry only)
+    txt/                                     # ⚠ READ ONLY THE .txt EXTRACTION (NN_*.txt)
+    NN_*.pdf                                 # raw PDFs — DO NOT READ; use txt/ instead
 ```
 
 ## Working principles
@@ -217,15 +212,6 @@ references/
 - Diff-only edits — never echo full files unless explicitly asked
 - Bullets > prose. Numbers > adjectives.
 - No summary at the end of tool sequences
-
-## When to update CLAUDE.md / TODO.md
-
-Trigger an update of these files when:
-- Jülich access tested OK / fails → STATUS.md
-- New paper added to `references/papers/` → MAPPING.md + CLAUDE.md repo structure paper count
-- API token / submission endpoint confirmed → add to this file
-
-Tip: during a session, press `#` to ask Claude to incorporate a learning into CLAUDE.md.
 
 ## Language
 User communicates in Polish. Respond in Polish unless code/technical context requires English. Code identifiers, paper titles, library names — keep original. Comments in code: terse English by default.

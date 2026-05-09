@@ -4,7 +4,7 @@
 > Last updated: 2026-05-09 (dzień hackathonu)
 
 ## Status snapshot
-- 25 PDFs in `references/papers/` + 25/25 pre-extracted to `references/papers/txt/` (5.6 MB)
+- 19 PDFs in `references/papers/` + 19/19 pre-extracted to `references/papers/txt/`
 - MAPPING router split: `MAPPING_INDEX.md` (lean, 693w) + `MAPPING.md` (rich, 3099w)
 - 7/7 deep research artifacts present in `docs/deep_research/`
 - `.venv` (python 3.11) z requirements.txt — działa na M4
