@@ -1,0 +1,210 @@
+#!/usr/bin/env python3
+"""Task 3 hybrid: load ALL cached features (multan1's + murdzek2's) → LogReg OOF + predict.
+
+Standalone script — does NOT call any feature extractor. All features must be in cache.
+Designed to combine multan1's kitchen-sink features + murdzek2's unigram_direct (key=9999).
+"""
+from __future__ import annotations
+
+import argparse
+import pickle
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
+from sklearn.model_selection import StratifiedKFold
+
+ROOT = Path(__file__).resolve().parent.parent.parent.parent
+sys.path.insert(0, str(ROOT))
+from templates.eval_scaffold import tpr_at_fpr  # type: ignore
+
+
+# All cached feature names to attempt to load (skip if missing)
+DEFAULT_FEATURE_NAMES = [
+    "a", "a_strong",
+    "bino", "bino_strong", "bino_xl",
+    "fdgpt",
+    "d",
+    "better_liu",
+    "stylometric",
+    "kgw", "kgw_llama", "kgw_v2",
+    "bigram",
+    "lm_judge",
+    "multi_lm", "multi_lm_v2",
+    "roberta",
+    "unigram_direct",  # murdzek2's
+]
+
+
+def _read_jsonl(path: Path) -> pd.DataFrame:
+    import json
+    rows = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
+    return pd.DataFrame(rows)
+
+
+def load_splits(data_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    train_clean = _read_jsonl(data_dir / "train_clean.jsonl"); train_clean["label"] = 0
+    train_wm = _read_jsonl(data_dir / "train_wm.jsonl"); train_wm["label"] = 1
+    valid_clean = _read_jsonl(data_dir / "valid_clean.jsonl"); valid_clean["label"] = 0
+    valid_wm = _read_jsonl(data_dir / "valid_wm.jsonl"); valid_wm["label"] = 1
+    test = _read_jsonl(data_dir / "test.jsonl")
+    train = pd.concat([train_clean, train_wm], ignore_index=True)
+    val = pd.concat([valid_clean, valid_wm], ignore_index=True)
+    if "id" not in test.columns:
+        test["id"] = range(1, len(test) + 1)
+    return train, val, test
+
+
+def load_features(cache_dir: Path, names: list[str]) -> tuple[pd.DataFrame, list[str]]:
+    parts = []
+    loaded = []
+    for n in names:
+        path = cache_dir / f"features_{n}.pkl"
+        if not path.exists():
+            print(f"  [skip] {n} (not cached)")
+            continue
+        with open(path, "rb") as f:
+            df = pickle.load(f)
+        # rename cols with prefix to avoid collisions
+        df = df.add_prefix(f"{n}__").reset_index(drop=True)
+        parts.append(df)
+        loaded.append(n)
+        print(f"  [load] {n}: {df.shape}")
+    if not parts:
+        raise RuntimeError("No features loaded")
+    return pd.concat(parts, axis=1).fillna(0.0), loaded
+
+
+def _pca_roberta(df: pd.DataFrame, n_components: int = 32, seed: int = 42) -> pd.DataFrame:
+    """Reduce 768-dim RoBERTa embedding cols to PCA components, keep stats cols intact."""
+    from sklearn.decomposition import PCA
+    embed_cols = [c for c in df.columns if c.startswith("roberta__rob_") and not c.startswith("roberta__rob_pooled_")]
+    stat_cols = [c for c in df.columns if c.startswith("roberta__rob_pooled_")]
+    other_cols = [c for c in df.columns if not c.startswith("roberta__")]
+
+    if not embed_cols:
+        return df
+
+    X_emb = StandardScaler().fit_transform(df[embed_cols].values)
+    pca = PCA(n_components=min(n_components, X_emb.shape[0] - 1, X_emb.shape[1]), random_state=seed)
+    X_pca = pca.fit_transform(X_emb)
+    print(f"  [pca] roberta 768 -> {X_pca.shape[1]} dim, explained variance: {pca.explained_variance_ratio_.sum():.3f}")
+
+    pca_df = pd.DataFrame(X_pca, columns=[f"roberta__pca_{i}" for i in range(X_pca.shape[1])])
+    return pd.concat([df[other_cols].reset_index(drop=True), df[stat_cols].reset_index(drop=True), pca_df], axis=1)
+
+
+def _logreg_pipe(C: float) -> Pipeline:
+    return Pipeline([
+        ("scaler", StandardScaler()),
+        ("clf", LogisticRegression(C=C, max_iter=4000, solver="lbfgs")),
+    ])
+
+
+def run_oof(X: np.ndarray, y: np.ndarray, n_splits: int, seed: int, C: float) -> np.ndarray:
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+    oof = np.zeros(len(y))
+    for fold, (tr, va) in enumerate(skf.split(X, y)):
+        pipe = _logreg_pipe(C)
+        pipe.fit(X[tr], y[tr])
+        oof[va] = pipe.predict_proba(X[va])[:, 1]
+    return oof
+
+
+def bootstrap_ci(scores: np.ndarray, labels: np.ndarray, n_boot: int = 1000) -> tuple[float, float]:
+    rng = np.random.RandomState(0)
+    n = len(scores)
+    boots = []
+    for _ in range(n_boot):
+        idx = rng.randint(0, n, size=n)
+        if labels[idx].sum() == 0 or (1 - labels[idx]).sum() == 0:
+            continue
+        boots.append(tpr_at_fpr(scores[idx].tolist(), labels[idx].tolist(), 0.01))
+    return (float(np.percentile(boots, 5)), float(np.percentile(boots, 95)))
+
+
+def main() -> int:
+    p = argparse.ArgumentParser()
+    p.add_argument("--data-dir", type=Path, required=True)
+    p.add_argument("--cache-dir", type=Path, required=True)
+    p.add_argument("--out", type=Path, required=True)
+    p.add_argument("--features", nargs="*", default=DEFAULT_FEATURE_NAMES)
+    p.add_argument("--logreg-C", type=float, default=0.01)
+    p.add_argument("--n-splits", type=int, default=5)
+    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--roberta-pca", type=int, default=32)
+    p.add_argument("--n-rows", type=int, default=2250)
+    args = p.parse_args()
+
+    print("Loading data splits...")
+    train_df, val_df, test_df = load_splits(args.data_dir)
+    print(f"  train={len(train_df)} val={len(val_df)} test={len(test_df)}")
+
+    all_labeled = pd.concat([train_df, val_df], ignore_index=True)
+    n_labeled = len(all_labeled)
+    y = all_labeled["label"].astype(int).values
+
+    print("Loading cached features...")
+    X_df, loaded = load_features(args.cache_dir, args.features)
+
+    # PCA on RoBERTa embedding if it's loaded
+    if "roberta" in loaded and args.roberta_pca > 0:
+        X_df = _pca_roberta(X_df, args.roberta_pca, args.seed)
+
+    X_full = X_df.values.astype(np.float32)
+    print(f"Feature matrix: {X_full.shape} ({len(X_df.columns)} cols)")
+
+    # Sanity check: rows match (n_train + n_val + n_test = total)
+    expected_n = len(train_df) + len(val_df) + len(test_df)
+    if X_full.shape[0] != expected_n:
+        print(f"  [warn] X_full rows {X_full.shape[0]} != expected {expected_n}")
+
+    X_labeled = X_full[:n_labeled]
+    X_test = X_full[n_labeled:]
+    print(f"  labeled: {X_labeled.shape}  test: {X_test.shape}")
+
+    print(f"\nRunning {args.n_splits}-fold OOF logreg C={args.logreg_C}...")
+    oof = run_oof(X_labeled, y, args.n_splits, args.seed, args.logreg_C)
+
+    oof_tpr = tpr_at_fpr(oof.tolist(), y.tolist(), 0.01)
+    lo, hi = bootstrap_ci(oof, y)
+    print(f"OOF TPR@1%FPR: {oof_tpr:.4f}  CI(5/95): [{lo:.4f}, {hi:.4f}]")
+    pct = np.percentile(oof, [5, 25, 50, 75, 95])
+    print(f"OOF pct: {[f'{v:.3f}' for v in pct]}")
+
+    # Per watermark type breakdown
+    if "watermark_type" in all_labeled.columns:
+        for wt in all_labeled["watermark_type"].dropna().unique():
+            mask = all_labeled["watermark_type"] == wt
+            if mask.sum() > 5:
+                t = tpr_at_fpr(oof[mask].tolist(), y[mask].tolist(), 0.01)
+                print(f"  TPR@1%FPR [{wt}]: {t:.4f}")
+
+    print(f"\nFitting final model on {n_labeled} labeled...")
+    pipe = _logreg_pipe(args.logreg_C)
+    pipe.fit(X_labeled, y)
+    scores = pipe.predict_proba(X_test)[:, 1]
+
+    pct_t = np.percentile(scores, [5, 25, 50, 75, 95])
+    print(f"Test pct: {[f'{v:.3f}' for v in pct_t]} (mean={scores.mean():.3f})")
+
+    # Build submission
+    if "id" in test_df.columns:
+        ids = test_df["id"].tolist()
+    else:
+        ids = list(range(1, len(test_df) + 1))
+
+    sub = pd.DataFrame({"id": ids[:args.n_rows], "score": np.clip(scores[:args.n_rows], 0.0, 1.0)})
+
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    sub.to_csv(args.out, index=False)
+    print(f"\nSaved: {args.out}  ({len(sub)} rows)")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
