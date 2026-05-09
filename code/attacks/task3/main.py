@@ -70,6 +70,8 @@ def parse_args() -> argparse.Namespace:
                    help="Add extended semantic features (Liu/Semantic detector)")
     p.add_argument("--use-roberta", action="store_true",
                    help="Add RoBERTa-base mean-pooled embedding (768 features, requires C<=0.001)")
+    p.add_argument("--use-kgw-llama", action="store_true",
+                   help="KGW direct detection with Llama-2/Llama-3/Mistral tokenizers (gated)")
     p.add_argument("--roberta-pca-dim", type=int, default=32,
                    help="PCA dim reduction for RoBERTa features (0 = no PCA, raw 768)")
     p.add_argument("--use-kgw", action="store_true",
@@ -440,6 +442,12 @@ def main() -> None:
         fb_bl = extract_cached("better_liu", all_texts, better_liu.extract,
                                args.cache_dir, args.force_extract)
         parts.append(fb_bl.reset_index(drop=True))
+
+    if args.use_kgw_llama:
+        from features import branch_kgw_llama
+        fb_kl = extract_cached("kgw_llama", all_texts, branch_kgw_llama.extract,
+                               args.cache_dir, args.force_extract)
+        parts.append(fb_kl.reset_index(drop=True))
 
     if args.use_roberta:
         from features import roberta_features
