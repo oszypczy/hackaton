@@ -82,6 +82,8 @@ def parse_args() -> argparse.Namespace:
                    help="Add LM-judge under OLMo-2-13B-Instruct (largest OLMo judge)")
     p.add_argument("--use-judge-chat", action="store_true",
                    help="OLMo-7B judge with PROPER chat template + 5 prompts (vs plain text 3)")
+    p.add_argument("--use-olmo7b-chunks", action="store_true",
+                   help="OLMo-7B PPL per chunk (5 chunks) - local PPL variation features")
     p.add_argument("--use-stylometric", action="store_true",
                    help="Add stylometric features (CPU only, fast)")
     p.add_argument("--use-better-liu", action="store_true",
@@ -502,6 +504,12 @@ def main() -> None:
         fb_chat = extract_cached("judge_chat", all_texts, judge_olmo7b_chat.extract,
                                  args.cache_dir, args.force_extract)
         parts.append(fb_chat.reset_index(drop=True))
+
+    if args.use_olmo7b_chunks:
+        from features import olmo_7b_chunks
+        fb_chunks = extract_cached("olmo7b_chunks", all_texts, olmo_7b_chunks.extract,
+                                   args.cache_dir, args.force_extract)
+        parts.append(fb_chunks.reset_index(drop=True))
 
     if args.use_stylometric:
         from features import stylometric
