@@ -5,13 +5,14 @@
 
 ---
 
-## TL;DR — Current state (2026-05-09 ~21:30 UTC)
+## TL;DR — Current state (2026-05-09 ~21:46 UTC)
 
 - **Leaderboard score: task3 = 0.259053 (#2)** — leader Syntax Terror 0.387, gap 0.128
-- **Best OOF candidates queued**: C=0.05 (OOF 0.7778), C=0.01 ensemble (OOF 0.7519)
-- **Submitted so far** — kgw_llama (no improvement), kitchen_v2 (→ 0.259), hybrid_v3 (no improvement at 0.259)
-- **Next pending submit**: `submission_hyb_lr_C05.csv` after cooldown ends ~21:32:40 UTC
-- **Active jobs on Jülich**: sweep_v2 (14740296) — 6 more C values for LogReg
+- **OOF ceiling reached at ~0.78** with current 18-21 features. Adding olmo_7b/judge_phi2/judge_mistral did NOT improve OOF (stays at 0.76-0.77). Different classifiers (Ridge/MLP/SVM/EN) all ≤ LogReg C=0.05.
+- **Submission cooldown**: server resets cooldown on each rejection retry — wait clean 5+ min before retrying after 429.
+- **CRITICAL INSIGHT**: Live LB is only **30% public test**. Final ranking is **70% private hidden**. Don't overfit to LB peak. Submit DIVERSE robust variants.
+- **OOF→LB ratio is 1:3** — OOF 0.78 → LB 0.26. True distribution shift (likely test has different watermarks/lengths/prompts than train+val labeled).
+- **Active jobs on Jülich**: NONE (classifier sweep + hybrid_v5 done). Queue empty — feature ceiling reached.
 - **Killed jobs**: 14739848 selfhash, 14739925 mistral_kgw, 14739849 leak_free (all stuck on slow kgw_selfhash, won't finish in 3h timeout)
 
 ---
@@ -27,9 +28,35 @@
 | ~20:20 | 0.13649 | multi_lm | - | (no improvement) |
 | ~21:23 | **0.25905** | submission_kitchen_v2.csv | 0.7519 | **JUMP** — multan1's all features (multi_lm_v2, lm_judge, kgw_llama, roberta, stylometric, better_liu) |
 | ~21:27 | 0.25905 | task3_hybrid_v3.csv | 0.7630 | (no improvement — hybrid_v3 = kitchen_v2 + my unigram_direct) |
-| pending | ? | task3_hyb_C05.csv | 0.7778 | Will submit at 21:32:40 UTC |
+| ~21:33 | 0.25905 | task3_hyb_C05.csv | 0.7778 | (NO improvement — best OOF in sweep but plateau) |
+| pending 21:48:30 | ? | task3_hyb5_no_judges.csv | 0.7704 | hybrid + olmo, no judges |
 
 **Leader (Syntax Terror): 0.387** — gap to bridge: 0.128
+
+## Classifier sweep (with 18 features, no olmo/judges)
+
+| Classifier | OOF | Notes |
+|---|---|---|
+| **LogReg C=0.05** | **0.7778** | ⭐ BEST |
+| ElasticNet l1=0.1 | 0.7667 | close |
+| Ensemble (logreg+lgbm) | 0.7667 | ties EN |
+| MLP 64 hidden | 0.7296 | overfits |
+| Ridge | 0.7222 | underfits |
+| ElasticNet l1=0.5 | 0.7148 | too sparse |
+| SVM RBF C=0.1 | 0.1519 | needs tuning |
+
+## Feature ablation (hybrid_v5)
+
+| Variant | OOF | Δ from baseline |
+|---|---|---|
+| 18 features (no olmo/judges) C=0.05 | 0.7778 | baseline |
+| + olmo_7b (no judges) C=0.05 | 0.7704 | -0.7pp |
+| + judges (no olmo) C=0.05 | 0.7556 | -2.2pp |
+| + all 21 features C=0.03 | 0.7704 | -0.7pp |
+| + all 21 features C=0.05 | 0.7630 | -1.5pp |
+| + all 21 features C=0.07 | 0.7593 | -1.9pp |
+
+→ Adding olmo+judges HURTS at our scale (noise > signal).
 
 ---
 
