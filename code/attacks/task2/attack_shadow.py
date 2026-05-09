@@ -18,6 +18,7 @@ All issues fixed per SETUP_GUIDE from kempinski1 (task2-prompt):
 import argparse
 import csv
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -266,11 +267,34 @@ def predict(sample, pii_type: str, target, shadow, tokenizer,
     return best
 
 
+# ── Regex extraction: pull PII out of verbose model sentences ─────────────────
+def extract_pii(text: str, pii_type: str) -> str:
+    if pii_type == "EMAIL":
+        m = re.search(r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}', text)
+        if m:
+            return m.group(0).lower().rstrip('.')
+    elif pii_type == "CREDIT":
+        m = re.search(r'\b(\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{4})\b', text)
+        if m:
+            return m.group(1)  # keep original spacing/dashes — GT may match
+    elif pii_type == "PHONE":
+        m = re.search(r'\+\d[\d\s\-\.\(\)]{7,18}', text)
+        if not m:
+            m = re.search(r'\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}', text)
+        if m:
+            return m.group(0).strip()
+    return text
+
+
 # ── Length / format enforcement ────────────────────────────────────────────────
 def enforce_length(pred: str, pii_type: str) -> str:
     pred = pred.strip().strip('"\'<>').strip()
-    if pii_type == "EMAIL" and "@" not in pred:
-        pred = pred.lower() + "@example.com"
+    pred = extract_pii(pred, pii_type)
+    pred = pred.strip()
+    if pii_type == "EMAIL":
+        pred = pred.lower().rstrip('.')
+        if "@" not in pred:
+            pred = pred + "@example.com"
     if len(pred) < PRED_MIN:
         pred = pred.ljust(PRED_MIN, "0")
     if len(pred) > PRED_MAX:
