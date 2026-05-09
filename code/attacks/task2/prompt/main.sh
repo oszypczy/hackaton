@@ -26,6 +26,11 @@ CODEBASE_DIR="/p/scratch/training2615/kempinski1/Czumpers/p4ms_codebase/p4ms_hac
 # Hardcoded: sbatch copies the script to /var/spool/.../jobs/<id>, so $0 is unreliable.
 ATTACK_DIR="/p/scratch/training2615/kempinski1/Czumpers/repo-kempinski1/code/attacks/task2/prompt"
 
+# Load CUDA (deepspeed needs CUDA_HOME at import time)
+module load CUDA/13 2>/dev/null || module load CUDA 2>/dev/null
+export CUDA_HOME="${CUDA_HOME:-${EBROOTCUDA:-/usr/local/cuda}}"
+echo "[main.sh] CUDA_HOME=$CUDA_HOME"
+
 # venv with pre-built deps (torch 2.11+CUDA 13, py3.12)
 VENV="$DATA_DIR/.venv"
 source "$VENV/bin/activate"

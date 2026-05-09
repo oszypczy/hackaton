@@ -117,39 +117,21 @@ def generate_one(
     pil_img = load_image(sample.image_bytes, image_size)
     image_tensor = preprocess_image_to_tensor(pil_img, image_processor)
 
-    # Build batch of size 1
-    batch_input_ids = [input_ids]
-    batch_labels = [torch.full_like(input_ids, -100)]  # all masked, generation only
-    batch_X_modals = [{"<image>": image_tensor.to(model.device)}]
-
-    # Embed + interleave images
-    inputs = model.prepare_multimodal_inputs(
-        batch_input_ids=batch_input_ids,
-        batch_labels=batch_labels,
-        batch_X_modals=batch_X_modals,
-    )
-
-    # The custom `generate` in src/lmms/models/utils/generation_utils.py:1548
-    # expects inputs_embeds as either a tensor or a list
-    # [embeds, mask_text, mask_video, mask_audio, mask_question]. The
-    # codebase's `prepare_multimodal_inputs` already returns the right shape
-    # depending on the model's `inputs_embeds_with_mmask` flag — pass through.
-    inputs_embeds = inputs["inputs_embeds"]
-    attention_mask = inputs["attention_mask"]
-
-    # Generate
+    # Use the codebase's overridden `generate`. It accepts the unified-arch
+    # batched inputs directly and calls `prepare_multimodal_inputs` internally
+    # (see src/lmms/models/unified_mllm.py:99). Per src/README.md.
     gen_out = model.generate(
-        inputs_embeds=inputs_embeds,
-        attention_mask=attention_mask,
+        batch_input_ids=[input_ids],
+        batch_labels=[torch.full_like(input_ids, -100)],
+        batch_X_modals=[{"<image>": image_tensor.to(model.device)}],
         max_new_tokens=max_new_tokens,
         do_sample=False,
         num_beams=1,
         pad_token_id=tokenizer.pad_token_id,
         eos_token_id=tokenizer.eos_token_id,
-        use_cache=True,
     )
 
-    # When using inputs_embeds, generate returns only new tokens (no input prepended).
+    # When inputs_embeds-based, generate returns only new tokens (no input prepended).
     new_tokens = gen_out[0]
     decoded = tokenizer.decode(new_tokens, skip_special_tokens=True)
     return decoded
