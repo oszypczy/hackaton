@@ -61,63 +61,60 @@ def parse_args() -> argparse.Namespace:
 
 # ── Data loading ─────────────────────────────────────────────────────────────
 
+def _read_jsonl(path: Path) -> pd.DataFrame:
+    import json
+    rows = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
+    return pd.DataFrame(rows)
+
+
 def load_splits(data_dir: Path | None) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     if data_dir and data_dir.exists():
-        train = pd.read_csv(data_dir / "train.csv")
-        val = pd.read_csv(data_dir / "validation.csv")
-        test = pd.read_csv(data_dir / "test.csv")
+        # 5-file JSONL layout from Dataset.zip
+        train_clean = _read_jsonl(data_dir / "train_clean.jsonl")
+        train_wm = _read_jsonl(data_dir / "train_wm.jsonl")
+        valid_clean = _read_jsonl(data_dir / "valid_clean.jsonl")
+        valid_wm = _read_jsonl(data_dir / "valid_wm.jsonl")
+        test = _read_jsonl(data_dir / "test.jsonl")
+
+        train_clean["label"] = 0
+        train_wm["label"] = 1
+        valid_clean["label"] = 0
+        valid_wm["label"] = 1
+
+        train = pd.concat([train_clean, train_wm], ignore_index=True)
+        val = pd.concat([valid_clean, valid_wm], ignore_index=True)
     else:
         from datasets import load_dataset as hf_load
         ds = hf_load("SprintML/llm-watermark-detection")
         available = list(ds.keys())
         print(f"  HF splits: {available}")
 
-        if "train" in available and "validation" in available and "test" in available:
-            # Separate HF splits (ideal case)
+        # 5-split layout: train_clean / train_wm / valid_clean / valid_wm / test
+        if "train_clean" in available:
+            train_clean = ds["train_clean"].to_pandas(); train_clean["label"] = 0
+            train_wm = ds["train_wm"].to_pandas();       train_wm["label"] = 1
+            valid_clean = ds["valid_clean"].to_pandas(); valid_clean["label"] = 0
+            valid_wm = ds["valid_wm"].to_pandas();       valid_wm["label"] = 1
+            train = pd.concat([train_clean, train_wm], ignore_index=True)
+            val = pd.concat([valid_clean, valid_wm], ignore_index=True)
+            test = ds["test"].to_pandas()
+        elif "train" in available and "validation" in available:
             train = ds["train"].to_pandas()
             val = ds["validation"].to_pandas()
             test = ds["test"].to_pandas()
-        elif "train" in available and "test" in available:
-            train = ds["train"].to_pandas()
-            val = ds["test"].to_pandas()  # treat test as val if no validation
-            test = ds["test"].to_pandas()
         else:
-            # All data in a single split — look for a 'split' / 'partition' column
-            df_all = ds[available[0]].to_pandas()
-            print(f"  Columns: {df_all.columns.tolist()}")
-            split_col = next(
-                (c for c in ("split", "partition", "subset", "set") if c in df_all.columns),
-                None,
-            )
-            if split_col:
-                vals = df_all[split_col].unique()
-                print(f"  Split column '{split_col}', values: {vals}")
-                # Normalize split names
-                split_map: dict[str, str] = {}
-                for v in vals:
-                    s = str(v).lower()
-                    if "train" in s:
-                        split_map[v] = "train"
-                    elif "val" in s or "dev" in s:
-                        split_map[v] = "val"
-                    elif "test" in s:
-                        split_map[v] = "test"
-                df_all["_split"] = df_all[split_col].map(split_map)
-                train = df_all[df_all["_split"] == "train"].drop(columns=["_split"]).reset_index(drop=True)
-                val = df_all[df_all["_split"] == "val"].drop(columns=["_split"]).reset_index(drop=True)
-                test = df_all[df_all["_split"] == "test"].drop(columns=["_split"]).reset_index(drop=True)
-            else:
-                raise ValueError(
-                    f"No split column found. Columns: {df_all.columns.tolist()}\n"
-                    f"Sample row: {df_all.iloc[0].to_dict()}"
-                )
+            raise ValueError(f"Unrecognised HF split layout: {available}")
 
-    # Normalize column names
+    # Normalize text column name
     for df in (train, val, test):
-        if "labels" in df.columns and "label" not in df.columns:
-            df.rename(columns={"labels": "label"}, inplace=True)
-        if "watermark" in df.columns and "label" not in df.columns:
-            df.rename(columns={"watermark": "label"}, inplace=True)
+        if "text" not in df.columns:
+            candidates = [c for c in df.columns if df[c].dtype == object and c != "label"]
+            if candidates:
+                df.rename(columns={candidates[0]: "text"}, inplace=True)
+
+    # Add sequential id to test if missing
+    if "id" not in test.columns:
+        test["id"] = range(1, len(test) + 1)
 
     return train, val, test
 
