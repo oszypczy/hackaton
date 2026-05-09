@@ -11,6 +11,7 @@
 #SBATCH --error=/p/scratch/training2615/kempinski1/Czumpers/task3/output/%j.err
 
 # Multi-LM PPL: OPT-1.3b PPL features (orthogonal LM family from Pythia)
+# FIX: previous run failed (OPT tokenizer __call__ NoneType.endswith) — extractor now uses encode()
 set -euo pipefail
 jutil env activate -p training2615
 SCRATCH=/p/scratch/training2615/kempinski1/Czumpers
@@ -24,10 +25,14 @@ export TRANSFORMERS_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 cd "$REPO"
 
+# Wipe stale broken multi_lm cache so we re-extract with the fixed tokenizer call
+rm -f "$TASK_CACHE/features_multi_lm.pkl"
+
 python code/attacks/task3/main.py \
     --phase 2 \
     --use-strong-bino \
     --use-xl-bino \
+    --use-fdgpt \
     --use-multi-lm \
     --classifier logreg \
     --logreg-C 0.01 \

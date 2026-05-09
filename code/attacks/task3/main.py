@@ -70,6 +70,8 @@ def parse_args() -> argparse.Namespace:
                    help="Add extended semantic features (Liu/Semantic detector)")
     p.add_argument("--use-roberta", action="store_true",
                    help="Add RoBERTa-base mean-pooled embedding (768 features, requires C<=0.001)")
+    p.add_argument("--roberta-pca-dim", type=int, default=32,
+                   help="PCA dim reduction for RoBERTa features (0 = no PCA, raw 768)")
     p.add_argument("--use-kgw", action="store_true",
                    help="Add direct KGW reference detection features (multi-tokenizer)")
     p.add_argument("--use-kgw-v2", action="store_true",
@@ -443,6 +445,18 @@ def main() -> None:
         from features import roberta_features
         fb_rob = extract_cached("roberta", all_texts, roberta_features.extract,
                                 args.cache_dir, args.force_extract)
+        if args.roberta_pca_dim and args.roberta_pca_dim > 0 and args.roberta_pca_dim < 768:
+            from sklearn.decomposition import PCA
+            from sklearn.preprocessing import StandardScaler
+            embed_cols = [c for c in fb_rob.columns if c.startswith("rob_") and not c.startswith("rob_pooled_")]
+            stat_cols = [c for c in fb_rob.columns if c.startswith("rob_pooled_")]
+            X_emb = StandardScaler().fit_transform(fb_rob[embed_cols].values)
+            pca = PCA(n_components=args.roberta_pca_dim, random_state=args.seed)
+            X_pca = pca.fit_transform(X_emb)
+            evar = pca.explained_variance_ratio_.sum()
+            print(f"  [pca] roberta 768 -> {args.roberta_pca_dim} dim, explained variance: {evar:.3f}")
+            pca_df = pd.DataFrame(X_pca, columns=[f"rob_pca_{i}" for i in range(args.roberta_pca_dim)])
+            fb_rob = pd.concat([pca_df, fb_rob[stat_cols].reset_index(drop=True)], axis=1)
         parts.append(fb_rob.reset_index(drop=True))
 
     if args.use_kgw:

@@ -52,8 +52,9 @@ python code/attacks/task3/main.py \
     --use-xl-bino \
     --use-fdgpt \
     --use-roberta \
+    --roberta-pca-dim 32 \
     --classifier logreg \
-    --logreg-C 0.0005 \
+    --logreg-C 0.01 \
     --data-dir "$SCRATCH/llm-watermark-detection" \
     --cache-dir "$TASK_CACHE" \
     --out "$TASK_OUT/submission_roberta.csv" \
