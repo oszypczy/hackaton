@@ -26,12 +26,17 @@ R152_DIRS="${R152_DIRS:-$DUCI/synth_targets_n7000_100ep_r152}"
 cd "$REPO"
 mkdir -p "$REPO/submissions"
 
+TMP_CSV=/tmp/mle_combine_$SLURM_JOB_ID.csv
+
 $P4VENV -m code.attacks.task1_duci.mle_combine \
     --synth-dirs "$R18_DIRS" \
     --synth-dirs-r50 "$R50_DIRS" \
     --synth-dirs-r152 "$R152_DIRS" \
-    --out "$OUT_CSV" \
+    --out "$TMP_CSV" \
     --use-signal "$USE_SIGNAL" \
     --degree "$DEGREE"
 
+# Workaround scratch quota issues: write via /tmp then cp
+cp "$TMP_CSV" "$OUT_CSV" || { echo "cp failed; CSV at $TMP_CSV"; cat "$TMP_CSV"; exit 1; }
 echo "[done] wrote $OUT_CSV"
+cat "$OUT_CSV"
