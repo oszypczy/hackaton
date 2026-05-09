@@ -30,19 +30,51 @@ from transformers import AutoTokenizer
 
 token = os.environ['HF_TOKEN']
 
-models = [
+# Tokenizers only (for KGW direct detection)
+tok_only = [
     'meta-llama/Llama-2-7b-hf',
     'meta-llama/Meta-Llama-3-8B',
     'mistralai/Mistral-7B-v0.1',
 ]
 
-for m in models:
+for m in tok_only:
     try:
         tok = AutoTokenizer.from_pretrained(m, token=token)
-        print(f'  OK: {m}  vocab={tok.vocab_size}')
+        print(f'  TOK OK: {m}  vocab={tok.vocab_size}')
     except Exception as e:
-        print(f'  FAIL: {m}: {e}')
-print('Done.')
+        print(f'  TOK FAIL: {m}: {e}')
+
+print('Done with tokenizers.')
 "
 
-ls -la "$HF_HOME/hub/" | grep -iE "llama|mistral" 2>/dev/null
+# Full models for instruct-LM PPL (multi_lm_v2)
+echo "Downloading full INSTRUCT models (this takes a while)..."
+python -c "
+import os
+from transformers import AutoTokenizer, AutoModelForCausalLM
+import torch
+
+token = os.environ['HF_TOKEN']
+
+models = [
+    ('microsoft/Phi-2', False),                           # public, ~2.7B
+    ('Qwen/Qwen2-0.5B-Instruct', False),                  # public, 0.5B
+    ('meta-llama/Llama-2-7b-chat-hf', True),              # gated, 7B chat
+    ('mistralai/Mistral-7B-Instruct-v0.1', True),         # gated, 7B instruct
+]
+
+for name, needs_auth in models:
+    try:
+        kwargs = {'token': token} if needs_auth else {}
+        tok = AutoTokenizer.from_pretrained(name, **kwargs)
+        mod = AutoModelForCausalLM.from_pretrained(name, torch_dtype=torch.float16, **kwargs)
+        n_params = sum(p.numel() for p in mod.parameters()) / 1e9
+        print(f'  MODEL OK: {name}  ({n_params:.1f}B params)')
+        del mod  # free
+    except Exception as e:
+        print(f'  MODEL FAIL: {name}: {e}')
+
+print('Done with models.')
+"
+
+ls -la "$HF_HOME/hub/" | grep -iE "llama|mistral|phi|qwen" 2>/dev/null
