@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=t2-prompt
+#SBATCH --job-name=t2-prompt-cd
 #SBATCH --partition=dc-gpu
 #SBATCH --account=training2615
 #SBATCH --reservation=cispahack
@@ -8,17 +8,20 @@
 #SBATCH --cpus-per-task=30
 #SBATCH --gres=gpu:1
 #SBATCH --time=03:00:00
-#SBATCH --output=/p/scratch/training2615/kempinski1/Czumpers/repo-kempinski1/code/attacks/task2/prompt/output/log_%j.txt
-#SBATCH --error=/p/scratch/training2615/kempinski1/Czumpers/repo-kempinski1/code/attacks/task2/prompt/output/log_%j.txt
+#SBATCH --output=/p/scratch/training2615/kempinski1/Czumpers/repo-kempinski1-cd/code/attacks/task2/prompt/output/log_%j.txt
+#SBATCH --error=/p/scratch/training2615/kempinski1/Czumpers/repo-kempinski1-cd/code/attacks/task2/prompt/output/log_%j.txt
 
 # Usage:
 #   sbatch main.sh eval                                 # eval on validation_pii (840 GT)
-#   sbatch main.sh predict                              # full task/ -> submission_v0.csv
+#   sbatch main.sh predict                              # full task/ -> submission.csv
 #   sbatch main.sh eval 100                             # smoke: 100 samples
-#   sbatch main.sh eval - blank                        # image ablation: blank image
-#   sbatch main.sh eval 100 noise                       # smoke + noise image
+#   sbatch main.sh eval - blank                         # image ablation: blank image
 #   sbatch main.sh predict - original direct_probe      # predict task/ with direct_probe strategy
-#   sbatch main.sh eval - scrubbed direct_probe         # eval on val_pii with scrubbed images
+#   sbatch main.sh eval - blank cd_decoding             # CD over direct_probe template (sets --use_cd)
+#
+# CD-mode env vars (only when STRATEGY=cd_decoding):
+#   CD_ALPHA (default 1.0), CD_BETA (default 0.5), CD_TOPK (default 50)
+#   CD_TEMPLATE (default direct_probe) — base prompt strategy used by CD
 set -euo pipefail
 
 MODE="${1:-eval}"
@@ -29,7 +32,16 @@ fi
 IMAGE_MODE="${3:-original}"
 IMAGE_ARG="--image_mode ${IMAGE_MODE}"
 STRATEGY="${4:-baseline}"
-STRATEGY_ARG="--strategy ${STRATEGY}"
+
+# CD short-circuit: STRATEGY=cd_decoding selects CD with the direct_probe (or
+# CD_TEMPLATE) prompt template + --use_cd flag.
+CD_ARGS=""
+EFFECTIVE_STRATEGY="$STRATEGY"
+if [[ "$STRATEGY" == "cd_decoding" ]]; then
+    EFFECTIVE_STRATEGY="${CD_TEMPLATE:-direct_probe}"
+    CD_ARGS="--use_cd --cd_alpha ${CD_ALPHA:-1.0} --cd_beta ${CD_BETA:-0.5} --cd_topk ${CD_TOPK:-50}"
+fi
+STRATEGY_ARG="--strategy ${EFFECTIVE_STRATEGY}"
 TS_TAG="${IMAGE_MODE}_${STRATEGY}"
 
 # Scrubbed-image directory (only used when image_mode=scrubbed)
@@ -42,7 +54,7 @@ fi
 DATA_DIR="/p/scratch/training2615/kempinski1/Czumpers/P4Ms-hackathon-vision-task"
 CODEBASE_DIR="/p/scratch/training2615/kempinski1/Czumpers/p4ms_codebase/p4ms_hackathon_warsaw_code-main"
 # Hardcoded: sbatch copies the script to /var/spool/.../jobs/<id>, so $0 is unreliable.
-ATTACK_DIR="/p/scratch/training2615/kempinski1/Czumpers/repo-kempinski1/code/attacks/task2/prompt"
+ATTACK_DIR="/p/scratch/training2615/kempinski1/Czumpers/repo-kempinski1-cd/code/attacks/task2/prompt"
 
 # Load CUDA (deepspeed needs CUDA_HOME at import time)
 module load CUDA/13 2>/dev/null || module load CUDA 2>/dev/null
@@ -61,11 +73,11 @@ export PYTHONUNBUFFERED=1
 # Codebase hardcodes `cache_dir = ~/.cache/huggingface/hub` in
 # src/lmms/models/__init__.py:35 (ignores HF_HOME). Symlink to shared scratch
 # cache so the hardcoded path resolves to our pre-downloaded models.
-# $HOME is shared between login + compute on JURECA → idempotent.
 mkdir -p "$HOME/.cache/huggingface"
 ln -sfn "$HUGGINGFACE_HUB_CACHE" "$HOME/.cache/huggingface/hub"
 
 echo "[main.sh] CUDA_HOME=$CUDA_HOME  HF_HOME=$HF_HOME  HF_HUB_OFFLINE=$HF_HUB_OFFLINE"
+echo "[main.sh] STRATEGY=$STRATEGY  EFFECTIVE_STRATEGY=$EFFECTIVE_STRATEGY  CD_ARGS=[$CD_ARGS]"
 
 # venv with pre-built deps (torch 2.11+CUDA 13, py3.12)
 VENV="$DATA_DIR/.venv"
@@ -95,7 +107,8 @@ case "$MODE" in
             $LIMIT_ARG \
             $IMAGE_ARG \
             $STRATEGY_ARG \
-            $SCRUBBED_ARG
+            $SCRUBBED_ARG \
+            $CD_ARGS
         ;;
     predict)
         OUT_CSV="$ATTACK_DIR/output/submission_v0_${TS_TAG}_${TS}.csv"
@@ -109,7 +122,8 @@ case "$MODE" in
             $LIMIT_ARG \
             $IMAGE_ARG \
             $STRATEGY_ARG \
-            $SCRUBBED_ARG
+            $SCRUBBED_ARG \
+            $CD_ARGS
         ;;
     *)
         echo "Unknown mode: $MODE (use 'eval' or 'predict')"

@@ -10,7 +10,7 @@ import os
 import time
 from pathlib import Path
 
-from attack import generate_one, load_model_and_tools
+from attack import generate_one, generate_one_cd, load_model_and_tools
 from format import (
     PHONE_FALLBACK,
     email_fallback_from_question,
@@ -81,6 +81,23 @@ def cli() -> argparse.Namespace:
              "prefix priming (legacy). 'direct_probe' / 'role_play_dba' / etc replace "
              "the prompt entirely (no prefix). See strategies.py.",
     )
+    # Contrastive Decoding (CD): α·logits_target − β·logits_amateur with
+    # plausibility filter. Amateur = shadow_lmm (same arch, no PII finetune).
+    p.add_argument(
+        "--use_cd",
+        action="store_true",
+        help="Enable Contrastive Decoding using shadow_lmm as amateur.",
+    )
+    p.add_argument(
+        "--shadow_model_dir",
+        type=Path,
+        default=None,
+        help="Override shadow dir; defaults to {data_dir}/shadow_lmm. Required when --use_cd.",
+    )
+    p.add_argument("--cd_alpha", type=float, default=1.0)
+    p.add_argument("--cd_beta", type=float, default=0.5)
+    p.add_argument("--cd_topk", type=int, default=50,
+                   help="Plausibility top-k from expert (target) logits.")
     return p.parse_args()
 
 
@@ -131,17 +148,43 @@ def main() -> None:
     )
     print(f"[main] model loaded. image_size={image_size}")
 
+    amateur_model = None
+    if args.use_cd:
+        if args.shadow_model_dir is None:
+            args.shadow_model_dir = args.data_dir / "shadow_lmm"
+        print(f"[main] CD enabled — loading amateur from {args.shadow_model_dir}  "
+              f"α={args.cd_alpha} β={args.cd_beta} topk={args.cd_topk}")
+        amateur_model, _, _, _, _ = load_model_and_tools(
+            codebase_dir=args.codebase_dir,
+            model_dir=args.shadow_model_dir,
+            device=args.device,
+            dtype=args.dtype,
+        )
+        print("[main] amateur model loaded.")
+
     use_prefix = not args.no_prefix
     rows: list[dict] = []
     t0 = time.time()
     for i, s in enumerate(samples):
-        raw = generate_one(
-            model, tokenizer, image_processor, image_size, get_fmt_q,
-            s, max_new_tokens=args.max_new_tokens, use_prefix=use_prefix,
-            image_mode=args.image_mode,
-            scrubbed_image_dir=args.scrubbed_image_dir,
-            strategy=args.strategy,
-        )
+        if args.use_cd:
+            raw = generate_one_cd(
+                model, amateur_model, tokenizer, image_processor, image_size,
+                get_fmt_q, s,
+                max_new_tokens=args.max_new_tokens,
+                alpha=args.cd_alpha, beta=args.cd_beta,
+                plausibility_topk=args.cd_topk,
+                image_mode=args.image_mode,
+                scrubbed_image_dir=args.scrubbed_image_dir,
+                strategy=args.strategy,
+            )
+        else:
+            raw = generate_one(
+                model, tokenizer, image_processor, image_size, get_fmt_q,
+                s, max_new_tokens=args.max_new_tokens, use_prefix=use_prefix,
+                image_mode=args.image_mode,
+                scrubbed_image_dir=args.scrubbed_image_dir,
+                strategy=args.strategy,
+            )
         extracted = extract_pii(raw, s.pii_type)
         # EMAIL fallback: when model emits non-email content (phone/CC/twitter),
         # `extracted` lacks '@'. Build firstname.lastname@example.com from the

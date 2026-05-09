@@ -31,11 +31,20 @@ def setup_codebase_path(codebase_dir: Path) -> None:
         sys.path.insert(0, p)
 
 
+_ATTN_PATCH_APPLIED = False
+
+
 def _patch_attn_no_flash() -> None:
     """Codebase hardcodes attn_implementation='flash_attention_2' for OLMo-2
     (src/lmms/models/__init__.py:99). flash_attn isn't installed in the shared
     venv (and convention forbids us from pip-installing into it). Downgrade
-    to 'sdpa' which OLMo-2 supports natively. Must run BEFORE load_lmm."""
+    to 'sdpa' which OLMo-2 supports natively. Must run BEFORE load_lmm.
+
+    Idempotent: CD path loads target+amateur via two load_model_and_tools calls;
+    re-patching would stack wrappers (not infinite, but wasteful)."""
+    global _ATTN_PATCH_APPLIED
+    if _ATTN_PATCH_APPLIED:
+        return
     import transformers.modeling_utils as _mu
 
     _orig = _mu.PreTrainedModel.from_pretrained
@@ -47,6 +56,7 @@ def _patch_attn_no_flash() -> None:
         return _orig.__func__(cls, *args, **kwargs)
 
     _mu.PreTrainedModel.from_pretrained = _patched
+    _ATTN_PATCH_APPLIED = True
 
 
 # These imports require setup_codebase_path() called first.
@@ -212,6 +222,128 @@ def generate_one(
     new_tokens = gen_out[0]
     decoded = tokenizer.decode(new_tokens, skip_special_tokens=True)
     return decoded
+
+
+@torch.no_grad()
+def generate_one_cd(
+    target_model,
+    amateur_model,
+    tokenizer,
+    image_processor,
+    image_size: int,
+    get_formatted_question,
+    sample: Sample,
+    max_new_tokens: int = 50,
+    alpha: float = 1.0,
+    beta: float = 0.5,
+    plausibility_topk: int = 50,
+    image_mode: str = "blank",
+    scrubbed_image_dir: Path | None = None,
+    strategy: str = "direct_probe",
+) -> str:
+    """Contrastive Decoding (Li'22 / O'Brien'23) for memorization extraction.
+
+    At each step: cd_logits = α·logits_target − β·logits_amateur, restricted to
+    expert top-k for plausibility. Concentrates probability on tokens the
+    overfit target assigns disproportionately compared to the non-PII shadow.
+
+    Both models share architecture (UnifiedForCausalLM + OLMo-2-1B + LLaVA-HR)
+    and tokenizer. We use unified_mllm's forward path which calls
+    `prepare_multimodal_inputs` once on the prompt, then drops to standard
+    HF causal LM continuation with KV cache (single new token per step).
+    """
+    # Build prompt via existing strategy template (default: direct_probe).
+    if strategy not in STRATEGIES:
+        raise ValueError(f"unknown strategy for CD: {strategy!r}")
+    prompt_text = STRATEGIES[strategy](sample, get_formatted_question, tokenizer)
+    token_ids = tokenizer.convert_tokens_to_ids(tokenizer.tokenize(prompt_text))
+    input_ids = torch.tensor(token_ids, dtype=torch.long, device=target_model.device)
+
+    image_tensor_t = _build_image_tensor(
+        sample.image_bytes, image_size, image_processor, image_mode,
+        user_id=sample.user_id, scrubbed_image_dir=scrubbed_image_dir,
+    ).to(target_model.device)
+    image_tensor_a = image_tensor_t.to(amateur_model.device)
+
+    eos = tokenizer.eos_token_id
+    generated: list[int] = []
+
+    with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+        # First forward: prepare multimodal inputs (image splice + embed) on each
+        # model and run super().forward via UnifiedForCausalLM.forward(inputs_embeds=).
+        inputs_t = target_model.prepare_multimodal_inputs(
+            batch_input_ids=[input_ids],
+            batch_labels=[torch.full_like(input_ids, -100)],
+            batch_X_modals=[{"<image>": image_tensor_t}],
+        )
+        ai_ids = input_ids.to(amateur_model.device)
+        inputs_a = amateur_model.prepare_multimodal_inputs(
+            batch_input_ids=[ai_ids],
+            batch_labels=[torch.full_like(ai_ids, -100)],
+            batch_X_modals=[{"<image>": image_tensor_a}],
+        )
+
+        out_t = target_model(
+            inputs_embeds=inputs_t["inputs_embeds"],
+            attention_mask=inputs_t["attention_mask"],
+            position_ids=inputs_t["position_ids"],
+            use_cache=True,
+        )
+        out_a = amateur_model(
+            inputs_embeds=inputs_a["inputs_embeds"],
+            attention_mask=inputs_a["attention_mask"],
+            position_ids=inputs_a["position_ids"],
+            use_cache=True,
+        )
+        past_t = out_t.past_key_values
+        past_a = out_a.past_key_values
+        last_logits_t = out_t.logits[0, -1, :].float()
+        last_logits_a = out_a.logits[0, -1, :].float()
+
+        attn_t = inputs_t["attention_mask"]
+        attn_a = inputs_a["attention_mask"]
+
+        for _ in range(max_new_tokens):
+            # CD score: plausibility filter (expert top-k) then α·t − β·a
+            _, topk_idx = last_logits_t.topk(plausibility_topk, dim=-1)
+            mask = torch.full_like(last_logits_t, float("-inf"))
+            mask.scatter_(-1, topk_idx, 0.0)
+            cd_scores = alpha * last_logits_t - beta * last_logits_a + mask
+            next_id = int(cd_scores.argmax(dim=-1).item())
+
+            if next_id == eos:
+                break
+            generated.append(next_id)
+
+            new_tok_t = torch.tensor([[next_id]], device=target_model.device)
+            new_tok_a = torch.tensor([[next_id]], device=amateur_model.device)
+            attn_t = torch.cat(
+                [attn_t, torch.ones((1, 1), dtype=attn_t.dtype, device=attn_t.device)],
+                dim=1,
+            )
+            attn_a = torch.cat(
+                [attn_a, torch.ones((1, 1), dtype=attn_a.dtype, device=attn_a.device)],
+                dim=1,
+            )
+
+            out_t = target_model(
+                input_ids=new_tok_t,
+                attention_mask=attn_t,
+                past_key_values=past_t,
+                use_cache=True,
+            )
+            out_a = amateur_model(
+                input_ids=new_tok_a,
+                attention_mask=attn_a,
+                past_key_values=past_a,
+                use_cache=True,
+            )
+            past_t = out_t.past_key_values
+            past_a = out_a.past_key_values
+            last_logits_t = out_t.logits[0, -1, :].float()
+            last_logits_a = out_a.logits[0, -1, :].float()
+
+    return tokenizer.decode(generated, skip_special_tokens=True)
 
 
 def predict_one(
