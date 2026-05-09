@@ -5,7 +5,24 @@
 
 ---
 
-## TL;DR — Current state (2026-05-09 ~23:02 UTC)
+## TL;DR — Current state (2026-05-09 ~23:08 UTC)
+
+**🎯 LB: 0.2841 confirmed plateau across 9+ submissions**
+
+**🆕 NEW HIGH OOF baseline**: ALL+chunks (26 features) → **0.8222** (was 0.8037 with 24)
+- Adding olmo7b_chunks (multan1's local-variation PPL features) gives +1.85pp OOF
+- SIR features hurt slightly (-3.7pp on baseline, no benefit with pseudo)
+
+**Prior correction**: Estimated test prior π=0.363 (vs train 0.500). Generated 6 prior-shifted CSVs.
+
+**Submission queues**:
+- Master (in flight, 23:05-23:48): 9 CSVs incl SIR variants, iter pseudo, mega_best, select_k
+- Mega extension (armed for 23:55): 6 CSVs incl all_chunks (NEW HIGH baseline OOF 0.82) + priors
+- All 15+ submissions diverse for private 70% eval
+
+**Key insight**: Pseudo-label OOF inflation (0.94+) ≠ LB gain (still 0.2841). Real ceiling = base classifier discriminability.
+
+
 
 **🎯 LB plateau at 0.2841** — confirmed across 5 submissions:
 - pseudo_meta_ensemble (15-config rank-mean): 0.2841
