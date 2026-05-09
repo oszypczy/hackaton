@@ -32,24 +32,21 @@ Hard rules:
 
 Current status: see @docs/STATUS.md
 
+## Confirmed tasks (revealed 2026-05-09 12:00)
+
+| Task | File | Summary |
+|---|---|---|
+| **1 — DUCI** | `docs/tasks/task1_duci.md` | 9 ResNet models, predict fraction of MIXED (CIFAR100) used in training; MeanMAE ↓ |
+| **2 — PII Extraction** | `docs/tasks/task2_pii_extraction.md` | Extract EMAIL/CREDIT/PHONE from multimodal LMM via scrubbed images; 1−NormLevenshtein ↑ |
+| **3 — Watermark Detection** | `docs/tasks/task3_watermark_detection.md` | Kirchenbauer Red-Green list; 2250 test samples, score [0,1]; TPR@1%FPR ↑ |
+
 ## Source separation (important)
 
 | Source | What | Authority |
 |---|---|---|
 | `docs/01_email_*.txt`, `02_email_*.txt`, `references/papers/01–04` | Organizer mails + 4 required papers | **Ground truth** |
-| `docs/ARCHIVE/hackathon_preparation_pre_zoom.md` | Pre-Zoom speculation — **ARCHIVED** | **Ignore** |
+| `docs/tasks/*.md` | Task specs (revealed at 12:00) | **Ground truth** |
 | `docs/deep_research/0N_*.md`, papers `05–25` | Claude Research output + our extrapolations | **Educated guesses** |
-
-## Strong signal from required papers
-All 4 required papers are about **privacy + LLM watermarking**:
-1. Carlini et al. — extracting training data from diffusion models
-2. Maini et al. — LLM dataset inference
-3. Zawalski et al. — data contamination detection in LLMs (NeurIPS Workshop 2025, very recent)
-4. Kirchenbauer et al. — LLM watermarking
-
-Confirmed task themes (Zoom 2026-05-04): Data Identification + Data Memorization + Watermarking.
-
-**SprintML portfolio note:** model stealing (B4B NeurIPS 2023, ADAGE 2025, GNN extraction AAAI 2026 Oral) is high-probability even though not in required papers. See `references/papers/MAPPING.md` sekcja 6.
 
 ## Environment
 **Most team members on MacBook M4** (MPS / MLX, no CUDA). **One teammate has a CUDA GPU**.
@@ -124,49 +121,47 @@ tests/
   smoke.py                                   # `just eval` runs this; <30s, exits 0/1
 code/
   attacks/                                   # attack implementations (add task-specific files here)
-data/                                        # task data (will be populated from HF/Jülich at 12:00)
+data/                                        # task data (populated from HF/Jülich)
 submissions/                                 # submission files
 docs/
   STATUS.md                                  # volatile project state (out of CLAUDE.md prefix)
-  SETUP.md                                   # per-teammate setup checklist
   FAQ.md                                     # team Q&A — append on every recurring question
   LEARNINGS.md                               # session insights — append on every /compact
   DAY_OF.md                                  # day-of checklist and playbook
-  claude_token_playbook.md                   # research #1 — Claude Code token economics
-  claude_retrieval_strategy.md               # research #2 — RAG vs no-RAG verdict (recommends no-RAG)
   01_email_invitation_papers.txt             # ORGANIZER mail #1
   02_email_registration_confirmed.txt        # ORGANIZER mail #2
   zoom_transcript.txt                        # Zoom info session 2026-05-04 transcript
-  ARCHIVE/hackathon_preparation_pre_zoom.md  # ARCHIVED — pre-Zoom speculation
+  Info­_Session _Warsaw.pdf                  # organizer slides
+  tasks/
+    task1_duci.md                            # Task 1 spec + strategy
+    task2_pii_extraction.md                  # Task 2 spec + strategy
+    task3_watermark_detection.md             # Task 3 spec + strategy
   deep_research/
-    01_adversarial_attacks.md
-    02_model_inversion.md
-    03_watermarking.md
-    04_model_stealing.md
-    05_image_attribution.md
-    06_fairness_auditing.md
-    07_hackathon_toolkit.md
+    02_model_inversion.md                    # background for Task 2
+    03_watermarking.md                       # background for Task 3
+    07_hackathon_toolkit.md                  # tooling reference
+    08_tooling_audit.md                      # M4/Jülich compatibility audit
 scripts/
   extract_papers.sh                          # pdftotext → references/papers/txt/
   juelich_connect.sh                         # sets up ControlMaster socket (TOTP required)
   juelich_exec.sh                            # runs commands on Jülich via socket
 references/
-  papers/                                    # 25 PDFs total
+  papers/                                    # 17 PDFs total
     MAPPING_INDEX.md                         # lean router — READ FIRST (~700 words)
     MAPPING.md                               # rich per-paper entries (grep terms + sections, ~3.1k words)
-    txt/                                     # pre-extracted .txt from PDFs (5.6 MB)
+    txt/                                     # pre-extracted .txt from PDFs
     01–04 required (organizers' email)
-    05–08 supplementary surveys
-    09–19 hidden papers (SprintML 2022–2026)
+    08     supplementary (Watermarks Provably Removable)
+    09–13, 15, 18  hidden SprintML papers
     20–25 competition-ready tools (Min-K%++, Watermark Stealing, DIPPER,
           Recursive Paraphrasing, WAVES, ChatGPT divergence)
 ```
 
 ## Working principles
-- **Do not invent challenge details** — actual tasks revealed 2026-05-09 at 12:00.
+- **Task specs live in `docs/tasks/`** — read the relevant `taskN_*.md` before proposing an approach.
 - **Deep research artifacts are heavy.** Don't auto-load `docs/deep_research/*` unless MAPPING didn't answer. State explicitly when you're about to load one and why.
 - Submission: REST API, CSV files, 5-min cooldown (2-min on failure), team API token provided at start.
-- Data and model checkpoints: provided via HuggingFace links + Jülich at task reveal.
+- Data and model checkpoints: provided via HuggingFace links + Jülich.
 - **🎯 Final scoring runs on EXTENDED test sets (announced morning 2026-05-09).** Przed ogłoszeniem wyników jutro organizatorzy przepuszczą wszystkie metryki przez ROZSZERZONE wersje test datasetów których my nie widzimy. **Maksymalizacja score'u na live scoreboard ≠ wygrana.** Konsekwencje:
   - **Generalizacja > overfitting do public test set.** Nie tuningujemy hiperparametrów aż do wyciśnięcia ostatniego 0.001. Jeśli model robi 0.85 na public ale działa solidnie na różnych slicach walidacji → lepszy niż 0.92 z pikiem na public ale wąskim distribution.
   - **Walidacja krzyżowa.** Dla każdego taska podziel dostępne dane na cross-val splits (np. by-class, by-architecture, by-prompt-length), sprawdź czy score jest stabilny. Wariancja score'u na slicach ≈ ryzyko regresji na extended test set.
@@ -184,9 +179,9 @@ references/
 ## When to update CLAUDE.md / TODO.md
 
 Trigger an update of these files when:
-- Task details revealed at 12:00 → add task specs, scoring format, API endpoint
 - Jülich access tested OK / fails → STATUS.md
 - New paper added to `references/papers/` → MAPPING.md + CLAUDE.md repo structure paper count
+- API token / submission endpoint confirmed → add to this file
 
 Tip: during a session, press `#` to ask Claude to incorporate a learning into CLAUDE.md.
 
