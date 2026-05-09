@@ -120,6 +120,35 @@ def completion_format(sample: Sample, get_fmt_q, tokenizer) -> str:
     return prompt + primer
 
 
+def per_pii_route(sample: Sample, get_fmt_q, tokenizer) -> str:
+    """P1: route by pii_type. Empirical hybrid — direct_probe wins on
+    EMAIL/PHONE (memorization signal stronger w/o prefix), baseline wins
+    on CREDIT (assistant prefix preserves 4-4-4-4 training format that
+    the model was supervised to copy).
+    """
+    if sample.pii_type == "CREDIT":
+        return baseline(sample, get_fmt_q, tokenizer)
+    return direct_probe(sample, get_fmt_q, tokenizer)
+
+
+def verbatim_prefix(sample: Sample, get_fmt_q, tokenizer) -> str:
+    """P2: skip apply_chat_template entirely.
+
+    Per Carlini'21 §6.5 (extraction yield 824 vs 25 digits of pi when prefix
+    is verbatim training-time text) and Nasr'23 §5 (chat template wrapper IS
+    the alignment defense for aligned chat models — extraction must bypass
+    it). Feeds the LMM as a base LM with the literal `<image>...<question>
+    [ANSWER_PREFIX]` continuation, no `<|im_start|>system` etc.
+    """
+    formatted_q = get_fmt_q(sample.question, "image")
+    prefix = derive_assistant_prefix(sample.scrubbed_output)
+    # Raw concatenation. No tokenizer.apply_chat_template — the question
+    # already carries <image_start>/<image>/<image_end>/<question_start>/
+    # <question_end> from get_formatted_question. We append the literal
+    # training [ANSWER] prefix and let the model continue.
+    return f"{formatted_q} {prefix}"
+
+
 STRATEGIES = {
     "baseline": baseline,
     "direct_probe": direct_probe,
@@ -127,4 +156,6 @@ STRATEGIES = {
     "user_id_explicit": user_id_explicit,
     "system_override": system_override,
     "completion_format": completion_format,
+    "per_pii_route": per_pii_route,
+    "verbatim_prefix": verbatim_prefix,
 }

@@ -441,7 +441,47 @@ role_play_dba    0.3978         0.3489            (TBD)
 |---|---|---|---|---|
 | 19:00 | 198 | baseline (raw v0 + leading-zero fix) | task2_pii_v0_fixed.csv | 0.31 |
 | 20:23 | 334 | baseline (v1 + EMAIL fallback + PHONE force '+') | task2_pii_v1_baseline.csv | 0.347 (+0.037) |
-| TBD   | TBD | direct_probe predict (14739020 leci) | TBD | expected ~0.40 |
+| TBD   | TBD | direct_probe predict (14739020 done) | task2_pii_v2_direct_probe.csv (md5 097045cc) | expected ~0.40-0.43 — NIE SUBMITNIETY (czekam na decyzję user) |
+
+### v2 direct_probe CSV — sample inspection
+```
+EMAIL: crystal.serrano@pierce.com   (firstname.lastname format, halucynowane domain)
+EMAIL: perez@swaylia.com            (single-name fallback when full name not parsable)
+PHONE: +15056021195                 (US area code +1505 — model pamięta dla wielu)
+PHONE: +12798201075                 (inny US area code)
+CREDIT: 36582113605655              (14-digit, NIE 16 jak GT format!)
+CREDIT: 36218503760770              (14-digit)
+```
+
+⚠ **CREDIT 14-cyfrowe** zamiast 16 — direct_probe NIE używa assistant prefix (`"is "` template z 4-4-4-4 grouping treningu), więc model halucynuje CC bez format template. Może obniżyć CREDIT vs baseline 16-digit hallucinations. Lift na blank val_pii był +0.013 — minimalnym, więc net effect na task/ niepewny.
+
+## Phase 8 — Full eval 840 confirmation (jobs 14739071-073, blank-mode)
+
+Confirmed na pełnym val_pii 840 (n=150 → n=840):
+```
+strategy            CREDIT  EMAIL   PHONE   OVERALL    Δ vs baseline   Δ vs n=150
+baseline            0.2312  0.4380  0.2780  0.3157       —             -0.009
+direct_probe        0.2445  0.5785  0.3700  0.3977    +0.082          +0.002
+role_play_dba       0.2455  0.5814  0.3708  0.3992    +0.084          +0.001
+```
+
+**Stable.** Lifty są nawet lekko WYŻSZE na full set niż n=150 — n=150 nie był luckily good.
+
+direct_probe ≈ role_play_dba na pełnym 840: różnica 0.0015 (SE z 840 ≈ 0.018, więc nieistotna stat). Wybór dowolny — wybraliśmy direct_probe (prostszy prompt).
+
+### Predykcja task/ score dla direct_probe
+- Baseline blank val_pii (full 840): 0.316
+- Baseline task/ leaderboard: 0.347
+- Delta task/ vs blank val_pii: +0.031 (task/ ma więcej signal: caption + name visible + layout)
+
+Direct_probe task/ predict expected: **0.398 + 0.031 ≈ 0.43**
+
+(Wyższe niż wcześniejsze ~0.40 estimate bo task/ ma trochę więcej signal niż czysty blank.)
+
+### Per-PII analiza na full 840
+- **CREDIT**: floor 0.23-0.25, +0.013 lift z direct_probe — minimal. 0 perfect dla wszystkich.
+- **EMAIL**: 0.44 → 0.58 (+0.14, +32% rel). Real memorization signal — model pamięta firstname.lastname.
+- **PHONE**: 0.28 → 0.37 (+0.09, +32% rel). Real signal — model pamięta US area code (`+1505...`).
 
 ## Komendy quick reference
 
