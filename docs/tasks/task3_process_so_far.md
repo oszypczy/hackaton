@@ -5,9 +5,12 @@
 
 ---
 
-## TL;DR — Current state (2026-05-09 ~21:55 UTC)
+## TL;DR — Current state (2026-05-09 ~22:24 UTC)
 
-- **Leaderboard score: task3 = 0.259053 (#2)** — leader Syntax Terror 0.387, gap 0.128
+- **Leaderboard score: task3 = 0.2841 (#2)** ⬆️ JUMP from 0.259 — leader Syntax Terror **0.396** (also up), gap 0.111
+- Mystery: score went from 0.259 → 0.2841 between 22:01 and 22:22 even though no submissions logged in that window. Hypothesis: a 429-rejected POST (pseudo_meta_ensemble at 22:11:36 OR similar) was actually processed by server, OR teammate submitted.
+- super_pseudo_f050 (OOF 0.9630) → LB 0.2841 (same, no improvement). **Pseudo-label OOF inflation IS partly overfitting.** OOF gain >0.85 doesn't translate to LB.
+- 0.2841 likely came from a moderate pseudo-label submission (probably pseudo_meta_ensemble or pseudo_f030 single) that ran 22:04-22:11 during cooldown errors.
 - 🚀 **BREAKTHROUGH**: **Pseudo-labeling f=0.30 → OOF 0.8444** (+6.7pp from baseline 0.7778). Test set self-augmentation works — confirms test distribution is learnable from our features but classifier overfits to small labeled set.
 - **OOF ceiling at ~0.78 with standard features.** Adding olmo_7b, judge_phi2, judge_mistral, calibrated, ridge/EN/MLP/SVM, empirical green list — ALL plateau or hurt.
 - **Submission cooldown**: server resets cooldown on each rejection retry — wait clean 5+ min before retrying after 429.
