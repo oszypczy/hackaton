@@ -2,8 +2,10 @@
 #SBATCH --job-name=t2-prompt
 #SBATCH --partition=dc-gpu
 #SBATCH --account=training2615
+#SBATCH --reservation=cispahack
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
+#SBATCH --cpus-per-task=30
 #SBATCH --gres=gpu:1
 #SBATCH --time=03:00:00
 #SBATCH --output=/p/scratch/training2615/kempinski1/Czumpers/repo-kempinski1/code/attacks/task2/prompt/output/log_%j.txt
@@ -29,7 +31,14 @@ ATTACK_DIR="/p/scratch/training2615/kempinski1/Czumpers/repo-kempinski1/code/att
 # Load CUDA (deepspeed needs CUDA_HOME at import time)
 module load CUDA/13 2>/dev/null || module load CUDA 2>/dev/null
 export CUDA_HOME="${CUDA_HOME:-${EBROOTCUDA:-/usr/local/cuda}}"
-echo "[main.sh] CUDA_HOME=$CUDA_HOME"
+
+# HF cache (mirror hackathon_setup.sh — sbatch may not source .bashrc)
+export HF_HOME=/p/scratch/training2615/kempinski1/Czumpers/.cache
+export HUGGINGFACE_HUB_CACHE=/p/scratch/training2615/kempinski1/Czumpers/.cache/hub
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+
+echo "[main.sh] CUDA_HOME=$CUDA_HOME  HF_HOME=$HF_HOME  HF_HUB_OFFLINE=$HF_HUB_OFFLINE"
 
 # venv with pre-built deps (torch 2.11+CUDA 13, py3.12)
 VENV="$DATA_DIR/.venv"
