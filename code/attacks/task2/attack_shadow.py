@@ -3,19 +3,16 @@ Task 2 — Path B: White-box memorization signal (murdzek2)
 
 Strategy:
   1. Greedy decode from target_lmm  →  common-floor baseline
-  2. K=8 sampling candidates  →  rank by Δ = loss_shadow - loss_target
-     (lower target loss = stronger memorization → higher Δ = better candidate)
+  2. K=8 sampling candidates  →  rank by Delta = loss_shadow - loss_target
+     (lower target loss = stronger memorization -> higher Delta = better candidate)
   3. Enforce 10-100 char constraint
 
-Paths on Jülich (run from codebase root):
-  CODEBASE = /p/scratch/training2615/kempinski1/Czumpers/p4ms_codebase/p4ms_hackathon_warsaw_code-main
-  DATA     = /p/scratch/training2615/kempinski1/Czumpers/P4Ms-hackathon-vision-task
-
-Run:
-  cd $CODEBASE
-  source /p/project1/training2615/murdzek2/Hackathon/.venv/bin/activate
-  python /p/project1/training2615/murdzek2/Hackathon/code/attacks/task2/attack_shadow.py --mode val
-  python /p/project1/training2615/murdzek2/Hackathon/code/attacks/task2/attack_shadow.py --mode submit
+All issues fixed per SETUP_GUIDE from kempinski1 (task2-prompt):
+  - flash_attention_2 -> sdpa monkey-patch
+  - "<image>" key in batch_X_modals (not "image")
+  - model.generate() with batch_input_ids style
+  - torch.autocast bf16 wrap
+  - module load CUDA/13 + HF offline in main.sh
 """
 
 import argparse
@@ -31,22 +28,38 @@ from datasets import load_from_disk
 from PIL import Image
 from rapidfuzz.distance import Levenshtein
 
-# ── Resolve codebase (must run from codebase dir OR set CODEBASE env var) ─────
+# ── Codebase path setup ────────────────────────────────────────────────────────
 CODEBASE = Path(os.environ.get(
     "CODEBASE",
     "/p/scratch/training2615/kempinski1/Czumpers/p4ms_codebase/p4ms_hackathon_warsaw_code-main"
 ))
-# unified_config.py uses os.listdir("config/models") — relative to codebase root
+# unified_config.py uses os.listdir("config/models") — relative, must be CWD
 os.chdir(str(CODEBASE))
 sys.path.insert(0, str(CODEBASE))
 sys.path.insert(0, str(CODEBASE / "scripts"))
 
-from load_lmm_from_hf_dir import load_lmm, model_setup_inference  # noqa: E402
+
+# ── Patch flash_attn -> sdpa BEFORE any codebase import ───────────────────────
+def _patch_attn_no_flash() -> None:
+    import transformers.modeling_utils as _mu
+    _orig = _mu.PreTrainedModel.from_pretrained
+
+    @classmethod  # type: ignore[misc]
+    def _patched(cls, *args, **kwargs):
+        if kwargs.get("attn_implementation") == "flash_attention_2":
+            kwargs["attn_implementation"] = "sdpa"
+        return _orig.__func__(cls, *args, **kwargs)
+
+    _mu.PreTrainedModel.from_pretrained = _patched
+
+
+_patch_attn_no_flash()
+
+from load_lmm_from_hf_dir import load_lmm  # noqa: E402
 from src.lmms.dataset.task_dataset import (  # noqa: E402
     get_formatted_question,
     sample_to_chat_template,
 )
-from src.lmms.utils.util import prepare_sample  # noqa: E402
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 BASE_URL = "http://35.192.205.84:80"
@@ -63,103 +76,107 @@ REPO_ROOT  = Path(__file__).parents[3]
 OUT_CSV    = REPO_ROOT / "submission_shadow.csv"
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-IMG_SIZE = 336   # matches training config
 
 PII_TYPES   = ("EMAIL", "CREDIT", "PHONE")
 PII_KW      = {"EMAIL": "email", "CREDIT": "credit", "PHONE": "phone"}
 PRED_MIN, PRED_MAX = 10, 100
 
+
 # ── Model loading ──────────────────────────────────────────────────────────────
 def load_both_models():
     print(f"Loading target_lmm from {TARGET_DIR} ...")
-    target, tok, margs, dargs, targs = load_lmm(str(TARGET_DIR), device=DEVICE)
+    target, tok, _margs, dargs, _targs = load_lmm(
+        str(TARGET_DIR), device=DEVICE, dtype="bf16"
+    )
     img_proc = target.get_model().visual_encoder.image_processor
+    img_size = int(getattr(dargs, "data_image_size", 336))
 
     print(f"Loading shadow_lmm from {SHADOW_DIR} ...")
-    shadow, _, _, _, _ = load_lmm(str(SHADOW_DIR), device=DEVICE,
-                                   do_not_setup_inference=True)
+    shadow, _, _, _, _ = load_lmm(
+        str(SHADOW_DIR), device=DEVICE, dtype="bf16",
+        do_not_setup_inference=True,
+    )
     shadow.eval()
-    return target, shadow, tok, img_proc, dargs
+    return target, shadow, tok, img_proc, img_size
 
 
-# ── Build single-turn batch from raw HF sample + pii_type ─────────────────────
-def make_batch(sample, pii_type: str, tokenizer, img_proc,
-               include_answer: bool = True):
-    """
-    Returns a collated batch dict ready for prepare_multimodal_inputs.
-    include_answer=False → generation mode (no label tokens).
-    include_answer=True  → loss scoring mode.
-    """
+# ── Image preprocessing ────────────────────────────────────────────────────────
+def preprocess_image(sample, img_proc, img_size: int, device) -> torch.Tensor:
+    pil_img = sample.get("path")
+    if isinstance(pil_img, Image.Image):
+        pil_img = pil_img.convert("RGB").resize(
+            (img_size, img_size), Image.Resampling.BILINEAR
+        )
+    else:
+        pil_img = Image.new("RGB", (img_size, img_size))
+    tensor = img_proc.preprocess(pil_img, return_tensors="pt")["pixel_values"][0]
+    return tensor.unsqueeze(0).to(device)  # (1, C, H, W)
+
+
+# ── Build prompt token ids (no answer) ────────────────────────────────────────
+def build_prompt_ids(sample, pii_type: str, tokenizer, device) -> torch.Tensor:
     kw = PII_KW[pii_type]
     conv_turn = next(
         (t for t in sample["conversation"] if kw in t["instruction"].lower()),
         sample["conversation"][0],
     )
-
     instruction = get_formatted_question(conv_turn["instruction"], "image")
-    output = conv_turn["output"] if include_answer else ""
-
-    fake_sample = {
-        "conversation": [{"instruction": instruction, "output": output}],
-    }
-    data = sample_to_chat_template(fake_sample, tokenizer)
-
-    # Tokenize
-    full_text = data["conversation"][0]["instruction"]
-    if include_answer:
-        full_text += data["conversation"][0]["output"] + tokenizer.eos_token
-
-    input_ids = tokenizer(full_text, return_tensors="pt")["input_ids"]
-
-    # Labels: -100 for instruction part, token ids for answer part
-    if include_answer:
-        instr_ids = tokenizer(
-            data["conversation"][0]["instruction"], return_tensors="pt"
-        )["input_ids"]
-        n_instr = instr_ids.shape[1]
-        labels = input_ids.clone()
-        labels[0, :n_instr] = -100
-    else:
-        labels = torch.full_like(input_ids, -100)
-
-    # Image
-    pil_img = sample["path"]
-    if isinstance(pil_img, Image.Image):
-        pil_img = pil_img.convert("RGB").resize(
-            (IMG_SIZE, IMG_SIZE), Image.Resampling.BILINEAR
-        )
-        image_tensor = img_proc.preprocess(pil_img, return_tensors="pt")[
-            "pixel_values"
-        ]  # (1, C, H, W)
-    else:
-        image_tensor = torch.zeros(1, 3, IMG_SIZE, IMG_SIZE)
-
-    batch = {
-        "batch_input_ids": input_ids,
-        "batch_labels": labels,
-        "batch_X_modals": [{"image": image_tensor}],
-    }
-    return batch
+    data = sample_to_chat_template(
+        {"conversation": [{"instruction": instruction, "output": ""}]}, tokenizer
+    )
+    prompt_text = data["conversation"][0]["instruction"]
+    token_ids = tokenizer.convert_tokens_to_ids(tokenizer.tokenize(prompt_text))
+    return torch.tensor(token_ids, dtype=torch.long, device=device)
 
 
-# ── Per-token loss → mean answer loss ─────────────────────────────────────────
+# ── Build full ids + labels for loss scoring ──────────────────────────────────
+def build_answer_ids_labels(sample, pii_type: str, answer: str, tokenizer, device):
+    kw = PII_KW[pii_type]
+    conv_turn = next(
+        (t for t in sample["conversation"] if kw in t["instruction"].lower()),
+        sample["conversation"][0],
+    )
+    instruction = get_formatted_question(conv_turn["instruction"], "image")
+    data = sample_to_chat_template(
+        {"conversation": [{"instruction": instruction, "output": answer}]}, tokenizer
+    )
+    instr_text = data["conversation"][0]["instruction"]
+    full_text = instr_text + answer + tokenizer.eos_token
+
+    instr_ids = tokenizer(instr_text, return_tensors="pt")["input_ids"][0]
+    full_ids  = tokenizer(full_text,  return_tensors="pt")["input_ids"][0]
+
+    labels = full_ids.clone()
+    labels[: len(instr_ids)] = -100
+
+    return full_ids.to(device), labels.to(device)
+
+
+# ── Per-token loss ─────────────────────────────────────────────────────────────
 @torch.no_grad()
-def answer_loss(model, batch, device: torch.device) -> float:
-    s = prepare_sample(batch, device)
+def answer_loss(model, sample, pii_type: str, answer: str,
+                tokenizer, img_proc, img_size: int) -> float:
+    dev = model.device
+    input_ids, labels = build_answer_ids_labels(sample, pii_type, answer, tokenizer, dev)
+    img_tensor = preprocess_image(sample, img_proc, img_size, dev)
+
     with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
         inputs = model.prepare_multimodal_inputs(
-            batch_input_ids=s["batch_input_ids"],
-            batch_labels=s["batch_labels"],
-            batch_X_modals=s["batch_X_modals"],
+            batch_input_ids=[input_ids],
+            batch_labels=[labels],
+            batch_X_modals=[{"<image>": img_tensor}],
         )
+        # inputs may be a dict or list — unwrap to dict if needed
+        if isinstance(inputs, (list, tuple)):
+            inputs = inputs[0]
         out = model(
-            input_ids=inputs["input_ids"],
-            attention_mask=inputs["attention_mask"],
-            position_ids=inputs["position_ids"],
-            inputs_embeds=inputs["inputs_embeds"],
-            labels=inputs["labels"],
+            input_ids=inputs.get("input_ids"),
+            attention_mask=inputs.get("attention_mask"),
+            position_ids=inputs.get("position_ids"),
+            inputs_embeds=inputs.get("inputs_embeds"),
+            labels=inputs.get("labels"),
         )
-    # Return mean cross-entropy over labeled (answer) tokens
+
     shift_logits = out.logits[:, :-1, :].contiguous()
     shift_labels = inputs["labels"][:, 1:].contiguous()
     per_tok = F.cross_entropy(
@@ -168,71 +185,65 @@ def answer_loss(model, batch, device: torch.device) -> float:
         reduction="none",
         ignore_index=-100,
     )
-    mask = (shift_labels.view(-1) != -100)
-    if mask.sum() == 0:
-        return 0.0
-    return per_tok[mask].mean().item()
+    mask = shift_labels.view(-1) != -100
+    return per_tok[mask].mean().item() if mask.any() else 0.0
 
 
-# ── Greedy generation ──────────────────────────────────────────────────────────
+# ── Generation ─────────────────────────────────────────────────────────────────
 @torch.no_grad()
-def generate_answer(model, batch, tokenizer, device: torch.device,
+def generate_answer(model, sample, pii_type: str, tokenizer,
+                    img_proc, img_size: int,
                     do_sample: bool = False, temperature: float = 0.7,
-                    max_new_tokens: int = 50) -> str:
-    s = prepare_sample(batch, device)
+                    max_new_tokens: int = 60) -> str:
+    dev = model.device
+    input_ids = build_prompt_ids(sample, pii_type, tokenizer, dev)
+    img_tensor = preprocess_image(sample, img_proc, img_size, dev)
+
     with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-        inputs = model.prepare_multimodal_inputs(
-            batch_input_ids=s["batch_input_ids"],
-            batch_labels=s["batch_labels"],
-            batch_X_modals=s["batch_X_modals"],
-        )
-        gen_ids = model.generate(
-            inputs_embeds=inputs["inputs_embeds"],
-            attention_mask=inputs["attention_mask"],
+        gen_out = model.generate(
+            batch_input_ids=[input_ids],
+            batch_labels=[torch.full_like(input_ids, -100)],
+            batch_X_modals=[{"<image>": img_tensor}],
             max_new_tokens=max_new_tokens,
             do_sample=do_sample,
             temperature=temperature if do_sample else 1.0,
+            num_beams=1,
             pad_token_id=tokenizer.pad_token_id,
             eos_token_id=tokenizer.eos_token_id,
         )
-    text = tokenizer.decode(gen_ids[0], skip_special_tokens=True).strip()
-    return text
+
+    # gen_out may be list, GenerateOutput, or tensor — extract token ids
+    if isinstance(gen_out, (list, tuple)):
+        ids = gen_out[0]
+    elif hasattr(gen_out, "sequences"):
+        ids = gen_out.sequences[0]
+    else:
+        ids = gen_out[0]
+
+    return tokenizer.decode(ids, skip_special_tokens=True).strip()
 
 
-# ── Main prediction: greedy baseline + delta reranking ────────────────────────
-def predict(sample, pii_type: str, target, shadow, tokenizer, img_proc,
-            k: int = 8, temperature: float = 0.7) -> str:
-    dev = torch.device(DEVICE)
-
-    # Generate K candidates from target
-    batch_gen = make_batch(sample, pii_type, tokenizer, img_proc, include_answer=False)
+# ── Main prediction: greedy + delta reranking ─────────────────────────────────
+def predict(sample, pii_type: str, target, shadow, tokenizer,
+            img_proc, img_size: int, k: int = 8, temperature: float = 0.7) -> str:
     candidates = []
-    # greedy first
-    candidates.append(generate_answer(target, batch_gen, tokenizer, dev, do_sample=False))
+    candidates.append(
+        generate_answer(target, sample, pii_type, tokenizer, img_proc, img_size,
+                        do_sample=False)
+    )
     for _ in range(k - 1):
         candidates.append(
-            generate_answer(target, batch_gen, tokenizer, dev,
+            generate_answer(target, sample, pii_type, tokenizer, img_proc, img_size,
                             do_sample=True, temperature=temperature)
         )
 
-    # Rank by Δ = loss_shadow - loss_target  (higher = target memorized it more)
     best, best_delta = candidates[0], float("-inf")
     for cand in candidates:
         cand = cand.strip()
         if not cand:
             continue
-        batch_score = make_batch(
-            {**sample, "conversation": [
-                {"instruction": next(
-                    t["instruction"] for t in sample["conversation"]
-                    if PII_KW[pii_type] in t["instruction"].lower()
-                ),
-                 "output": cand}
-            ]},
-            pii_type, tokenizer, img_proc, include_answer=True,
-        )
-        tgt_loss = answer_loss(target, batch_score, dev)
-        shd_loss = answer_loss(shadow, batch_score, dev)
+        tgt_loss = answer_loss(target, sample, pii_type, cand, tokenizer, img_proc, img_size)
+        shd_loss = answer_loss(shadow, sample, pii_type, cand, tokenizer, img_proc, img_size)
         delta = shd_loss - tgt_loss
         if delta > best_delta:
             best, best_delta = cand, delta
@@ -240,11 +251,11 @@ def predict(sample, pii_type: str, target, shadow, tokenizer, img_proc,
     return best
 
 
-# ── Length enforcement ─────────────────────────────────────────────────────────
+# ── Length / format enforcement ────────────────────────────────────────────────
 def enforce_length(pred: str, pii_type: str) -> str:
     pred = pred.strip().strip('"\'<>').strip()
-    if pii_type == "EMAIL" and "@" not in pred and len(pred) < PRED_MIN:
-        pred = pred + "@example.com"
+    if pii_type == "EMAIL" and "@" not in pred:
+        pred = pred.lower() + "@example.com"
     if len(pred) < PRED_MIN:
         pred = pred.ljust(PRED_MIN, "0")
     if len(pred) > PRED_MAX:
@@ -259,14 +270,13 @@ def similarity(gt: str, pred: str) -> float:
     return 1.0 - d / m if m > 0 else 1.0
 
 
-# ── Sanity check ───────────────────────────────────────────────────────────────
 def _sanity():
     assert abs(Levenshtein.distance("abc", "ab", weights=(1, 1, 1)) / max(3, 2) - 1/3) < 1e-9, \
-        "Levenshtein sanity FAILED — wrong variant"
+        "Levenshtein sanity FAILED"
 
 
 # ── Validation run ─────────────────────────────────────────────────────────────
-def run_val(target, shadow, tokenizer, img_proc):
+def run_val(target, shadow, tokenizer, img_proc, img_size):
     ds = load_from_disk(str(VAL_DIR))["train"]
     scores = {t: [] for t in PII_TYPES}
 
@@ -279,12 +289,12 @@ def run_val(target, shadow, tokenizer, img_proc):
             )
             gt = gt_turn["output"]
             pred = enforce_length(
-                predict(sample, pii_type, target, shadow, tokenizer, img_proc),
+                predict(sample, pii_type, target, shadow, tokenizer, img_proc, img_size),
                 pii_type,
             )
             scores[pii_type].append(similarity(gt, pred))
 
-        if (i + 1) % 10 == 0:
+        if (i + 1) % 5 == 0:
             means = {t: sum(v) / len(v) for t, v in scores.items() if v}
             print(f"[{i+1}/{len(ds)}] " +
                   " | ".join(f"{t}={m:.3f}" for t, m in means.items()))
@@ -299,7 +309,7 @@ def run_val(target, shadow, tokenizer, img_proc):
 
 
 # ── Submission run ─────────────────────────────────────────────────────────────
-def run_submit(target, shadow, tokenizer, img_proc):
+def run_submit(target, shadow, tokenizer, img_proc, img_size):
     ds = load_from_disk(str(TASK_DIR))["train"]
     rows = []
 
@@ -307,7 +317,7 @@ def run_submit(target, shadow, tokenizer, img_proc):
         sid = sample["user_id"]
         for pii_type in PII_TYPES:
             pred = enforce_length(
-                predict(sample, pii_type, target, shadow, tokenizer, img_proc),
+                predict(sample, pii_type, target, shadow, tokenizer, img_proc, img_size),
                 pii_type,
             )
             rows.append((sid, pii_type, pred))
@@ -338,21 +348,20 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=["val", "submit"], default="val")
     parser.add_argument("--k", type=int, default=8,
-                        help="Number of sampling candidates for delta reranking")
+                        help="Sampling candidates for delta reranking")
     parser.add_argument("--greedy-only", action="store_true",
-                        help="Skip delta reranking (fast baseline, no shadow model)")
+                        help="Skip delta reranking (fast greedy baseline)")
     args = parser.parse_args()
 
-    target, shadow, tokenizer, img_proc, _ = load_both_models()
+    target, shadow, tokenizer, img_proc, img_size = load_both_models()
 
     if args.greedy_only:
-        # Override predict to greedy-only (skips shadow load cost in testing)
-        def predict(sample, pii_type, target, shadow, tokenizer, img_proc, k=1, temperature=0.7):
-            dev = torch.device(DEVICE)
-            batch = make_batch(sample, pii_type, tokenizer, img_proc, include_answer=False)
-            return generate_answer(target, batch, tokenizer, dev, do_sample=False)
+        def predict(sample, pii_type, target, shadow, tokenizer,  # type: ignore[no-redef]
+                    img_proc, img_size, k=1, temperature=0.7):
+            return generate_answer(target, sample, pii_type, tokenizer,
+                                   img_proc, img_size, do_sample=False)
 
     if args.mode == "val":
-        run_val(target, shadow, tokenizer, img_proc)
+        run_val(target, shadow, tokenizer, img_proc, img_size)
     else:
-        run_submit(target, shadow, tokenizer, img_proc)
+        run_submit(target, shadow, tokenizer, img_proc, img_size)
