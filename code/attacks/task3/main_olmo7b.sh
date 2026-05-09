@@ -24,18 +24,13 @@ mkdir -p "$TASK_CACHE" "$TASK_OUT/output"
 source "$SCRATCH/repo-${USER}/venv/bin/activate"
 export HF_HOME="$SCRATCH/.cache"
 
-# Download OLMo-2-7B-Instruct if not cached (public, no token needed)
+# OLMo-2-7B-Instruct musi być w cache! Jeśli nie:
+#   bash scripts/download_llama_tokenizers.sh  (na LOGIN node, ma internet)
+# Compute nodes na Jülich nie mają internetu (Errno 113 No route to host).
 if [ ! -d "$HF_HOME/hub/models--allenai--OLMo-2-1124-7B-Instruct" ]; then
-    echo "Downloading OLMo-2-7B-Instruct..."
-    export TRANSFORMERS_OFFLINE=0
-    export HF_DATASETS_OFFLINE=0
-    python -c "
-from transformers import AutoTokenizer, AutoModelForCausalLM
-import torch
-tok = AutoTokenizer.from_pretrained('allenai/OLMo-2-1124-7B-Instruct')
-mod = AutoModelForCausalLM.from_pretrained('allenai/OLMo-2-1124-7B-Instruct', torch_dtype=torch.float16)
-print(f'  OK: {sum(p.numel() for p in mod.parameters())/1e9:.1f}B params')
-"
+    echo "ERROR: OLMo-2-7B-Instruct NIE w cache!" >&2
+    echo "Najpierw: bash scripts/download_llama_tokenizers.sh (na login node)" >&2
+    exit 1
 fi
 
 export TRANSFORMERS_OFFLINE=1
