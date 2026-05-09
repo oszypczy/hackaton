@@ -21,7 +21,7 @@ TASK_OUT=$SCRATCH/task3
 
 mkdir -p "$TASK_CACHE" "$TASK_OUT/output"
 
-source "$SCRATCH/task3/.venv/bin/activate"
+source "$SCRATCH/repo-${USER}/venv/bin/activate"
 
 cd "$REPO"
 git pull --ff-only
