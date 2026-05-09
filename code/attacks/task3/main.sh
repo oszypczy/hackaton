@@ -23,14 +23,16 @@ mkdir -p "$TASK_CACHE" "$TASK_OUT/output"
 
 source "$SCRATCH/repo-${USER}/venv/bin/activate"
 
-export PATH=/usr/bin:$PATH
+export HF_HOME="$SCRATCH/.cache"
+export TRANSFORMERS_OFFLINE=1
+export HF_DATASETS_OFFLINE=1
 
 cd "$REPO"
-/usr/bin/git pull --ff-only
 
 # Phase 2: all branches, GPU (binoculars uses CUDA automatically)
 python code/attacks/task3/main.py \
     --phase 2 \
+    --data-dir "$SCRATCH/llm-watermark-detection" \
     --cache-dir "$TASK_CACHE" \
     --out "$TASK_OUT/submission.csv" \
     --n-rows 2250
