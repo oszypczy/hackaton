@@ -92,6 +92,13 @@ Jeśli odpowiedź "tak" lub "może" → **najpierw zapytaj usera**, nawet jeśli
 
 **If socket is dead** (>4h since connect or machine rebooted): tell user to run `! scripts/juelich_connect.sh` again. Do not attempt to restart it yourself.
 
+**Git workflow — ZAWSZE:**
+1. Zmiany w kodzie → edytuj lokalnie (WSL/repo)
+2. `git add ... && git commit && git push`
+3. Na Jülichu: `scripts/juelich_exec.sh "cd /p/project1/training2615/murdzek2/Hackathon && git pull"`
+4. Resubmit job jeśli potrzeba
+Nigdy nie edytuj plików bezpośrednio na Jülichu przez `juelich_exec.sh` — git się rozjeżdża.
+
 **Config lives in `.juelich.local`** (gitignored). Each teammate has their own file with `JUELICH_USER`, `JUELICH_KEY`, `JUELICH_HOST`.
 
 ## Cluster workflow (TLDR — szczegóły w `docs/CLUSTER_WORKFLOW.md`)
