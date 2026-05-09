@@ -2,14 +2,17 @@
 """Task 3: LLM Watermark Detection — main pipeline.
 
 Usage examples:
-  # Phase 1 baseline (no Binoculars, no Branch D):
-  python main.py --phase 1
+  # Phase 1 baseline (branch_a only, logreg):
+  python main.py --phase 1 --classifier logreg
 
-  # Phase 2 full (all branches, GPU recommended for binoculars):
-  python main.py --phase 2
+  # Phase 2 full without branch_bc (no bimodal collapse):
+  python main.py --phase 2 --skip-branch-bc --classifier logreg
 
-  # Eval only (metrics on val, no submission file):
-  python main.py --phase 2 --eval-only
+  # Phase 2 full, all branches, logreg:
+  python main.py --phase 2 --classifier logreg
+
+  # Old LightGBM mode:
+  python main.py --phase 2 --classifier lgbm
 
   # 2400-row fallback if API rejects 2250:
   python main.py --phase 2 --n-rows 2400
@@ -23,7 +26,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from sklearn.isotonic import IsotonicRegression
 from sklearn.model_selection import StratifiedKFold
 from tqdm import tqdm
 
@@ -48,6 +50,12 @@ def parse_args() -> argparse.Namespace:
                    help="1=baseline (no binoculars/branch-d), 2=full")
     p.add_argument("--skip-binoculars", action="store_true")
     p.add_argument("--skip-branch-d", action="store_true")
+    p.add_argument("--skip-branch-bc", action="store_true",
+                   help="Skip branch_bc (green-list features) to avoid bimodal collapse")
+    p.add_argument("--classifier", choices=["lgbm", "logreg"], default="logreg",
+                   help="Classifier: logreg (continuous output) or lgbm (default was lgbm)")
+    p.add_argument("--logreg-C", type=float, default=0.05,
+                   help="LogReg regularization strength (smaller = more regularized)")
     p.add_argument("--n-rows", type=int, default=2250, choices=[2250, 2400],
                    help="Submission row count (2400 fallback if API rejects 2250)")
     p.add_argument("--eval-only", action="store_true",
@@ -150,7 +158,41 @@ def extract_cached(
     return df
 
 
-# ── LightGBM training ─────────────────────────────────────────────────────────
+# ── Classifier helpers ────────────────────────────────────────────────────────
+
+class _LogRegModel:
+    """Wraps sklearn Pipeline so .predict(X) returns probabilities."""
+    def __init__(self, pipe):
+        self.pipe = pipe
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        return self.pipe.predict_proba(X)[:, 1]
+
+
+def _make_logreg(C: float = 0.05):
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.pipeline import Pipeline
+    return Pipeline([
+        ("scaler", StandardScaler()),
+        ("clf", LogisticRegression(C=C, max_iter=2000, solver="lbfgs")),
+    ])
+
+
+def train_logreg(C: float = 0.05):
+    """Returns a train_fn(X_tr, y_tr, X_va, y_va) -> model compatible with run_oof."""
+    def _train(X_tr, y_tr, X_va, y_va):
+        pipe = _make_logreg(C)
+        pipe.fit(X_tr, y_tr)
+        return _LogRegModel(pipe)
+    return _train
+
+
+def train_logreg_final(X: np.ndarray, y: np.ndarray, C: float = 0.05) -> _LogRegModel:
+    pipe = _make_logreg(C)
+    pipe.fit(X, y)
+    return _LogRegModel(pipe)
+
 
 def train_lgbm(X_tr: np.ndarray, y_tr: np.ndarray, X_va: np.ndarray, y_va: np.ndarray):
     import lightgbm as lgb
@@ -170,14 +212,13 @@ def train_lgbm(X_tr: np.ndarray, y_tr: np.ndarray, X_va: np.ndarray, y_va: np.nd
     }
     dtr = lgb.Dataset(X_tr, label=y_tr)
     dva = lgb.Dataset(X_va, label=y_va, reference=dtr)
-    model = lgb.train(
+    return lgb.train(
         params,
         dtr,
         num_boost_round=1000,
         valid_sets=[dva],
         callbacks=[lgb.early_stopping(50, verbose=False), lgb.log_evaluation(-1)],
     )
-    return model
 
 
 def train_lgbm_fixed(X: np.ndarray, y: np.ndarray, n_rounds: int):
@@ -199,11 +240,11 @@ def train_lgbm_fixed(X: np.ndarray, y: np.ndarray, n_rounds: int):
     return lgb.train(params, lgb.Dataset(X, label=y), num_boost_round=n_rounds)
 
 
-# ── OOF + calibration ─────────────────────────────────────────────────────────
+# ── OOF ───────────────────────────────────────────────────────────────────────
 
-def run_oof(X: np.ndarray, y: np.ndarray, n_splits: int, seed: int) -> tuple[np.ndarray, int]:
+def run_oof(X: np.ndarray, y: np.ndarray, n_splits: int, seed: int, train_fn) -> tuple[np.ndarray, int]:
     from cv_utils import run_oof as _run_oof
-    return _run_oof(X, y, train_lgbm, n_splits=n_splits, seed=seed)
+    return _run_oof(X, y, train_fn, n_splits=n_splits, seed=seed)
 
 
 def bootstrap_ci(scores: np.ndarray, labels: np.ndarray, n_boot: int = 1000) -> tuple[float, float, float]:
@@ -269,66 +310,72 @@ def main() -> None:
     from features import branch_a, branch_bc, branch_d, binoculars
 
     print("\nExtracting features...")
+    print(f"  classifier={args.classifier}  skip_branch_bc={args.skip_branch_bc}")
 
     fa = extract_cached("a", all_texts, branch_a.extract, args.cache_dir, args.force_extract)
 
-    # Fit Unigram green list on TRAIN labels only (avoid val leakage)
-    gl_cache = args.cache_dir / "green_list.pkl"
-    if not args.force_extract and gl_cache.exists():
-        from transformers import AutoTokenizer
-        gpt2_tok = AutoTokenizer.from_pretrained("gpt2")
-        with open(gl_cache, "rb") as f:
-            gl = pickle.load(f)
-        print("  [cache] Loaded green_list.pkl")
-    else:
-        from transformers import AutoTokenizer
-        gpt2_tok = AutoTokenizer.from_pretrained("gpt2")
-        gl = branch_bc.UnigramGreenList()
-        gl.fit(train_df["text"].tolist(), train_df["label"].tolist(), gpt2_tok)
-        with open(gl_cache, "wb") as f:
-            pickle.dump(gl, f)
-        print("  [extract] Fitted UnigramGreenList on training split")
+    parts = [fa.reset_index(drop=True)]
 
-    fb = extract_cached(
-        "bc", all_texts, lambda t: branch_bc.extract(t, gl, gpt2_tok), args.cache_dir, args.force_extract
-    )
+    if not args.skip_branch_bc:
+        # Fit Unigram green list on TRAIN labels only (avoid val leakage)
+        gl_cache = args.cache_dir / "green_list.pkl"
+        if not args.force_extract and gl_cache.exists():
+            from transformers import AutoTokenizer
+            gpt2_tok = AutoTokenizer.from_pretrained("gpt2")
+            with open(gl_cache, "rb") as f:
+                gl = pickle.load(f)
+            print("  [cache] Loaded green_list.pkl")
+        else:
+            from transformers import AutoTokenizer
+            gpt2_tok = AutoTokenizer.from_pretrained("gpt2")
+            gl = branch_bc.UnigramGreenList()
+            gl.fit(train_df["text"].tolist(), train_df["label"].tolist(), gpt2_tok)
+            with open(gl_cache, "wb") as f:
+                pickle.dump(gl, f)
+            print("  [extract] Fitted UnigramGreenList on training split")
+
+        fb = extract_cached(
+            "bc", all_texts, lambda t: branch_bc.extract(t, gl, gpt2_tok), args.cache_dir, args.force_extract
+        )
+        parts.append(fb.reset_index(drop=True))
+    else:
+        print("  [skip] branch_bc (--skip-branch-bc set)")
 
     use_bino = args.phase >= 2 and not args.skip_binoculars
-    fb_bino = (
-        extract_cached("bino", all_texts, binoculars.extract, args.cache_dir, args.force_extract)
-        if use_bino
-        else None
-    )
+    if use_bino:
+        fb_bino = extract_cached("bino", all_texts, binoculars.extract, args.cache_dir, args.force_extract)
+        parts.append(fb_bino.reset_index(drop=True))
 
     use_d = args.phase >= 2 and not args.skip_branch_d
-    fd = (
-        extract_cached("d", all_texts, branch_d.extract, args.cache_dir, args.force_extract)
-        if use_d
-        else None
-    )
-
-    # ── 3. Build feature matrix
-    parts = [fa.reset_index(drop=True), fb.reset_index(drop=True)]
-    if fb_bino is not None:
-        parts.append(fb_bino.reset_index(drop=True))
-    if fd is not None:
+    if use_d:
+        fd = extract_cached("d", all_texts, branch_d.extract, args.cache_dir, args.force_extract)
         parts.append(fd.reset_index(drop=True))
 
+    # ── 3. Build feature matrix
     X_full = pd.concat(parts, axis=1).fillna(0.0).values.astype(np.float32)
     X_labeled = X_full[:n_labeled]
     X_test = X_full[n_labeled:]
 
+    feat_names = pd.concat(parts, axis=1).columns.tolist()
     print(f"\nFeature matrix: {X_labeled.shape} labeled + {X_test.shape} test")
-    print(f"Features: {pd.concat(parts, axis=1).columns.tolist()}")
+    print(f"Features ({len(feat_names)}): {feat_names}")
 
-    # ── 4. 5-fold OOF
-    print(f"\nRunning {args.n_splits}-fold OOF...")
-    oof, mean_best_iter = run_oof(X_labeled, y_labeled, args.n_splits, args.seed)
+    # ── 4. Choose classifier and run OOF
+    print(f"\nRunning {args.n_splits}-fold OOF with {args.classifier}...")
+    if args.classifier == "logreg":
+        train_fn = train_logreg(args.logreg_C)
+    else:
+        train_fn = train_lgbm
+
+    oof, mean_best_iter = run_oof(X_labeled, y_labeled, args.n_splits, args.seed, train_fn)
 
     oof_tpr = tpr_at_fpr(oof.tolist(), y_labeled.tolist(), 0.01)
     ci = bootstrap_ci(oof, y_labeled)
     print(f"OOF TPR@1%FPR: {oof_tpr:.4f}  CI(5/95): [{ci[0]:.4f}, {ci[2]:.4f}]")
-    print(f"Mean best iteration from OOF folds: {mean_best_iter}")
+
+    # Distribution check
+    pct = np.percentile(oof, [5, 25, 50, 75, 95])
+    print(f"OOF score pct [5,25,50,75,95]: {[f'{v:.3f}' for v in pct]}")
 
     # Per-subtype breakdown if column exists
     if "watermark_type" in all_labeled.columns:
@@ -338,28 +385,27 @@ def main() -> None:
                 t = tpr_at_fpr(oof[mask].tolist(), y_labeled[mask].tolist(), 0.01)
                 print(f"  TPR@1%FPR [{wt}]: {t:.4f}")
 
-    # ── 5. Isotonic calibration
-    calibrator = IsotonicRegression(out_of_bounds="clip").fit(oof, y_labeled)
-    cal_oof = calibrator.transform(oof)
-    cal_tpr = tpr_at_fpr(cal_oof.tolist(), y_labeled.tolist(), 0.01)
-    print(f"Calibrated OOF TPR@1%FPR: {cal_tpr:.4f}")
-
     if args.eval_only:
         print("\n--eval-only: done.")
         return
 
-    # ── 6. Final model on all labeled data (fixed rounds from OOF)
-    print(f"\nTraining final model (n_rounds={mean_best_iter}) on all {n_labeled} labeled samples...")
-    final_model = train_lgbm_fixed(X_labeled, y_labeled, mean_best_iter)
+    # ── 5. Final model on all labeled data
+    print(f"\nTraining final model on all {n_labeled} labeled samples...")
+    if args.classifier == "logreg":
+        final_model = train_logreg_final(X_labeled, y_labeled, args.logreg_C)
+    else:
+        print(f"  n_rounds={mean_best_iter}")
+        final_model = train_lgbm_fixed(X_labeled, y_labeled, mean_best_iter)
 
-    # ── 7. Test inference
-    raw = final_model.predict(X_test)
-    cal = np.clip(calibrator.transform(raw), 0.0, 1.0)
+    # ── 6. Test inference (no separate calibration — logreg already outputs probs)
+    scores = final_model.predict(X_test)
 
-    print(f"Test score distribution: min={cal.min():.4f} mean={cal.mean():.4f} max={cal.max():.4f}")
+    pct_t = np.percentile(scores, [5, 25, 50, 75, 95])
+    print(f"Test score distribution: min={scores.min():.4f} max={scores.max():.4f} mean={scores.mean():.4f}")
+    print(f"Test score pct [5,25,50,75,95]: {[f'{v:.3f}' for v in pct_t]}")
 
-    # ── 8. Build and validate submission
-    sub = build_submission(test_df, cal, args.n_rows)
+    # ── 7. Build and validate submission
+    sub = build_submission(test_df, scores, args.n_rows)
     validate_submission(sub, args.n_rows)
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
