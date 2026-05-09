@@ -165,7 +165,7 @@ def main() -> int:
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--roberta-pca", type=int, default=32)
     p.add_argument("--n-rows", type=int, default=2250)
-    p.add_argument("--classifier", choices=["logreg", "lgbm", "ensemble", "elasticnet", "ridge", "svm", "mlp"], default="logreg")
+    p.add_argument("--classifier", choices=["logreg", "lgbm", "ensemble", "elasticnet", "ridge", "svm", "mlp", "calibrated"], default="logreg")
     p.add_argument("--ensemble-weights", default="0.5,0.5",
                    help="weights for ensemble (logreg, lgbm) — comma-separated")
     p.add_argument("--l1-ratio", type=float, default=0.5)
@@ -208,6 +208,23 @@ def main() -> int:
         scores = pipe.predict_proba(X_test)[:, 1]
     elif args.classifier == "lgbm":
         oof, scores = _train_lgbm_oof(X_labeled, y, X_test, args.n_splits, args.seed)
+    elif args.classifier == "calibrated":
+        # LogReg + isotonic calibration on top
+        from sklearn.calibration import CalibratedClassifierCV
+        from sklearn.linear_model import LogisticRegression
+        skf = StratifiedKFold(n_splits=args.n_splits, shuffle=True, random_state=args.seed)
+        oof = np.zeros(len(y))
+        for tr, va in skf.split(X_labeled, y):
+            base = Pipeline([("scaler", StandardScaler()),
+                             ("clf", LogisticRegression(C=args.logreg_C, max_iter=4000))])
+            cal = CalibratedClassifierCV(base, method="isotonic", cv=3)
+            cal.fit(X_labeled[tr], y[tr])
+            oof[va] = cal.predict_proba(X_labeled[va])[:, 1]
+        base_final = Pipeline([("scaler", StandardScaler()),
+                               ("clf", LogisticRegression(C=args.logreg_C, max_iter=4000))])
+        cal_final = CalibratedClassifierCV(base_final, method="isotonic", cv=3)
+        cal_final.fit(X_labeled, y)
+        scores = cal_final.predict_proba(X_test)[:, 1]
     elif args.classifier == "elasticnet":
         from sklearn.linear_model import LogisticRegression
         pipe = Pipeline([
