@@ -38,8 +38,12 @@ DEFAULT_FEATURE_NAMES = [
     "roberta",
     "unigram_direct",  # murdzek2's
     "olmo_7b",          # extracted later
-    "judge_phi2",       # extracted later
-    "judge_mistral",    # extracted later
+    "olmo_13b",         # multan1 13B PPL
+    "judge_phi2",
+    "judge_mistral",
+    "judge_chat",       # multan1 OLMo-7B chat template judge
+    "judge_olmo7b",
+    "judge_olmo13b",
     "kgw_selfhash",     # if ever finishes
 ]
 

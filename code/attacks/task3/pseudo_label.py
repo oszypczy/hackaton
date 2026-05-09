@@ -23,6 +23,9 @@ DEFAULT_FEATURES = [
     "fdgpt", "d", "better_liu", "stylometric",
     "kgw", "kgw_llama", "kgw_v2", "bigram", "lm_judge",
     "multi_lm", "multi_lm_v2", "roberta", "unigram_direct",
+    # multan1's newer features (auto-skip if not in cache)
+    "olmo_7b", "olmo_13b",
+    "judge_phi2", "judge_mistral", "judge_chat", "judge_olmo7b", "judge_olmo13b",
 ]
 
 
@@ -87,14 +90,17 @@ def main():
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--n-rounds", type=int, default=2,
                    help="how many pseudo-labeling iterations to run")
+    p.add_argument("--features", nargs="*", default=None,
+                   help="override DEFAULT_FEATURES list")
     args = p.parse_args()
+    feature_names = args.features if args.features else DEFAULT_FEATURES
 
     train_df, val_df, test_df = load_splits(args.data_dir)
     n_train = len(train_df) + len(val_df)
     n_test = len(test_df)
     y = pd.concat([train_df, val_df])["label"].astype(int).values
 
-    X_df = load_features(args.cache_dir, DEFAULT_FEATURES)
+    X_df = load_features(args.cache_dir, feature_names)
     X_df = _pca_roberta(X_df, 32, args.seed)
     X_full = X_df.values.astype(np.float32)
     X_lab = X_full[:n_train]
