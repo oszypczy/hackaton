@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import time
 from pathlib import Path
 
@@ -155,15 +156,17 @@ def main() -> None:
         run_log = args.output_log.parent / "run_log.csv" if args.output_log else None
         if run_log:
             new_file = not run_log.exists()
+            job_id = os.environ.get("SLURM_JOB_ID", "")
             with open(run_log, "a") as f:
                 if new_file:
-                    f.write("ts,mode,n,credit,email,phone,overall,notes\n")
+                    f.write("ts,job_id,mode,n,credit,email,phone,overall,image_mode,notes\n")
                 f.write(
-                    f"{time.strftime('%Y-%m-%d_%H:%M:%S')},eval,{len(rows)},"
+                    f"{time.strftime('%Y-%m-%d_%H:%M:%S')},{job_id},eval,{len(rows)},"
                     f"{scores.get('CREDIT', {}).get('mean', 0):.4f},"
                     f"{scores.get('EMAIL', {}).get('mean', 0):.4f},"
                     f"{scores.get('PHONE', {}).get('mean', 0):.4f},"
                     f"{scores['OVERALL']['mean']:.4f},"
+                    f"{args.image_mode},"
                     f"{args.output_log.stem}\n"
                 )
             print(f"[main] run_log → {run_log}")
