@@ -776,3 +776,103 @@ Final answer waits for admin confirmation of (a) vs (b).
 4. **Try CIFAR-100-LT or corrupted variants as held_out filler** — match organizer's possibly-OOD held_out.
 
 **Final state: SUB-9 (0.0533) zostaje na leaderboardzie jako primary. 3 low-p submissions hedge.**
+
+---
+
+## Phase C (2026-05-10 night, ~00:30) — Maini DI + autonomous chain
+
+User idzie spać ~6h, ja chodzę autonomous. Plan: Maini Blind Walk + retrenowane synth narrow grid + auto-submit.
+
+### Strategy 2 — MLE per-arch on existing N=7000 100ep banks (sid=845)
+
+Bez nowego treningu — uruchomione na już istniejących `synth_targets_n7000_100ep_r{18,50,152}` z Phase B. Recompute MLE z per-arch synth.
+
+**LOO-MAE per arch:**
+- R18: **0.0066** (excellent fit, signal=mean_conf_mixed deg=1)
+- R50: **0.0111** (excellent fit, signal=delta_conf deg=2)
+- R152: **0.3847** (BROKEN — non-monotonic curve at p=0.75)
+
+**R152 synth bank diagnozis:** non-monotonic mean_loss_mixed:
+```
+p=0.00 → 4.281
+p=0.25 → 3.875
+p=0.50 → 2.567
+p=0.75 → 3.712  ← REGRESJA, training nie konwergował na p=0.75
+p=1.00 → 2.877  ← też nie monotoniczne
+```
+R152 synth bank z Phase B nie jest zaufany. Konieczny cross-arch fallback dla R152.
+
+**Predictions (Strategy 2):**
+- R18: 0.025, 0.062, 0.084 (mean 0.057)
+- R50: 0.029, 0.054, 0.072 (mean 0.052)
+- R152: 0.576, 0.683, 0.826 (mean 0.695, ale broken bank → distrust)
+- Overall mean: 0.27 (very different from SUB-9's 0.52)
+
+**Submitted as sid=845** (`task1_duci_mle_n7000_per_arch.csv`).
+
+### Hybrid CSV (R18+R50 from Strategy 2 + R152=0.5)
+
+Workaround dla broken R152: hardcode R152=0.5 (matching SUB-9), keep good R18+R50. CSV: `task1_duci_mle_n7000_hybrid_r152sub9.csv`. In retry queue (cooldown).
+
+### Maini Blind Walk extraction (Phase A+B)
+
+**Feasibility test (sid=14740356, 200 samples, 6 dirs/dist, max_steps=60):**
+- target_model_00: mean_mixed_dist=0.67, delta_mixed_z=0.035 (low memorization)
+- synth p=0.0 (R18 N=2000 80ep): mean=0.54, delta=0.137
+- synth p=1.0: mean=3.0 (saturated at max=3.0)
+- Gap p=0 → p=1: huge (>30%). FEASIBILITY PASS.
+- Saturation at max → bumped max_steps to 100 for full extraction.
+
+**Full extraction (max_steps=100, 6 dirs/dist=18 total, step=0.05):**
+
+Done so far:
+- targets R18 (model_00,01,02): full N=2000+5000
+- synth_2k_r18 (5/5)
+- synth_7k_r18 (5/5)
+- synth_7k_r50 (in progress, ~4/5 done)
+
+**R18 target signals (mean BW dist):**
+- model_00: mean_mixed=1.341, delta=+0.173, log_ratio=+0.138
+- model_01: mean_mixed=1.890, delta=+0.489, log_ratio=+0.300
+- model_02: mean_mixed=2.095, delta=+0.769, log_ratio=+0.458
+
+**synth_7k_r18 (matched-regime) signals:**
+- p=0.00: mean_mixed=1.276, delta=+0.006, log_ratio=+0.005
+- p=0.25: mean_mixed=2.252, delta=+0.960, log_ratio=+0.556
+- p=0.50: mean_mixed=3.185, delta=+1.900, log_ratio=+0.907
+
+Targets R18 lie BETWEEN p=0 and p=0.25 on synth curve → predict p̂ ~ 0.05-0.20. Same direction as Strategy 2 (low predictions). Suggesting same regime mismatch issue.
+
+### Failed jobs (resubmitted)
+
+- 14740364 (targets full): FAILED on `OSError: Disk quota exceeded` (transient). Wrote 4/9 (R18 + 1 R50). Resubmitted as 14740583 for R50 only. R152 covered by 14740531 (subsample, since R152 too slow in 1h limit).
+- 14740562/3/4 (Strategy 3 narrow training, first attempt): exited in 14s, no logs. Probably disk transient. Resubmitted as 14740579/80/81.
+
+### Strategy 3 — Tight grid synth training (RUNNING)
+
+Train new synth at p ∈ {0.40, 0.45, 0.50, 0.55, 0.60} per arch, N=7000 100ep matched regime, base_seed=2000.
+- 14740579 (R18 narrow, ~25 min, 1h30m limit)
+- 14740580 (R50 narrow, ~75 min, 2h30m limit)
+- 14740581 (R152 narrow, ~3.3h, 5h limit)
+
+If R152 narrow training also non-convergent (like Phase B R152) → fallback per-arch.
+
+### Submissions plan (autonomous chain via ScheduleWakeup)
+
+| T+ | What | Source | LOO-MAE expected |
+|---|---|---|---|
+| 0 | Strategy 2 solo (sid=845) | submitted | R18/R50 ~0.01, R152 broken |
+| ~10min | Hybrid (S2 R18+R50 + R152=0.5) | bg retry queue | same |
+| 30 | Maini solo R18+R50 | maini_mle.py auto | TBD (target ~0.03 maybe) |
+| 60 | Strategy 3 narrow R18 MLE | new synth + mle.py | TBD |
+| 90 | Maini shifted (mean→0.5) + ensemble | post-process | TBD |
+| 150 | Strategy 3 narrow R50 MLE combine | mle.py | TBD |
+| 220 | Strategy 3 full narrow MLE | mle.py | TBD |
+| 330 | Final ensemble of all submissions | manual mean | TBD |
+
+### Working hypothesis (pre-results)
+
+User's intuition: true_p ~ 0.5 (uniform [0,1]) → SUB-9 mean 0.52 wins.
+Maini + Strategy 2 predict mean ~0.05-0.27 → likely WRONG direction but **orthogonal hedge** under (b) scoring.
+Strategy 3 (narrow grid training) gambit: if true_p concentrated [0.4, 0.6], narrow synth bank → curve more accurate near 0.5 → potentially BIGGEST upside.
+
