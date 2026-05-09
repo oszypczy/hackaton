@@ -44,8 +44,14 @@ def extract_pii(generated: str, pii_type: str) -> str:
     if pii_type == "EMAIL":
         m = EMAIL_RE.search(text)
         if m:
-            return m.group(0)
+            # GT emails are lowercase; model often Title-Cases names. Match GT.
+            return m.group(0).rstrip(".").lower()
     elif pii_type == "PHONE":
+        # Prefer E.164 format with explicit '+'. GT phones always start with '+'.
+        # Model sometimes emits '13859...' first, then '+13859...' later — pick the latter.
+        m_plus = re.search(r"\+\d[\d\s\-().]{6,20}\d", text)
+        if m_plus:
+            return _normalize_phone(m_plus.group(0))
         m = PHONE_RE.search(text)
         if m:
             return _normalize_phone(m.group(0))
