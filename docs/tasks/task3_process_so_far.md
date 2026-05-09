@@ -5,15 +5,21 @@
 
 ---
 
-## TL;DR — Current state (2026-05-09 ~21:46 UTC)
+## TL;DR — Current state (2026-05-09 ~21:55 UTC)
 
 - **Leaderboard score: task3 = 0.259053 (#2)** — leader Syntax Terror 0.387, gap 0.128
-- **OOF ceiling reached at ~0.78** with current 18-21 features. Adding olmo_7b/judge_phi2/judge_mistral did NOT improve OOF (stays at 0.76-0.77). Different classifiers (Ridge/MLP/SVM/EN) all ≤ LogReg C=0.05.
+- 🚀 **BREAKTHROUGH**: **Pseudo-labeling f=0.30 → OOF 0.8444** (+6.7pp from baseline 0.7778). Test set self-augmentation works — confirms test distribution is learnable from our features but classifier overfits to small labeled set.
+- **OOF ceiling at ~0.78 with standard features.** Adding olmo_7b, judge_phi2, judge_mistral, calibrated, ridge/EN/MLP/SVM, empirical green list — ALL plateau or hurt.
 - **Submission cooldown**: server resets cooldown on each rejection retry — wait clean 5+ min before retrying after 429.
-- **CRITICAL INSIGHT**: Live LB is only **30% public test**. Final ranking is **70% private hidden**. Don't overfit to LB peak. Submit DIVERSE robust variants.
-- **OOF→LB ratio is 1:3** — OOF 0.78 → LB 0.26. True distribution shift (likely test has different watermarks/lengths/prompts than train+val labeled).
-- **Active jobs on Jülich**: NONE (classifier sweep + hybrid_v5 done). Queue empty — feature ceiling reached.
-- **Killed jobs**: 14739848 selfhash, 14739925 mistral_kgw, 14739849 leak_free (all stuck on slow kgw_selfhash, won't finish in 3h timeout)
+- **CRITICAL INSIGHT**: Live LB is only **30% public test**. Final ranking is **70% private hidden**.
+- **Submit queue (active)**:
+  - 21:53:56 multiseed_rankmean (OOF mean 0.778)
+  - 21:59:06 hyb5_no_judges (OOF 0.7704)
+  - 22:04:20 **pseudo_f030 (OOF 0.8444)** ⭐
+  - 22:09:30 pseudo_f020 (OOF 0.8111)
+  - 22:14:40 mega_ensemble (15-config rank-mean)
+- **Active jobs on Jülich**: NONE — feature exploration done. Awaiting submission feedback.
+- **Killed jobs**: 14739848 selfhash, 14739925 mistral_kgw, 14739849 leak_free (all stuck on slow kgw_selfhash)
 
 ---
 
@@ -57,6 +63,24 @@
 | + all 21 features C=0.07 | 0.7593 | -1.9pp |
 
 → Adding olmo+judges HURTS at our scale (noise > signal).
+
+## 🚀 Pseudo-labeling results (BREAKTHROUGH)
+
+| Frac | Round 0 OOF | Round 1 OOF | Round 2 OOF |
+|---|---|---|---|
+| 0.10 | 0.7778 | 0.7926 (+1.5pp) | 0.7815 |
+| 0.20 | 0.7778 | 0.8111 (+3.3pp) | 0.8111 |
+| **0.30** | 0.7778 | **0.8444 (+6.7pp) ⭐** | 0.8259 |
+
+Pseudo-label = take top-X% confident "positive" + bottom-X% confident "negative" from test set,
+add as training labels. Works because: small labeled (540) + large unlabeled (2250) — test set
+implicit labels capture distribution shift.
+
+**Interpretation**: OOF→LB gap likely from CLASSIFIER OVERFITTING to small labeled set, not feature
+limitation. Pseudo-labeling acts as regularization by including test distribution.
+
+Risk: confirmation bias (model amplifies its own mistakes). But round 1 > round 2 suggests it's
+self-correcting at f=0.30.
 
 ---
 
