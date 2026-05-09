@@ -86,6 +86,10 @@ def parse_args() -> argparse.Namespace:
                    help="OLMo-7B PPL per chunk (5 chunks) - local PPL variation features")
     p.add_argument("--use-cross-lm", action="store_true",
                    help="Cross-LM derived features (OLMo vs Pythia ratios from cached PPLs)")
+    p.add_argument("--select-k-best", type=int, default=0,
+                   help="Use SelectKBest (mutual_info) to pick top-K features before LogReg (0=all)")
+    p.add_argument("--minimal-stack", action="store_true",
+                   help="Only branch_a + branch_bc (skip all other auto-loaded features)")
     p.add_argument("--use-stylometric", action="store_true",
                    help="Add stylometric features (CPU only, fast)")
     p.add_argument("--use-better-liu", action="store_true",
@@ -413,12 +417,12 @@ def main() -> None:
         )
         parts.append(fb_bg.reset_index(drop=True))
 
-    use_bino = args.phase >= 2 and not args.skip_binoculars
+    use_bino = args.phase >= 2 and not args.skip_binoculars and not args.minimal_stack
     if use_bino:
         fb_bino = extract_cached("bino", all_texts, binoculars.extract, args.cache_dir, args.force_extract)
         parts.append(fb_bino.reset_index(drop=True))
 
-    use_d = args.phase >= 2 and not args.skip_branch_d
+    use_d = args.phase >= 2 and not args.skip_branch_d and not args.minimal_stack
     if use_d:
         fd = extract_cached("d", all_texts, branch_d.extract, args.cache_dir, args.force_extract)
         parts.append(fd.reset_index(drop=True))
@@ -592,6 +596,17 @@ def main() -> None:
             cross_df = pd.DataFrame(derived)
             full_df = pd.concat([full_df, cross_df], axis=1)
             print(f"  [cross-lm] Added {len(derived)} derived features: {list(derived.keys())}")
+
+    # SelectKBest by mutual_info_classif
+    if args.select_k_best and args.select_k_best < full_df.shape[1]:
+        from sklearn.feature_selection import SelectKBest, mutual_info_classif
+        X_lab_pre = full_df.iloc[:n_labeled].values.astype(np.float32)
+        selector = SelectKBest(mutual_info_classif, k=args.select_k_best)
+        selector.fit(X_lab_pre, y_labeled)
+        kept_idx = selector.get_support(indices=True)
+        kept_cols = [full_df.columns[i] for i in kept_idx]
+        full_df = full_df[kept_cols]
+        print(f"  [select-k] Selected top {args.select_k_best} features by mutual_info: {kept_cols}")
 
     X_full = full_df.fillna(0.0).values.astype(np.float32)
     X_labeled = X_full[:n_labeled]
