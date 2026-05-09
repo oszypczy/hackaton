@@ -60,6 +60,14 @@ def parse_args() -> argparse.Namespace:
                    help="Add XL Binoculars features (Pythia-2.8b/6.9b, ~20GB GPU)")
     p.add_argument("--use-fdgpt", action="store_true",
                    help="Add Fast-DetectGPT analytical curvature features (Pythia-2.8b)")
+    p.add_argument("--use-strong-a", action="store_true",
+                   help="Add stronger branch_a features (Pythia-2.8b)")
+    p.add_argument("--use-multi-lm", action="store_true",
+                   help="Add multi-LM PPL features (OPT-1.3b)")
+    p.add_argument("--use-stylometric", action="store_true",
+                   help="Add stylometric features (CPU only, fast)")
+    p.add_argument("--use-better-liu", action="store_true",
+                   help="Add extended semantic features (Liu/Semantic detector)")
     p.add_argument("--use-kgw", action="store_true",
                    help="Add direct KGW reference detection features (multi-tokenizer)")
     p.add_argument("--use-kgw-v2", action="store_true",
@@ -404,6 +412,30 @@ def main() -> None:
         fb_fd = extract_cached("fdgpt", all_texts, fast_detectgpt.extract,
                                args.cache_dir, args.force_extract)
         parts.append(fb_fd.reset_index(drop=True))
+
+    if args.use_strong_a:
+        from features import branch_a_strong
+        fb_as = extract_cached("a_strong", all_texts, branch_a_strong.extract,
+                               args.cache_dir, args.force_extract)
+        parts.append(fb_as.reset_index(drop=True))
+
+    if args.use_multi_lm:
+        from features import multi_lm_ppl
+        fb_mlm = extract_cached("multi_lm", all_texts, multi_lm_ppl.extract,
+                                args.cache_dir, args.force_extract)
+        parts.append(fb_mlm.reset_index(drop=True))
+
+    if args.use_stylometric:
+        from features import stylometric
+        fb_sty = extract_cached("stylometric", all_texts, stylometric.extract,
+                                args.cache_dir, args.force_extract)
+        parts.append(fb_sty.reset_index(drop=True))
+
+    if args.use_better_liu:
+        from features import better_liu
+        fb_bl = extract_cached("better_liu", all_texts, better_liu.extract,
+                               args.cache_dir, args.force_extract)
+        parts.append(fb_bl.reset_index(drop=True))
 
     if args.use_kgw:
         from features import branch_kgw
