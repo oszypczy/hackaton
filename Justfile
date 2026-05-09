@@ -15,7 +15,8 @@ extract-papers:
 submit task csv:
     @python scripts/submit.py {{task}} {{csv}}
 
-# Pull submission.csv from cluster (Czumpers/<task>/submission.csv) to local.
-# Usage: just pull-csv task1   # writes submissions/task1_duci.csv
-pull-csv task:
-    @python scripts/pull_csv.py {{task}}
+# Pull submission CSV from cluster. Default remote file: submission.csv.
+# Usage: just pull-csv task1                            # → submissions/task1_duci.csv
+#        just pull-csv task3 submission_kgw.csv         # → submissions/task3_watermark_kgw.csv
+pull-csv task remote_file="submission.csv":
+    @python scripts/pull_csv.py {{task}} {{remote_file}}
