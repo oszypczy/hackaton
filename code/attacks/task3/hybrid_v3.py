@@ -105,6 +105,29 @@ def _logreg_pipe(C: float) -> Pipeline:
     ])
 
 
+def _train_lgbm_oof(X: np.ndarray, y: np.ndarray, X_test: np.ndarray, n_splits: int, seed: int):
+    """Returns (oof, test_pred_mean)."""
+    import lightgbm as lgb
+    params = {
+        "objective": "binary", "learning_rate": 0.03,
+        "num_leaves": 31, "max_depth": 6, "min_data_in_leaf": 5,
+        "feature_fraction": 0.8, "bagging_fraction": 0.8, "bagging_freq": 1,
+        "lambda_l2": 0.5, "verbosity": -1, "n_jobs": -1,
+    }
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+    oof = np.zeros(len(y))
+    test_preds = np.zeros((n_splits, X_test.shape[0]))
+    for fold, (tr, va) in enumerate(skf.split(X, y)):
+        dtr = lgb.Dataset(X[tr], label=y[tr])
+        dva = lgb.Dataset(X[va], label=y[va], reference=dtr)
+        m = lgb.train(params, dtr, num_boost_round=1000,
+                      valid_sets=[dva],
+                      callbacks=[lgb.early_stopping(50, verbose=False), lgb.log_evaluation(-1)])
+        oof[va] = m.predict(X[va])
+        test_preds[fold] = m.predict(X_test)
+    return oof, test_preds.mean(axis=0)
+
+
 def run_oof(X: np.ndarray, y: np.ndarray, n_splits: int, seed: int, C: float) -> np.ndarray:
     skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
     oof = np.zeros(len(y))
@@ -138,6 +161,9 @@ def main() -> int:
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--roberta-pca", type=int, default=32)
     p.add_argument("--n-rows", type=int, default=2250)
+    p.add_argument("--classifier", choices=["logreg", "lgbm", "ensemble"], default="logreg")
+    p.add_argument("--ensemble-weights", default="0.5,0.5",
+                   help="weights for ensemble (logreg, lgbm) — comma-separated")
     args = p.parse_args()
 
     print("Loading data splits...")
@@ -167,8 +193,32 @@ def main() -> int:
     X_test = X_full[n_labeled:]
     print(f"  labeled: {X_labeled.shape}  test: {X_test.shape}")
 
-    print(f"\nRunning {args.n_splits}-fold OOF logreg C={args.logreg_C}...")
-    oof = run_oof(X_labeled, y, args.n_splits, args.seed, args.logreg_C)
+    print(f"\nRunning {args.n_splits}-fold OOF classifier={args.classifier}...")
+    if args.classifier == "logreg":
+        oof = run_oof(X_labeled, y, args.n_splits, args.seed, args.logreg_C)
+        # final
+        pipe = _logreg_pipe(args.logreg_C)
+        pipe.fit(X_labeled, y)
+        scores = pipe.predict_proba(X_test)[:, 1]
+    elif args.classifier == "lgbm":
+        oof, scores = _train_lgbm_oof(X_labeled, y, X_test, args.n_splits, args.seed)
+    elif args.classifier == "ensemble":
+        # logreg + lgbm
+        oof_lr = run_oof(X_labeled, y, args.n_splits, args.seed, args.logreg_C)
+        pipe = _logreg_pipe(args.logreg_C)
+        pipe.fit(X_labeled, y)
+        scores_lr = pipe.predict_proba(X_test)[:, 1]
+        oof_lg, scores_lg = _train_lgbm_oof(X_labeled, y, X_test, args.n_splits, args.seed)
+        w_lr, w_lg = [float(x) for x in args.ensemble_weights.split(",")]
+        # Convert to ranks for fair averaging
+        from scipy.stats import rankdata
+        oof = w_lr * (rankdata(oof_lr) / len(oof_lr)) + w_lg * (rankdata(oof_lg) / len(oof_lg))
+        scores = w_lr * (rankdata(scores_lr) / len(scores_lr)) + w_lg * (rankdata(scores_lg) / len(scores_lg))
+        oof_lr_tpr = tpr_at_fpr(oof_lr.tolist(), y.tolist(), 0.01)
+        oof_lg_tpr = tpr_at_fpr(oof_lg.tolist(), y.tolist(), 0.01)
+        print(f"  OOF logreg TPR={oof_lr_tpr:.4f}  lgbm TPR={oof_lg_tpr:.4f}")
+    else:
+        raise ValueError(f"Unknown classifier: {args.classifier}")
 
     oof_tpr = tpr_at_fpr(oof.tolist(), y.tolist(), 0.01)
     lo, hi = bootstrap_ci(oof, y)
@@ -183,11 +233,6 @@ def main() -> int:
             if mask.sum() > 5:
                 t = tpr_at_fpr(oof[mask].tolist(), y[mask].tolist(), 0.01)
                 print(f"  TPR@1%FPR [{wt}]: {t:.4f}")
-
-    print(f"\nFitting final model on {n_labeled} labeled...")
-    pipe = _logreg_pipe(args.logreg_C)
-    pipe.fit(X_labeled, y)
-    scores = pipe.predict_proba(X_test)[:, 1]
 
     pct_t = np.percentile(scores, [5, 25, 50, 75, 95])
     print(f"Test pct: {[f'{v:.3f}' for v in pct_t]} (mean={scores.mean():.3f})")
