@@ -299,6 +299,10 @@ def _add_bw_flags(p):
     p.add_argument("--max-steps", type=int, default=80)
     p.add_argument("--sample-batch", type=int, default=16)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--max-mixed", type=int, default=0,
+                    help="if >0, subsample MIXED to this size (deterministic seed=0)")
+    p.add_argument("--max-z", type=int, default=0,
+                    help="if >0, subsample POP_z to this size (deterministic seed=0)")
 
 
 def _config_from_args(args) -> BlindWalkConfig:
@@ -449,6 +453,22 @@ def main() -> None:
     X_m, y_m = load_mixed()
     X_p, y_p = load_population()
     X_z, y_z = population_z(X_p, y_p)
+
+    # Optional subsample (deterministic across all model runs in this job)
+    max_mixed = getattr(args, "max_mixed", 0)
+    max_z = getattr(args, "max_z", 0)
+    if max_mixed > 0 and max_mixed < len(X_m):
+        rng = np.random.default_rng(0)
+        idx = rng.choice(len(X_m), size=max_mixed, replace=False)
+        idx.sort()
+        X_m, y_m = X_m[idx], y_m[idx]
+        print(f"[maini_bw] subsampled MIXED to N={len(X_m)}", flush=True)
+    if max_z > 0 and max_z < len(X_z):
+        rng = np.random.default_rng(0)
+        idx = rng.choice(len(X_z), size=max_z, replace=False)
+        idx.sort()
+        X_z, y_z = X_z[idx], y_z[idx]
+        print(f"[maini_bw] subsampled POP_z to N={len(X_z)}", flush=True)
 
     if args.cmd == "target":
         cmd_target(args, device, X_m, y_m, X_z, y_z)
