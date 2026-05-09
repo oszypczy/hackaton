@@ -84,6 +84,12 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 PII_TYPES   = ("EMAIL", "CREDIT", "PHONE")
 PII_KW      = {"EMAIL": "email", "CREDIT": "credit", "PHONE": "phone"}
 PRED_MIN, PRED_MAX = 10, 100
+# Answer seeds — appended to prompt to match fine-tuning output prefix
+ANSWER_SEED = {
+    "EMAIL":  "The email address is ",
+    "CREDIT": "The credit card number is ",
+    "PHONE":  "The phone number is ",
+}
 
 
 # ── Model loading ──────────────────────────────────────────────────────────────
@@ -129,7 +135,8 @@ def preprocess_image(sample, img_proc, img_size: int, device) -> torch.Tensor:
 
 
 # ── Build prompt token ids (no answer) ────────────────────────────────────────
-def build_prompt_ids(sample, pii_type: str, tokenizer, device) -> torch.Tensor:
+def build_prompt_ids(sample, pii_type: str, tokenizer, device,
+                     seed_answer: bool = False) -> torch.Tensor:
     kw = PII_KW[pii_type]
     conv_turn = next(
         (t for t in sample["conversation"] if kw in t["instruction"].lower()),
@@ -141,6 +148,10 @@ def build_prompt_ids(sample, pii_type: str, tokenizer, device) -> torch.Tensor:
     )
     prompt_text = data["conversation"][0]["instruction"]
     token_ids = tokenizer.convert_tokens_to_ids(tokenizer.tokenize(prompt_text))
+    if seed_answer:
+        seed_text = ANSWER_SEED[pii_type]
+        seed_ids = tokenizer.convert_tokens_to_ids(tokenizer.tokenize(seed_text))
+        token_ids = token_ids + seed_ids
     return torch.tensor(token_ids, dtype=torch.long, device=device)
 
 
@@ -209,9 +220,10 @@ def answer_loss(model, sample, pii_type: str, answer: str,
 def generate_answer(model, sample, pii_type: str, tokenizer,
                     img_proc, img_size: int,
                     do_sample: bool = False, temperature: float = 0.7,
-                    max_new_tokens: int = 60) -> str:
+                    max_new_tokens: int = 60, seed_answer: bool = False) -> str:
     dev = model.device
-    input_ids = build_prompt_ids(sample, pii_type, tokenizer, dev)
+    input_ids = build_prompt_ids(sample, pii_type, tokenizer, dev,
+                                 seed_answer=seed_answer)
     img_tensor = preprocess_image(sample, img_proc, img_size, dev)
 
     with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
@@ -240,16 +252,19 @@ def generate_answer(model, sample, pii_type: str, tokenizer,
 
 # ── Main prediction: greedy + delta reranking ─────────────────────────────────
 def predict(sample, pii_type: str, target, shadow, tokenizer,
-            img_proc, img_size: int, k: int = 8, temperature: float = 0.7) -> str:
+            img_proc, img_size: int, k: int = 8, temperature: float = 0.7,
+            seed_answer: bool = False, max_new_tokens: int = 60) -> str:
     candidates = []
     candidates.append(
         generate_answer(target, sample, pii_type, tokenizer, img_proc, img_size,
-                        do_sample=False)
+                        do_sample=False, seed_answer=seed_answer,
+                        max_new_tokens=max_new_tokens)
     )
     for _ in range(k - 1):
         candidates.append(
             generate_answer(target, sample, pii_type, tokenizer, img_proc, img_size,
-                            do_sample=True, temperature=temperature)
+                            do_sample=True, temperature=temperature,
+                            seed_answer=seed_answer, max_new_tokens=max_new_tokens)
         )
 
     best, best_delta = candidates[0], float("-inf")
@@ -290,8 +305,36 @@ def _sanity():
         "Levenshtein sanity FAILED"
 
 
+# ── Inspect run (10 samples, raw output + GT + score) ──────────────────────────
+def run_inspect(target, shadow, tokenizer, img_proc, img_size,
+                seed_answer: bool = False, max_new_tokens: int = 60):
+    ds = load_parquet_dir(VAL_DIR)
+    n = min(10, len(ds))
+    print(f"\n=== Inspect (first {n} samples, seed_answer={seed_answer}, max_new_tokens={max_new_tokens}) ===")
+    for i, sample in enumerate(ds):
+        if i >= n:
+            break
+        print(f"\n--- sample {i} user_id={sample['user_id']} ---")
+        for pii_type in PII_TYPES:
+            gt_turn = next(
+                (t for t in sample["conversation"]
+                 if PII_KW[pii_type] in t["instruction"].lower()),
+                sample["conversation"][0],
+            )
+            gt = gt_turn["output"]
+            raw = generate_answer(target, sample, pii_type, tokenizer, img_proc, img_size,
+                                  do_sample=False, seed_answer=seed_answer,
+                                  max_new_tokens=max_new_tokens)
+            pred = enforce_length(raw, pii_type)
+            score = similarity(gt, pred)
+            print(f"  [{pii_type}] GT  : {gt!r}")
+            print(f"  [{pii_type}] RAW : {raw!r}")
+            print(f"  [{pii_type}] PRED: {pred!r}  score={score:.3f}")
+
+
 # ── Validation run ─────────────────────────────────────────────────────────────
-def run_val(target, shadow, tokenizer, img_proc, img_size):
+def run_val(target, shadow, tokenizer, img_proc, img_size,
+            seed_answer: bool = False, max_new_tokens: int = 60):
     ds = load_parquet_dir(VAL_DIR)
     scores = {t: [] for t in PII_TYPES}
 
@@ -304,7 +347,8 @@ def run_val(target, shadow, tokenizer, img_proc, img_size):
             )
             gt = gt_turn["output"]
             pred = enforce_length(
-                predict(sample, pii_type, target, shadow, tokenizer, img_proc, img_size),
+                predict(sample, pii_type, target, shadow, tokenizer, img_proc, img_size,
+                        seed_answer=seed_answer, max_new_tokens=max_new_tokens),
                 pii_type,
             )
             scores[pii_type].append(similarity(gt, pred))
@@ -324,7 +368,8 @@ def run_val(target, shadow, tokenizer, img_proc, img_size):
 
 
 # ── Submission run ─────────────────────────────────────────────────────────────
-def run_submit(target, shadow, tokenizer, img_proc, img_size):
+def run_submit(target, shadow, tokenizer, img_proc, img_size,
+               seed_answer: bool = False, max_new_tokens: int = 60):
     ds = load_parquet_dir(TASK_DIR)
     rows = []
 
@@ -332,7 +377,8 @@ def run_submit(target, shadow, tokenizer, img_proc, img_size):
         sid = sample["user_id"]
         for pii_type in PII_TYPES:
             pred = enforce_length(
-                predict(sample, pii_type, target, shadow, tokenizer, img_proc, img_size),
+                predict(sample, pii_type, target, shadow, tokenizer, img_proc, img_size,
+                        seed_answer=seed_answer, max_new_tokens=max_new_tokens),
                 pii_type,
             )
             rows.append((sid, pii_type, pred))
@@ -361,22 +407,34 @@ if __name__ == "__main__":
     _sanity()
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=["val", "submit"], default="val")
+    parser.add_argument("--mode", choices=["val", "submit", "inspect"], default="val")
     parser.add_argument("--k", type=int, default=8,
                         help="Sampling candidates for delta reranking")
     parser.add_argument("--greedy-only", action="store_true",
                         help="Skip delta reranking (fast greedy baseline)")
+    parser.add_argument("--seed-answer", action="store_true",
+                        help="Prepend answer prefix to prompt (e.g. 'The email address is ')")
+    parser.add_argument("--max-new-tokens", type=int, default=60,
+                        help="Max new tokens for generation (default 60)")
     args = parser.parse_args()
 
     target, shadow, tokenizer, img_proc, img_size = load_both_models()
 
     if args.greedy_only:
         def predict(sample, pii_type, target, shadow, tokenizer,  # type: ignore[no-redef]
-                    img_proc, img_size, k=1, temperature=0.7):
+                    img_proc, img_size, k=1, temperature=0.7,
+                    seed_answer=False, max_new_tokens=60):
             return generate_answer(target, sample, pii_type, tokenizer,
-                                   img_proc, img_size, do_sample=False)
+                                   img_proc, img_size, do_sample=False,
+                                   seed_answer=seed_answer,
+                                   max_new_tokens=max_new_tokens)
 
-    if args.mode == "val":
-        run_val(target, shadow, tokenizer, img_proc, img_size)
+    if args.mode == "inspect":
+        run_inspect(target, shadow, tokenizer, img_proc, img_size,
+                    seed_answer=args.seed_answer, max_new_tokens=args.max_new_tokens)
+    elif args.mode == "val":
+        run_val(target, shadow, tokenizer, img_proc, img_size,
+                seed_answer=args.seed_answer, max_new_tokens=args.max_new_tokens)
     else:
-        run_submit(target, shadow, tokenizer, img_proc, img_size)
+        run_submit(target, shadow, tokenizer, img_proc, img_size,
+                   seed_answer=args.seed_answer, max_new_tokens=args.max_new_tokens)
