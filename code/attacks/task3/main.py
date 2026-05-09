@@ -54,6 +54,10 @@ def parse_args() -> argparse.Namespace:
                    help="Skip branch_bc (green-list features) to avoid bimodal collapse")
     p.add_argument("--use-bigram", action="store_true",
                    help="Add bigram greenlist features (KGW/Kirchenbauer-specific)")
+    p.add_argument("--use-strong-bino", action="store_true",
+                   help="Add stronger Binoculars features (Pythia-1.4b/2.8b)")
+    p.add_argument("--use-kgw", action="store_true",
+                   help="Add direct KGW reference detection features (multi-tokenizer)")
     p.add_argument("--classifier", choices=["lgbm", "logreg"], default="logreg",
                    help="Classifier: logreg (continuous output) or lgbm (default was lgbm)")
     p.add_argument("--logreg-C", type=float, default=0.05,
@@ -376,6 +380,18 @@ def main() -> None:
     if use_d:
         fd = extract_cached("d", all_texts, branch_d.extract, args.cache_dir, args.force_extract)
         parts.append(fd.reset_index(drop=True))
+
+    if args.use_strong_bino:
+        from features import binoculars_strong
+        fb_strong = extract_cached("bino_strong", all_texts, binoculars_strong.extract,
+                                   args.cache_dir, args.force_extract)
+        parts.append(fb_strong.reset_index(drop=True))
+
+    if args.use_kgw:
+        from features import branch_kgw
+        fb_kgw = extract_cached("kgw", all_texts, branch_kgw.extract,
+                                args.cache_dir, args.force_extract)
+        parts.append(fb_kgw.reset_index(drop=True))
 
     # ── 3. Build feature matrix
     X_full = pd.concat(parts, axis=1).fillna(0.0).values.astype(np.float32)
