@@ -68,6 +68,8 @@ def parse_args() -> argparse.Namespace:
                    help="Add extended multi-LM PPL (Phi-2/Qwen2/Llama-chat/Mistral-instruct)")
     p.add_argument("--use-lm-judge", action="store_true",
                    help="Add LM-as-judge zero-shot detection features (OLMo-instruct)")
+    p.add_argument("--use-olmo7b", action="store_true",
+                   help="Add OLMo-2-7B-Instruct PPL features (amplifies OLMo-1B breakthrough)")
     p.add_argument("--use-stylometric", action="store_true",
                    help="Add stylometric features (CPU only, fast)")
     p.add_argument("--use-better-liu", action="store_true",
@@ -446,6 +448,12 @@ def main() -> None:
         fb_judge = extract_cached("lm_judge", all_texts, lm_judge.extract,
                                   args.cache_dir, args.force_extract)
         parts.append(fb_judge.reset_index(drop=True))
+
+    if args.use_olmo7b:
+        from features import olmo_7b
+        fb_olmo7b = extract_cached("olmo_7b", all_texts, olmo_7b.extract,
+                                   args.cache_dir, args.force_extract)
+        parts.append(fb_olmo7b.reset_index(drop=True))
 
     if args.use_stylometric:
         from features import stylometric
