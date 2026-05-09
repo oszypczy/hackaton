@@ -78,6 +78,8 @@ def parse_args() -> argparse.Namespace:
                    help="Add LM-judge under OLMo-2-7B-Instruct (best size + best signal combo)")
     p.add_argument("--use-olmo13b", action="store_true",
                    help="Add OLMo-2-13B-Instruct PPL features (next size up from 7B)")
+    p.add_argument("--use-judge-olmo13b", action="store_true",
+                   help="Add LM-judge under OLMo-2-13B-Instruct (largest OLMo judge)")
     p.add_argument("--use-stylometric", action="store_true",
                    help="Add stylometric features (CPU only, fast)")
     p.add_argument("--use-better-liu", action="store_true",
@@ -486,6 +488,12 @@ def main() -> None:
         fb_o13 = extract_cached("olmo_13b", all_texts, olmo_13b.extract,
                                 args.cache_dir, args.force_extract)
         parts.append(fb_o13.reset_index(drop=True))
+
+    if args.use_judge_olmo13b:
+        from features import lm_judge_olmo13b
+        fb_jo13 = extract_cached("judge_olmo13b", all_texts, lm_judge_olmo13b.extract,
+                                 args.cache_dir, args.force_extract)
+        parts.append(fb_jo13.reset_index(drop=True))
 
     if args.use_stylometric:
         from features import stylometric
