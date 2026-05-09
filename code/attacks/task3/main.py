@@ -157,14 +157,14 @@ def train_lgbm(X_tr: np.ndarray, y_tr: np.ndarray, X_va: np.ndarray, y_va: np.nd
 
     params = {
         "objective": "binary",
-        "learning_rate": 0.05,
-        "num_leaves": 15,
-        "max_depth": 4,
-        "min_data_in_leaf": 10,
-        "feature_fraction": 0.7,
+        "learning_rate": 0.03,
+        "num_leaves": 31,
+        "max_depth": 6,
+        "min_data_in_leaf": 5,
+        "feature_fraction": 0.8,
         "bagging_fraction": 0.8,
         "bagging_freq": 1,
-        "lambda_l2": 2.0,
+        "lambda_l2": 0.5,
         "verbosity": -1,
         "n_jobs": -1,
     }
@@ -173,9 +173,9 @@ def train_lgbm(X_tr: np.ndarray, y_tr: np.ndarray, X_va: np.ndarray, y_va: np.nd
     model = lgb.train(
         params,
         dtr,
-        num_boost_round=500,
+        num_boost_round=1000,
         valid_sets=[dva],
-        callbacks=[lgb.early_stopping(30, verbose=False), lgb.log_evaluation(-1)],
+        callbacks=[lgb.early_stopping(50, verbose=False), lgb.log_evaluation(-1)],
     )
     return model
 
@@ -185,14 +185,14 @@ def train_lgbm_fixed(X: np.ndarray, y: np.ndarray, n_rounds: int):
 
     params = {
         "objective": "binary",
-        "learning_rate": 0.05,
-        "num_leaves": 15,
-        "max_depth": 4,
-        "min_data_in_leaf": 10,
-        "feature_fraction": 0.7,
+        "learning_rate": 0.03,
+        "num_leaves": 31,
+        "max_depth": 6,
+        "min_data_in_leaf": 5,
+        "feature_fraction": 0.8,
         "bagging_fraction": 0.8,
         "bagging_freq": 1,
-        "lambda_l2": 2.0,
+        "lambda_l2": 0.5,
         "verbosity": -1,
         "n_jobs": -1,
     }
