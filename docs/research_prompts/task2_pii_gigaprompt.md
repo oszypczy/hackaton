@@ -99,7 +99,7 @@ or SUPERIOR relative to them:
    in 1.5B GPT-2; on an INTENTIONALLY OVERFIT model the threshold collapses
    to k≈1 (every PII appears once and is memorized). Naive extraction
    should already work; instrument validation_pii first to confirm.
-   `[FOUNDATIONAL — PDF + .txt in corpus as paper 05; full code in our playbook]`
+   `[FOUNDATIONAL — PDF + .txt in corpus as paper 11 (renumbered from 05 during 2026-05-09 merge to avoid collision with teammates' 05_a/05_duci); full code in our playbook]`
 2. Carlini et al., *Extracting Training Data from Diffusion Models*, USENIX
    Security 2023 (arXiv:2301.13188). Generate-and-cluster pipeline, ≥109
    verbatim Stable Diffusion extractions.

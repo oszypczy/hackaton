@@ -2,7 +2,7 @@
 
 **Goal:** during hackathon Claude reads THIS FILE first, then greps `txt/*.txt`, then surgical Read with `offset`/`limit`. Never load full PDF when `.txt` exists.
 
-Total: **17 papers** (4 required + 1 supplementary + 6 hidden + 6 competition-ready tools). All extracted to `txt/NN_*.txt`.
+Total: **20 papers** (4 required email + 3 task-PDF references + 1 supplementary + 6 hidden + 6 competition-ready tools). All extracted to `txt/NN_*.txt`.
 
 Per-paper entry format:
 - File / token estimate / arXiv / repo
@@ -57,9 +57,47 @@ Per-paper entry format:
 - **Key params:** γ=0.25, δ=2.0 (defaults).
 - **Cross-refs:** 08 Provably Removable, 21 Watermark Stealing, 22 DIPPER, 23 Recursive Para, 24 WAVES.
 
-### 05 — Carlini, Tramèr, Wallace, Jagielski, Herbert-Voss, Lee, Roberts, Brown, Song, Erlingsson, Oprea, Raffel 2021, *Extracting Training Data from Large Language Models* (USENIX 2021)
-- File: `txt/05_carlini2021_extracting_training_data_llm.txt` | ~25k | arXiv: 2012.07805
-- **Use for:** Task 2 (PII) foundational — six MIA features, context-dependency, insertion-frequency threshold (task 2 PDF ref [1])
+## 1b. Task PDF references (cited by organizers in revealed task PDFs — high authority)
+
+> Added 2026-05-09 post-task-reveal. These papers are cited **inside the official task PDF** (not just the invitation email) → equally authoritative as 01-04.
+
+### 05 — Tong, Ye, Zarifzadeh, Shokri 2025, **"How Much Of My Dataset Did You Use?" — Quantitative DUCI** (ICLR 2025) [**TASK1-PDF**]
+- File: `txt/05_duci_tong2025.txt` | ~38k | Repo: github.com/privacytrustlab/ml_privacy_meter/tree/master/research
+- **Use for: Task 1 PRIMARY** — proposes the **exact DUCI method** asked for by the task. THE paper to read first.
+- **Key sections** (grep in file):
+  - "3 Dataset Usage Cardinality Inference Problem" — terms: `non-binary inference`, `cardinality`, `partial utilization`
+  - "3.2 Challenges in Dataset Usage Cardinality Inference" — terms: `bias`, `decision threshold`, `MIA Guess`
+  - "4 Unbiased dataset usage inference from aggregation of debiased membership guesses" — terms: `debiased`, `aggregation`, `unbiased estimator`
+  - "5.2 Baselines" — terms: `MLE`, `Joint-Logit`, `ProMe`, `MIA Guess`
+- **Core idea:** binary MIA "all-or-none" is fragile under partial utilization; debias per-sample membership guesses then aggregate to recover **continuous proportion** ∈ [0, 1].
+- **Key result:** matches optimal MLE (max error <0.1) at **300× lower compute**.
+- **Authors / venue:** NUS team (Reza Shokri group); ICLR 2025 conference paper.
+- **Cross-refs:** 02 Maini LLM-DI (binary version), 06 Maini 2021 (original DI), 18 LiRA (per-sample MIA backbone).
+
+### 06 — Maini, Yaghini, Papernot 2021, *Dataset Inference: Ownership Resolution in ML* (ICLR 2021) [**TASK1-PDF**]
+- File: `txt/06_di_maini2021.txt` | ~22k | arXiv: 2104.10706 | Repo: github.com/cleverhans-lab/dataset-inference
+- **Use for:** Task 1 — original DI paper; methodological foundation for 02, 05, 09.
+- **Key sections** (grep in file):
+  - "3 Threat Model and Definition of Dataset Inference"
+  - "4 Theoretical Motivation" — terms: `decision boundary`, `feature embedding`, `prediction margin`
+  - "5 Dataset Inference" — terms: `min-margin`, `Blind Walk`, `MingD`, `embedding distance`
+  - "7 Results" — terms: `CIFAR10`, `CIFAR100`, `SVHN`, `ImageNet`, `confidence`
+- **Core idea:** distance to decision boundary as MIA feature; statistical test on aggregated distances → ownership claim with **>99% confidence using only 50 stolen-model query points**.
+- **Key result:** robust against extraction (model stealing) attacks; works without retraining the defended model.
+- **Cross-refs:** 02 Maini 2024 (LLM extension), 05 Tong 2025 (cardinality extension), 07 Dziedzic 2022 (SSL extension), 09 CDI.
+
+### 07 — Dziedzic, Duan, Kaleem, Dhawan, Guan, Cattan, Boenisch, Papernot 2022, *Dataset Inference for Self-Supervised Models* (NeurIPS 2022) [**SprintML — Dziedzic+Boenisch**] [**TASK1-PDF**]
+- File: `txt/07_di_ssl_dziedzic2022.txt` | ~12k
+- **Use for:** Task 1 — DI for encoders; **organizers' own paper** (Dziedzic + Boenisch are co-authors of this AND the hackathon).
+- **Key sections** (grep in file):
+  - "3 Defense Method" — terms: `density estimation`, `log-likelihood`, `encoder representations`
+  - "4 Encoder Similarity Scores" — terms: `mutual information`, `distance measurement`, `fidelity`
+- **Core idea:** for SSL encoders, density-estimation log-likelihood of encoder outputs on victim training data is **higher than on independently-trained encoders** → ownership signal even without labeled downstream task.
+- **Cross-refs:** 06 Maini 2021 (supervised DI it extends), 02 Maini 2024 (LLM extension), 05 Tong 2025.
+
+### 11 — Carlini, Tramèr, Wallace, Jagielski, Herbert-Voss, Lee, Roberts, Brown, Song, Erlingsson, Oprea, Raffel 2021, *Extracting Training Data from Large Language Models* (USENIX 2021) [**TASK2-PDF cited as ref [1]**]
+- File: `txt/11_carlini2021_extracting_training_data_llm.txt` | ~25k | arXiv: 2012.07805
+- **Use for:** Task 2 (PII) foundational — six MIA features, context-dependency, insertion-frequency threshold; the original LLM extraction paper. Renumbered from 05 (2026-05-09) to avoid collision with 05_a/05_duci.
 - **Key sections** (grep in file):
   - "5.1 Improved Sampling" — terms: `temperature`, `decay`, `Internet`, `Common Crawl`
   - "5.2 Improved Membership Inference" — terms: `Perplexity`, `Small`, `Medium`, `zlib`, `Lowercase`, `Window`, `sliding window`
@@ -71,6 +109,8 @@ Per-paper entry format:
 - **Key result:** 604 verbatim memorized samples from GPT-2 XL; 78 PII (phone, address, social media) extracted; **33 insertions** sufficient for full memorization at 1.5B params.
 - **Implications for our task:** target is *intentionally overfit* → threshold k≈1; reconstruct dialogue format VERBATIM up to `[REDACTED]` boundary; six MIA features = direct ranker for multiple-sample scoring.
 - **Cross-refs:** 25 Nasr (chat-divergence successor for aligned models), 15 Carlini Stealing (logit extraction), 18 LiRA (sample-level MIA), 13 NeMo (where memorization lives).
+
+---
 
 ## 2. Supplementary papers
 

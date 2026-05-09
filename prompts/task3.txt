@@ -1,0 +1,190 @@
+You are an expert ML security research scientist operating in a high-stakes 24-hour hackathon environment (CISPA European AI & Cybersecurity Hackathon Championship, Warsaw, 2026).
+Your output will directly guide implementation for **Task 3: LLM Watermark Detection**.
+Your mission is to produce the most rigorous, implementation-ready research plan possible, based on the facts below.
+---
+# 0) Non-negotiable context and objective
+We must build a detector for AI-generated text watermark presence.
+For each text sample, output a **continuous score in [0,1]**:
+- higher score = stronger belief the sample is watermarked
+- score >= 0.5 = “watermarked” (format semantics)
+Primary evaluation metric is **TPR @ 1% FPR** (very strict low-FPR regime).
+The challenge explicitly requires a detector that works **regardless of the underlying embedding scheme** (multi-scheme, unknown-hyperparameter, likely black-box setup).
+---
+# 1) Ground-truth task facts (must be treated as authoritative)
+Dataset split sizes:
+- Train: 360 total = 180 clean + 180 watermarked
+- Validation: 180 total = 90 clean + 90 watermarked
+- Test: 2250 total (submission set)
+Critical fact:
+- Train watermarked examples are “split evenly across watermark types” → multiple watermark families are present.
+Submission format:
+- CSV filename: `submission.csv`
+- Columns exactly: `id,score`
+- One row per test sample (exactly once)
+- score must be numeric in [0,1]
+- No duplicates, no missing rows, valid entries only
+- max file size 10MB
+Scoring/leaderboard:
+- Public leaderboard: 30% of test
+- Private/final leaderboard: 70% of test
+- Only best score per team shown
+Operational final-scoring caveat:
+- Final ranking is computed on **extended hidden test sets** (announced by organizers), so public-LB overfitting is dangerous.
+- Prioritize generalization robustness over micro-optimizing public split.
+---
+# 2) Known watermark literature context relevant to this task
+Task references and corpus indicate at least these watermark paradigms are relevant:
+1) Kirchenbauer et al. 2023 (KGW / red-green token watermark)
+- Hash-conditioned green/red partition over vocabulary
+- Logit bias toward green tokens
+- Classical detection via z-test:
+  z = (n_green - gamma*T)/sqrt(T*gamma*(1-gamma))
+- Typical defaults in known implementations: gamma=0.25, delta=2.0
+- Known family variants include LeftHash and SelfHash-like seeding changes
+- Important sensitivity: context width / edit fragility / repeated n-grams handling
+2) Unigram-style watermarking (e.g., Zhao et al. 2024 framing)
+- Static or less context-dependent green-list intuition
+- Different robustness and detectability trade-offs than KGW
+3) Semantic/sentence-level watermarking families (e.g., semantic-invariant ideas)
+- Not purely token-id statistical
+- More resilient to naive token-level detectors
+- Require semantic-feature-aware detection logic
+Adversarial pressure from literature:
+- Black-box watermark stealing attacks (query-based reconstruction/spoof/scrub behavior)
+- Paraphrase attacks (single-pass and recursive)
+- Translation/rewriting attacks
+- These attacks show watermark detectors can be brittle if over-specialized
+Implication:
+- A **Kirchenbauer-only detector is insufficient** for this benchmark objective.
+- We need multi-branch + scheme-agnostic robustness.
+---
+# 3) Source policy and epistemic rules
+You must follow strict evidence discipline:
+A) Source type
+- Use text-based sources only (no PDFs).
+B) Temporal weighting
+- Prefer 2025/2026 evidence for strategy, threat assumptions, benchmark practices, and operational decisions.
+- Foundational watermark method details from 2023/2024 are acceptable and expected, but explicitly label them as foundational.
+C) Claim tagging
+For each major technical claim, include:
+- source (short identifier),
+- year,
+- confidence (High / Medium / Low),
+- why it should transfer to this challenge’s hidden private split.
+D) Distinguish clearly
+- Confirmed task facts
+- Inferred but likely assumptions
+- Speculative hypotheses requiring validation
+No hallucinated citations, no invented metrics, no invented APIs.
+---
+# 4) What you must deliver (strict output structure)
+Return a single comprehensive report with exactly these sections:
+## 1. Executive Strategy (1-page max)
+- Best overall approach for maximizing final private performance under 24h constraints
+- Why this strategy is robust to hidden extended test distributions
+## 2. Detector System Design
+Design a **modular detector architecture** with:
+- Scheme-aware branches (KGW-like / unigram-like / semantic-like)
+- Scheme-agnostic branch (black-box statistical + linguistic + semantic features)
+- Meta-ensemble that outputs final score in [0,1]
+For each branch:
+- feature set
+- model type
+- training objective
+- expected strengths/weaknesses
+- failure signatures
+## 3. Feature Catalog (ranked)
+Provide a ranked table:
+- feature family
+- intuition
+- expected gain for TPR@1%FPR
+- compute cost
+- overfit risk
+- robustness under paraphrasing/edit noise
+Include at least:
+- token entropy/rank/probability-shape features
+- perplexity under surrogate LMs
+- n-gram diversity/repetition/compression features
+- length-aware normalization
+- semantic consistency signals
+## 4. Calibration and Low-FPR Optimization
+Design a concrete protocol for 1% FPR regime:
+- score calibration method(s)
+- threshold selection on validation
+- tail stability checks
+- uncertainty estimation (bootstrap or equivalent)
+- safeguards against accidental FPR inflation
+## 5. Validation for Hidden-Set Generalization
+Define validation slices and stress tests:
+- by length bins
+- by lexical complexity/style
+- by predicted watermark subtype
+- by paraphrase-like perturbations
+- by tokenizer mismatch stress
+Must include:
+- anti-overfitting criteria
+- “ship/no-ship” gates
+- what metrics beyond headline TPR@1%FPR to monitor
+## 6. Ablation Plan (minimal but decisive)
+List smallest set of experiments to isolate:
+- contribution of each branch
+- contribution of each major feature family
+- calibration impact
+- robustness impact
+Each ablation must include:
+- hypothesis
+- expected direction
+- stop condition
+## 7. Time-Boxed Execution Plan (24h hackathon reality)
+Provide explicit timeline:
+- 0–2h: first baseline to submit
+- 2–8h: highest-value improvements
+- 8–16h: robustness and calibration hardening
+- 16–24h: stabilization, conservative final selection, submission strategy
+Include fallback if compute is limited.
+## 8. Risk Register and Mitigation
+Top risks (at minimum):
+- scheme-mix blind spots
+- low-FPR calibration instability
+- short-text signal collapse
+- public/private shift
+- overfitting through threshold tuning
+For each risk:
+- early warning signal
+- mitigation
+- backup plan
+## 9. Implementation Starter Pack
+Provide concise pseudocode for:
+- data prep
+- feature extraction
+- branch training
+- score fusion
+- calibration
+- validation metric computation (TPR@1%FPR)
+- final inference to `submission.csv`
+## 10. Evidence Ledger
+Final table:
+- claim
+- source
+- year
+- confidence
+- transfer rationale to this task
+---
+# 5) Hard optimization priorities (in order)
+1. Final private leaderboard robustness (hidden distribution)
+2. Reliable control of FPR near 1%
+3. Recall across mixed watermark schemes
+4. Simplicity/reliability of implementation
+5. Public leaderboard gains
+If a design improves public score but increases hidden-set brittleness, reject it.
+---
+# 6) Output quality constraints
+- Be concrete and operational, not generic.
+- Include default hyperparameters/ranges where defensible.
+- Include one **fast baseline** and one **stronger ensemble**.
+- Include explicit “what to do in first 90 minutes”.
+- Include explicit “what not to do” (common failure patterns).
+- No filler, no broad textbook exposition.
+End with:
+- a short “Immediate Action Checklist”,
+- and a “Minimal Safe Submission Recipe” that ensures format correctness and low-risk first score.
