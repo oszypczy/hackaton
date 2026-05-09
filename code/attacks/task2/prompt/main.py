@@ -20,7 +20,7 @@ from format import (
 )
 from loader import load_parquets
 from scorer import score_batch, _sanity
-from strategies import STRATEGIES
+from strategies import DEMO_STRATEGIES, STRATEGIES, init_demo_pool
 
 
 def cli() -> argparse.Namespace:
@@ -103,6 +103,19 @@ def main() -> None:
 
     if args.image_mode == "scrubbed" and args.scrubbed_image_dir is None:
         raise SystemExit("--image_mode scrubbed requires --scrubbed_image_dir")
+
+    # Demo-strategy preflight: load validation_pii separately to populate demo
+    # pool. Required for oneshot_demo and any future ICL strategies. Loaded
+    # ALWAYS when needed — even in eval mode where samples == val_pii — so the
+    # demo source is decoupled from the eval target. _pick_demo skips
+    # same-name matches to avoid self-leak.
+    if args.strategy in DEMO_STRATEGIES:
+        demo_folder = args.data_dir / "validation_pii"
+        demo_samples = load_parquets(demo_folder, with_gt=True)
+        init_demo_pool(demo_samples)
+        from strategies import _DEMO_POOL  # noqa: PLC0415 — only needed for diagnostic print
+        sizes = {k: len(v) for k, v in _DEMO_POOL.items()}
+        print(f"[main] demo pool loaded from {demo_folder}: {sizes} for strategy={args.strategy}")
 
     print(f"[main] mode={args.mode}  samples={len(samples)}  strategy={args.strategy}  "
           f"image_mode={args.image_mode}  use_prefix={not args.no_prefix}")

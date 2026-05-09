@@ -462,3 +462,57 @@ Sbatchowane (jobs 14739383, 14739384, blank-mode 840 each, ~14 min). Wynik pendi
 - **EMAIL**: real signal — model pamięta `firstname.lastname` (mean Δ=+0.13 dla direct_probe), halucynuje domain
 - **PHONE**: real signal — pamięta US area code `+1505...` (mean Δ=+0.08), halucynuje suffix
 - **CREDIT**: floor ~0.13-0.25 wszystkie strategie. 0 perfect → wymagałoby shadow logprob lub OCR (które nie działa na scrubbed task/ images)
+
+## Phase 11 — 3-agent synthesis + Phase 0 post-process replay (2026-05-09 ~22:00)
+
+### Co zrobiliśmy
+Po v2 = 0.381 plateau spawned 3 background agents:
+1. **`v3_strategy_ranking.md`** — ranked V1-V7 nowych strategii (V1 = oneshot_demo #1, expected blank 0.398 → 0.44-0.49)
+2. **`error_pattern_analysis.md`** — forensic analysis na predict_v2 + 4 oracle JSONs z klastra (n=280 GT)
+3. **`research_prompt.md`** — gotowy prompt do Claude Research na pomysły poza naszym corpusem (user wkleił async)
+
+Synthesis i sequencing → `findings/v3_plan.md` (5 faz).
+
+### Faza 0 — post-process replay (zero GPU, deterministic fixes)
+
+**Skrypt:** `code/attacks/task2/prompt/postprocess.py`
+- P1 CREDIT length+format normalize: 13≤n<16 pad last digit, n>16 truncate, format `\d{4} \d{4} \d{4} \d{4}`
+- P4 EMAIL template-echo blacklist (`card@dateofbirth.*`, `tel@card.*`, `*@example.*`) → fallback v1 (tylko gdy v1 to valid email ≤50 chars)
+- P5 PHONE `+1?555\d{7}$` placeholders → fallback v1 (tylko gdy v1 ma 10-12 digits)
+- P7 PHONE country-code reformat → `+1\d{10}`
+
+**Wynik na CSV:**
+
+| Metryka | v2 (LB 0.381) | v2.1 |
+|---|---|---|
+| CREDIT 4-4-4-4 fmt | 538/1000 (53.8%) | **900/1000 (90.0%)** |
+| EMAIL valid fmt | 996/1000 | 996/1000 (0 regresji) |
+| EMAIL template echoes | 32 | **20** (18 fallbacks) |
+| PHONE `+1\d{10}` | 956/1000 (95.6%) | **992/1000 (99.2%)** |
+| PHONE 555 placeholders | 47 | **9** (38 fallbacks) |
+| Total rows changed | — | 458 / 3000 |
+
+**Submit (id=581):** **brak ruchu na leaderboardzie** — v2.1 NIE pobiło 0.381 (lub nieznacznie pobiło, ale server pokazuje tylko max).
+
+### Insight — dlaczego format-only nie ruszył scoringu
+
+Z error analysis: blank-mode CREDIT char-region match = **0%/0%/0%/0.4%** w 4 grupach 4-digit. Cyfry pod spodem są w większości WRONG. Reformat 14-15 cyfr → 16-cyfr 4-4-4-4 dodaje tylko spacje (3 char × 362 rows / 3000 / 3 ≈ +0.003 OVERALL) — **w szumie**.
+
+**Lekcja:** dalsze ulepszenia muszą atakować CONTENT (poprawne cyfry/domeny), nie FORMAT (tylko spacje). Format-only fixes mają **fundamentalny sufit ~+0.003** na tym task.
+
+### Skrócenie planu — pomijamy A3
+
+A3 (kalibrator parity check, multi-eval ORIGINAL) skreślony bo:
+- task/ ma already-scrubbed obrazy ≈ val_pii blank (calibrator delta +0.031, działa)
+- Faza 0 udowodniła że format wins są poniżej szumu — A3 by tego nie zmienił
+- ROI 0 vs 30 min GPU
+
+### Następny krok — Faza 2 V1 oneshot_demo
+
+Bezpośredni atak na CONTENT przez ICL demo (jeden val_pii subject jako (Name, PII) demo przed pytaniem o targeta). PII-Scope §6.4 PII-Compass: +3× nad plain template z jednym demo. Implementacja: ~50 LoC + 14 min eval + 52 min predict.
+
+### Submission log
+| Time | ID | Strategy | Score | Δ |
+|---|---|---|---|---|
+| 21:09 | 444 | direct_probe (v2) | 0.381 | +0.034 |
+| 22:20 | 581 | direct_probe + post-process (v2.1) | **≤0.381** (no LB move) | 0 |
