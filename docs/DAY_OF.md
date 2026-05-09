@@ -5,10 +5,10 @@
 ### Pierwsze 5 minut — każda osoba
 
 ```
-/start-task A    # (lub B albo C — zależnie od przydziału)
+/start-task 1    # (lub 2 albo 3 — zależnie od przydziału)
 ```
 
-Claude ładuje spec, paper, metrykę i mówi co robić pierwsze. Nie czytaj nic ręcznie.
+Claude ładuje spec z `docs/tasks/taskN_*.md`, paper, metrykę i mówi co robić pierwsze. Nie czytaj nic ręcznie.
 
 ### 5–15 min — zrozum dane
 
@@ -83,32 +83,28 @@ Wyjątek: jeden task trudniejszy niż oczekiwano → daj znać zespołowi po 4h.
 
 ## Priorytety algorytmiczne (szybkie wygrane)
 
-> **WAŻNE:** challenges A/B/C w repo to NASZE ĆWICZENIA — nie faktyczne taski hackathonu.
-> Faktyczne taski poznasz o 12:00. Poniżej: techniki pasujące do potwierdzonych obszarów tematycznych.
-> Dopasuj technikę do FAKTYCZNEGO zadania, nie do naszych practice specs.
+> Spec każdego taska: `docs/tasks/taskN_*.md`. Strategia opisana tam szczegółowo.
 
-### Obszar: Dataset / Membership Inference
-1. Min-K%++ baseline (`code/attacks/min_k_pp.py` — nasza implementacja z ćwiczeń)
-2. Reference model perplexity ratio
-3. Welch t-test na poziomie datasetu
-4. **Wnioski z ćwiczenia A** (AUC 0.38 → 0.689):
-   - Sprawdź rozkład IN vs OUT ZANIM odpalisz minkpp — jeśli zlib ratio bije minkpp, masz domain shift i wyniki będą odwrócone
-   - OUT dataset musi być z tego samego gatunku tekstu co IN (nie CNN/Wikipedia jeśli IN to web text)
+### Task 1: DUCI — ResNet MIA
+1. Min-K%++ baseline (napisz `code/attacks/min_k_pp.py` od zera — ~50 LOC)
+2. zlib ratio jako feature (z ćwiczeń: często bije minkpp)
+3. Welch t-test MIXED vs POPULATION na agregowanych scorach
+4. **Wnioski z ćwiczeń A (AUC 0.38 → 0.689):**
+   - Sprawdź rozkład IN vs OUT ZANIM odpalisz minkpp — jeśli zlib ratio bije minkpp, wyniki minkpp mogą być odwrócone
    - Split scoring: zlib dla dataset-level t-test, mix zlib+loss dla doc-level
-   - p-value < 0.2 = zmień OUT, nie tuninguj progu
-   - M4 MPS wystarczy (Pythia-410m: ~15 min cold, <5 s z cache)
+   - POPULATION jako non-member dostarczone przez org — nie musisz zgadywać
+   - M4 MPS wystarczy dla ResNet18/50/152 inferencji
 
-### Obszar: Watermark LLM (Kirchenbauer)
-1. Z-test z green-list (kod: github.com/jwkirchenbauer/lm-watermarking)
-2. Ataki: DIPPER paraphrase → sprawdź czy watermark przeżywa
-3. Watermark Stealing jeśli mamy dostęp do logitów modelu
-4. Wnioski z ćwiczenia B: [uzupełnij po mini-hackathonie]
+### Task 3: Watermark Detection — Kirchenbauer
+1. Z-test z green-list — refimpl: `github.com/jwkirchenbauer/lm-watermarking`
+2. Jeśli nie znamy hasha: klasyfikator na perplexity + zlib + n-gram diversity
+3. TPR@1%FPR — kalibruj na val set (90+90 labelled)
 
-### Obszar: Diffusion Memorization (Carlini / CDI)
-1. Generuj dużo próbek z modelu → membership inference
-2. CDI approach: 70 próbek wystarczy → confidence ≥99%
-3. L2/SSIM do wykrywania duplikatów treningowych
-4. Wnioski z ćwiczenia C: [uzupełnij po mini-hackathonie]
+### Task 2: PII Extraction — LMM
+1. Bezpośrednie pytanie → role-play → format-template (EMAIL/CREDIT/PHONE)
+2. Shadow−Target log-likelihood ratio jako confidence gate
+3. Luhn check dla CREDIT, regex dla EMAIL/PHONE
+4. Scrubbed image + pytanie bez patrzenia na obraz (model zna usera z TP)
 
 ---
 
