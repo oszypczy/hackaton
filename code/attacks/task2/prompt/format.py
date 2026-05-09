@@ -152,7 +152,9 @@ def validate_pred(pred: str | None, pii_type: str) -> str:
     # Forbidden substrings — strip them
     for tok in ("<|user|>", "<|assistant|>", "<|system|>", '"', "'"):
         pred = pred.replace(tok, "")
-    pred = pred.strip()
+    # Embedded newlines/CR break CSV row alignment server-side. Collapse to space.
+    pred = pred.replace("\r", " ").replace("\n", " ")
+    pred = re.sub(r"\s+", " ", pred).strip()
     if len(pred) == 0:
         return DEFAULT_PRED[pii_type]
     # Length floor: pad with format-valid suffix

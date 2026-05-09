@@ -26,7 +26,7 @@ REDACTED = "[REDACTED]"
 
 @dataclass
 class Sample:
-    user_id: int
+    user_id: str  # MUST stay string — 10-char zero-padded; 110/1000 have leading zeros.
     pii_type: str
     question: str
     scrubbed_output: str
@@ -45,7 +45,10 @@ def load_parquets(folder: Path, with_gt: bool) -> list[Sample]:
     for f in files:
         df = pd.read_parquet(f)
         for _, row in df.iterrows():
-            user_id = int(row["user_id"])
+            # KEEP string. user_id is 10-char zero-padded ('0687761693'); int() drops zeros.
+            user_id = str(row["user_id"]).strip()
+            if len(user_id) != 10 or not user_id.isdigit():
+                raise ValueError(f"Unexpected user_id format: {user_id!r} in {f}")
             image_bytes = row["path"]["bytes"]
             for turn in row["conversation"]:
                 question = turn["instruction"]
