@@ -21,10 +21,14 @@ import os
 import sys
 from pathlib import Path
 
+import io
+
+import pyarrow as pa
+import pyarrow.parquet as pq
 import requests
 import torch
 import torch.nn.functional as F
-from datasets import load_from_disk
+from datasets import Dataset
 from PIL import Image
 from rapidfuzz.distance import Levenshtein
 
@@ -100,15 +104,26 @@ def load_both_models():
     return target, shadow, tok, img_proc, img_size
 
 
+# ── Parquet loader (data has no HF Arrow metadata) ────────────────────────────
+def load_parquet_dir(path: Path) -> Dataset:
+    files = sorted(path.glob("*.parquet"))
+    tables = [pq.read_table(str(f)) for f in files]
+    return Dataset(pa.concat_tables(tables))
+
+
 # ── Image preprocessing ────────────────────────────────────────────────────────
 def preprocess_image(sample, img_proc, img_size: int, device) -> torch.Tensor:
-    pil_img = sample.get("path")
-    if isinstance(pil_img, Image.Image):
-        pil_img = pil_img.convert("RGB").resize(
-            (img_size, img_size), Image.Resampling.BILINEAR
-        )
+    # path column is {"bytes": b"...", "path": "..."} from parquet Image feature
+    path_data = sample.get("path", {})
+    if isinstance(path_data, Image.Image):
+        pil_img = path_data
+    elif isinstance(path_data, dict) and path_data.get("bytes"):
+        pil_img = Image.open(io.BytesIO(path_data["bytes"]))
     else:
         pil_img = Image.new("RGB", (img_size, img_size))
+    pil_img = pil_img.convert("RGB").resize(
+        (img_size, img_size), Image.Resampling.BILINEAR
+    )
     tensor = img_proc.preprocess(pil_img, return_tensors="pt")["pixel_values"][0]
     return tensor.unsqueeze(0).to(device)  # (1, C, H, W)
 
@@ -277,7 +292,7 @@ def _sanity():
 
 # ── Validation run ─────────────────────────────────────────────────────────────
 def run_val(target, shadow, tokenizer, img_proc, img_size):
-    ds = load_from_disk(str(VAL_DIR))["train"]
+    ds = load_parquet_dir(VAL_DIR)
     scores = {t: [] for t in PII_TYPES}
 
     for i, sample in enumerate(ds):
@@ -310,7 +325,7 @@ def run_val(target, shadow, tokenizer, img_proc, img_size):
 
 # ── Submission run ─────────────────────────────────────────────────────────────
 def run_submit(target, shadow, tokenizer, img_proc, img_size):
-    ds = load_from_disk(str(TASK_DIR))["train"]
+    ds = load_parquet_dir(TASK_DIR)
     rows = []
 
     for i, sample in enumerate(ds):

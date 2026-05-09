@@ -15,6 +15,7 @@ Domyślny venv z requirements.txt miał złe wersje. Ręczne poprawki:
 | `jsonlines` | brak | `uv pip install jsonlines` |
 | `openai-whisper` | brak | `uv pip install openai-whisper` |
 | `deepspeed` | brak (import-time CUDA_HOME check) | `uv pip install deepspeed==0.14.4` |
+| `timm` | brak (convnext_encoder.py:52) | `uv pip install timm==1.0.20` |
 | `rapidfuzz` | brak | `uv pip install rapidfuzz requests` |
 
 Docelowe wersje = `P4Ms-hackathon-vision-task/uv.lock`.
@@ -112,6 +113,34 @@ input_ids = torch.tensor(token_ids, dtype=torch.long, device=model.device)
 | 14738212 | `No module named whisper` | uv pip install openai-whisper |
 | ≥14738??? | transformers 5.8.0 → brak MODEL_FOR_VISION_2_SEQ_MAPPING | uv pip install transformers==4.51.3 |
 | ≥14738??? | datasets 4.8.5 → brak ShufflingConfig | uv pip install datasets==3.6.0 |
+| 14738256 | `No module named 'timm'` (convnext_encoder via hydra instantiate) | uv pip install timm==1.0.20 |
+| 14738266 | **MODELE ZAŁADOWANE ✓** — target+shadow bf16 na cuda. Crash przy ładowaniu danych: `load_from_disk` fail — dane to surowe parquety bez HF Arrow metadata | Zamienić `load_from_disk` → `load_parquet_dir` (pyarrow). `sample["path"]` = `{"bytes": b"...", "path": "..."}` (nie PIL Image) — trzeba `Image.open(io.BytesIO(data["bytes"]))` |
+
+## Runtime observations
+
+### Job 14738266 — pierwsze udane załadowanie modeli (2026-05-09)
+
+**Model config (z logów load_lmm):**
+- `model_name_or_path`: `allenai/OLMo-2-0425-1B-Instruct`
+- `llm_name`: `default_olmo2`
+- `visual_encoder_type`: `llava_hr_1b`
+- `d_model`: 2048
+- `data_image_size`: **1024** (nie 336 — ważne dla resize)
+- `pretrained_ckpt_path`: `non_lora_trainables.bin` (adapter weights nad base OLMo-2)
+- Target tasks: `p4ms_vqa,llava_vqa,synthdog_en,ocrvqa,text_ocr,text_caps`
+- Shadow tasks: `p4ms_vqa_shadow,...` (identyczna architektura, bez PII fine-tuningu)
+- "No missing keys in model.layers" — model załadował się czysto, brak problemów z wagami
+
+**Dane:**
+- `task/`: 2 parquety (500 + 500 = 1000 samples) — parquet schema: `{path: struct{bytes,path}, conversation: list<{instruction,output}>, user_id: str}`
+- `validation_pii/`: 1 parquet (280 samples GT)
+- `sample["path"]` = dict `{"bytes": b"\x89PNG...", "path": "filename.png"}` — trzeba `io.BytesIO` decode
+- `sample["conversation"]` = lista `[{instruction, output}, ...]` — 3 turns per sample (EMAIL, CREDIT, PHONE)
+
+**deepspeed warnings (nieistotne):**
+- `async_io requires libaio` — nie blokuje
+- `sparse_attn requires torch < 2.0` — nie blokuje
+- `triton version untested` — nie blokuje
 
 ## Submission info
 
