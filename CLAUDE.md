@@ -77,10 +77,24 @@ scripts/juelich_exec.sh "cat ~/results.txt"
 scripts/juelich_exec.sh "python train.py --epochs 5"
 ```
 
+**⚠ Shared state — 3 teammates pracują równolegle na tym samym `$PROJECT` / `$SCRATCH` (`training2615`).** Każda komenda `juelich_exec` może klobnąć cudzą pracę (checkpointy, datasety, joby). PRZED każdym wywołaniem oceń blast radius:
+- czy operacja modyfikuje pliki/foldery w `$PROJECT` lub `$SCRATCH`?
+- czy nadpisuje istniejące dane (przekierowanie `>`, `cp`, `mv`, `tar -x` bez katalogu)?
+- czy ubija jobs/procesy które mogą być teammate'a?
+
+Jeśli odpowiedź "tak" lub "może" → **najpierw zapytaj usera**, nawet jeśli `juelich_exec.sh` nie blokuje komendy. Bezpieczeństwo skryptu pokrywa najgorsze przypadki, ale nie zna kontekstu (czyje pliki, czyje joby).
+
 **Safety rules baked into `juelich_exec.sh`:**
 - `rm`, `rmdir`, `dd`, `mkfs`, `git reset --hard`, `scancel` (no ID), `truncate`, `chown` → **BLOCKED** (exit 2). Use `--force` only if user explicitly asks.
 - `sbatch`, `scancel <id>`, `| bash` → **asks [y/N]** — always show user what will run and wait for their confirmation before calling.
 - Read-only ops (`ls`, `cat`, `squeue`, `sinfo`, `python`, `uv`) → free, no prompt needed.
+
+**Niezablokowane, ale wymagają ostrożności (Claude pyta usera zanim odpali):**
+- `cp`, `mv`, `tar -x`, redirekty `> file` / `>> file` w `$PROJECT` / `$SCRATCH`
+- `git push`, `git checkout -- .`, `git stash drop`
+- `pip install` / `uv pip install` w shared envie (zamiast tego user-local venv)
+- `sbatch` z dużą liczbą GPU lub długim time-limit (zjada budżet projektu dla całego teamu)
+- modyfikacja katalogów z prefixem teammate'a (np. `kempinski1/`, jeśli ty jesteś innym userem)
 
 **If socket is dead** (>4h since connect or machine rebooted): tell user to run `! scripts/juelich_connect.sh` again. Do not attempt to restart it yourself.
 
@@ -153,6 +167,12 @@ references/
 - **Deep research artifacts are heavy.** Don't auto-load `docs/deep_research/*` unless MAPPING didn't answer. State explicitly when you're about to load one and why.
 - Submission: REST API, CSV files, 5-min cooldown (2-min on failure), team API token provided at start.
 - Data and model checkpoints: provided via HuggingFace links + Jülich at task reveal.
+- **🎯 Final scoring runs on EXTENDED test sets (announced morning 2026-05-09).** Przed ogłoszeniem wyników jutro organizatorzy przepuszczą wszystkie metryki przez ROZSZERZONE wersje test datasetów których my nie widzimy. **Maksymalizacja score'u na live scoreboard ≠ wygrana.** Konsekwencje:
+  - **Generalizacja > overfitting do public test set.** Nie tuningujemy hiperparametrów aż do wyciśnięcia ostatniego 0.001. Jeśli model robi 0.85 na public ale działa solidnie na różnych slicach walidacji → lepszy niż 0.92 z pikiem na public ale wąskim distribution.
+  - **Walidacja krzyżowa.** Dla każdego taska podziel dostępne dane na cross-val splits (np. by-class, by-architecture, by-prompt-length), sprawdź czy score jest stabilny. Wariancja score'u na slicach ≈ ryzyko regresji na extended test set.
+  - **Unikamy "magic numbers" dopasowanych do public.** Jeśli próg/wagę dobrałeś greedy na public test → zostaw też wersję z prostszym (mniej skalibrowanym) progiem na backup.
+  - **Sprawdzaj czy metoda jest "ogólna":** czy działa na wszystkich 9 modelach Task 1 (różne ResNety)? Na wszystkich 3 PII typach Task 2? Na różnych długościach tekstu Task 3? Jeśli któryś slice się wyłamuje → flag.
+  - **Submisje informacyjne, nie ostateczne.** Live scoreboard pokazuje trend, ale jutrzejszy ranking będzie inny. Submitujemy żeby uczyć się o systemie/danych, nie żeby gonić leaderboard.
 
 ## Output rules
 - No preamble. No "Great question," no "I apologize," no "Here's the implementation."

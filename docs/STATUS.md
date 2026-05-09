@@ -47,6 +47,17 @@ Zawalski (data contamination) **NIE był omówiony** w części technicznej → 
 - **W pełni dozwolone**: Claude, GPT, Copilot, Cursor, Codex i wszystko inne
 - Organizatorzy oczekują że rozumiecie co robicie — weryfikowane na prezentacji
 
+## Confirmed (Morning presentation 2026-05-09)
+
+### 🎯 Final scoring na EXTENDED test sets
+- **Przed ogłoszeniem wyników jutro (2026-05-10)** organizatorzy przepuszczą wszystkie metryki przez **rozszerzone wersje test datasetów**, których team nie widzi w trakcie hackathonu.
+- **Implikacja:** maksymalizacja score'u na live scoreboard ≠ wygrana. Liczy się **ogólność rozwiązania**.
+- **Praktyka:**
+  - cross-walidacja na slicach (by-class, by-arch, by-prompt-length) — wariancja = ryzyko
+  - unikać greedy tuningu progów/wag pod public test
+  - flagować slice'y na których metoda się wyłamuje
+- Pełne wytyczne i konsekwencje → patrz `CLAUDE.md` sekcja "Working principles" (bullet z 🎯).
+
 ## Active blockers
 - Jülich SSH dla pozostałych członków zespołu (**kempinski1 verified 2026-05-08**)
 - Faktyczne taski nieznane do 12:00 2026-05-09
