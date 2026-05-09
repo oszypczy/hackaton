@@ -187,11 +187,20 @@ scripts/
   submit.py                                  # POST CSV to organizer API + log
   pull_csv.py                                # fetch submission.csv from cluster
 references/
-  papers/                                    # 19 PDFs (01-04 required + 05-25 supplementary)
-    MAPPING_INDEX.md                         # ⚠ ALWAYS READ FIRST (lean router, ~700 words)
-    MAPPING.md                               # rich per-paper entries (~3.1k words; jump to entry only)
+  papers/                                    # 20 PDFs total (01-04 required + 05-25 supplementary)
+    MAPPING_INDEX.md                         # ⚠ ALWAYS READ FIRST (lean router, ~750 words)
+    MAPPING.md                               # rich per-paper entries (~3.5k words; jump to entry only)
     txt/                                     # ⚠ READ ONLY THE .txt EXTRACTION (NN_*.txt)
     NN_*.pdf                                 # raw PDFs — DO NOT READ; use txt/ instead
+    01–04 required (organizers' email)
+    05–07 task-PDF references (cited in revealed Task 1 PDF):
+          05 Tong et al. "How Much of My Dataset" (ICLR'25) — THE paper for Task 1
+          06 Maini et al. DI Ownership Resolution (ICLR'21)
+          07 Dziedzic et al. DI for Self-Supervised Models (NeurIPS'22) [SprintML]
+    08     supplementary (Watermarks Provably Removable)
+    09–13, 15, 18  hidden SprintML papers
+    20–25 competition-ready tools (Min-K%++, Watermark Stealing, DIPPER,
+          Recursive Paraphrasing, WAVES, ChatGPT divergence)
 ```
 
 ## Working principles

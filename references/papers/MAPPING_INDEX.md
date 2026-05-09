@@ -5,10 +5,15 @@
 Format: `NN — Title (Venue) [SprintML?] — Use for: …`
 
 ## 1. Required (organizers' email)
-- **01** — Carlini 2023, *Extracting Training Data from DMs* (USENIX 2023). Use for: Challenge C primary baseline.
-- **02** — Maini, Jia, Papernot, Dziedzic 2024, *LLM Dataset Inference* (NeurIPS 2024) [SprintML]. Use for: Challenge A primary; SprintML eval template.
-- **03** — Zawalski 2025, *CoDeC: Data Contamination via ICL* (NeurIPS Workshop 2025). Use for: "is this benchmark contaminated?"; novel angle for A.
-- **04** — Kirchenbauer 2023, *A Watermark for LLMs* (ICML 2023). Use for: Challenge B primary.
+- **01** — Carlini 2023, *Extracting Training Data from DMs* (USENIX 2023). Use for: Task 2 (PII) baseline.
+- **02** — Maini, Jia, Papernot, Dziedzic 2024, *LLM Dataset Inference* (NeurIPS 2024) [SprintML] [**TASK1-PDF cited**]. Use for: Task 1 (DUCI) — pipeline.
+- **03** — Zawalski 2025, *CoDeC: Data Contamination via ICL* (NeurIPS Workshop 2025). Use for: novel angle for Task 1.
+- **04** — Kirchenbauer 2023, *A Watermark for LLMs* (ICML 2023) [**TASK3-PDF cited**]. Use for: Task 3 primary.
+
+## 1b. Task PDF references (cited by organizers in revealed task PDFs — high authority)
+- **05** — Tong, Ye, Zarifzadeh, Shokri 2025, **"How Much of My Dataset Did You Use?" — Quantitative DUCI** (ICLR 2025) [**TASK1-PDF**]. Use for: **Task 1 PRIMARY** — proposes the exact DUCI method.
+- **06** — Maini, Yaghini, Papernot 2021, *Dataset Inference: Ownership Resolution in ML* (ICLR 2021) [**TASK1-PDF**]. Use for: Task 1 — original DI paper, methodological foundation.
+- **07** — Dziedzic, Duan, Kaleem, Dhawan, Guan, Cattan, Boenisch, Papernot 2022, *Dataset Inference for Self-Supervised Models* (NeurIPS 2022) [**SprintML — Dziedzic+Boenisch**] [**TASK1-PDF**]. Use for: Task 1 — DI for encoders; **organizers' own paper**.
 
 ## 2. Supplementary
 - **08** — *Watermarks Provably Removable* (NeurIPS 2024). Use for: Task 3 watermark robustness.
@@ -31,11 +36,11 @@ Format: `NN — Title (Venue) [SprintML?] — Use for: …`
 
 ## Mapping by task (Warsaw 2026)
 
-| Task | Primary | Hard mode | Tools |
-|---|---|---|---|
-| **1 — DUCI (ResNet MIA)** | 02 | 18, 12 | 20 |
-| **2 — PII Extraction (LMM)** | 01, 10 | 09, 13, 15 | 25 |
-| **3 — Watermark Detection** | 04 | 08 | 21, 22, 23, 24 |
+| Task | Primary (TASK-PDF cited) | Methodological | Hard mode | Tools |
+|---|---|---|---|---|
+| **1 — DUCI (ResNet MIA)** | **05** (THE paper), 02, 06, 07 | — | 18, 12 | 20 |
+| **2 — PII Extraction (LMM)** | 01, 25 (chat divergence) | 10, 15 | 09, 13 | 25 |
+| **3 — Watermark Detection** | **04** (Kirchenbauer baseline) | + Liu 2024 + Zhao 2024 (PDF cited, NOT in repo) | 08 | 21, 22, 23, 24 |
 
 ## Next step
 Once you've picked a paper number from above:
