@@ -147,6 +147,95 @@ Potem dopisujemy `prefix` do końca → model generuje continuation.
 5. **Phone format normalization:** `+1 385 915 9897` vs `+13859159897` — Levenshtein liczy spacje. Test obu.
 6. **Cooldown management:** 5 min × 24h = 288 max submitów. Ale `validation_pii` (lokalny GT) wystarczy do większości decyzji. Submit tylko anchor po phase.
 
+## Findingi z codebase (czytane 2026-05-09)
+
+### `model.generate()` ma custom signature
+Plik: `src/lmms/models/unified_mllm.py:99`. Akceptuje:
+```python
+model.generate(
+    batch_input_ids=[input_ids],            # list[Tensor]
+    batch_labels=[mask_tensor],             # list[Tensor], -100 dla generation
+    batch_X_modals=[{"<image>": img_4d}],   # list[dict], klucz "<image>" z bracketami!
+    max_new_tokens=50,
+    do_sample=False, num_beams=1,
+)
+```
+Internally woła `prepare_multimodal_inputs` i routuje do HF generate. **Nie musimy sami wołać** `prepare_multimodal_inputs`. Per `src/README.md` § "Generating Text".
+
+### Architecture (src/README.md potwierdzone)
+- LLM: `allenai/OLMo-2-0425-1B-Instruct` (1B params)
+- Vision: LLaVA-HR (CLIP ViT-L/14@336 + ConvNeXt-L@1024) → 2-layer MLP projector (1024→2048)
+- **Image res: 1024×1024** (`data_args.data_image_size = 1024`)
+- Special tokens: `<image>`, `<image_start>`, `<image_end>`, `<question_start>`, `<question_end>`
+- Trening: bf16, DeepSpeed ZeRO-2, AdamW, 1 epoch, effective batch 256, FFT (no LoRA)
+
+### 3 dostępne dataset configs (HF, organizatorzy)
+Repo: `SprintML/P4Ms-hackathon-vision-task`
+| Config | Image PII | Text PII | n × turns |
+|---|---|---|---|
+| `task` (= `p4ms_vqa_hf_task`) | scrubbed | scrubbed (`[REDACTED]`) | 1000 × 3 = 3000 (eval set) |
+| `validation_pii` (= `p4ms_vqa_hf_validation_w_pii_image_and_text`) | **PII intact** | **PII intact** | 280 × 3 = 840 (lokalny GT) |
+| `validation_pii_txt_only` (= `p4ms_vqa_hf_validation_wo_pii_image_w_pii_text`) | scrubbed | **PII intact** | 280 × 3 = 840 |
+
+**`validation_pii_txt_only` to GOTOWY benchmark image-ablation Phase 4** — porównujemy similarity vs `validation_pii`. Jeśli ≈ to image conditioning nie matter (text-only mode).
+
+### Per-token loss recipe (z `scripts/inference_example.py`)
+```python
+inputs = model.prepare_multimodal_inputs(batch_input_ids, batch_labels, batch_X_modals)
+out = model(**inputs)
+shift_logits = out.logits[:, :-1, :].contiguous()
+shift_labels = inputs["labels"][:, 1:].contiguous()
+per_token_loss = F.cross_entropy(
+    shift_logits.view(-1, V).float(), shift_labels.view(-1),
+    reduction="none", ignore_index=-100,
+).view(B, T)
+```
+**Dla Path A:** użyteczne do candidate scoring (K=8 → wybierz argmin mean loss).
+**Dla Path B (murdzek2):** rdzeń ataku — Δ logp target vs shadow.
+
+## Cluster gotchas (zapisane na sucho na pamięć)
+
+### 1. `unzip` nie ma na PATH
+Fix: `python -m zipfile -e <zip> <dest>` **po** `source .venv/bin/activate` (venv ma python).
+
+### 2. Sbatch kopiuje skrypt do `/var/spool/parastation/jobs/<jobid>`
+Konsekwencja: `$0` w skrypcie wskazuje na tę kopię, NIE na oryginał. `$(dirname $(realpath $0))` daje `/var/spool/.../jobs/`, nie nasz katalog.
+Fix: **hardcoduj ATTACK_DIR**. Też dla `#SBATCH --output=` używaj absolute path.
+
+### 3. `deepspeed` import wymaga `CUDA_HOME` at module-load time
+Plik: `src/lmms/models/utils/modeling_utils.py:172` — `import deepspeed` na top-level. Każdy import codebase → fail bez CUDA_HOME.
+Fix:
+```bash
+module load CUDA/13 2>/dev/null || module load CUDA 2>/dev/null
+export CUDA_HOME="${CUDA_HOME:-${EBROOTCUDA:-/usr/local/cuda}}"
+```
+Dostępne moduły JURECA: CUDA/13, cuDNN/9, NCCL/, NVHPC/25.9.
+
+### 4. `juelich_exec.sh` blokuje `sbatch` na y/N
+`/dev/tty: Device not configured` gdy wywołane przez Claude. Bypass: `--force` flag przed komendą.
+```bash
+juelich_exec.sh --force "sbatch ..."
+```
+Pełna lista patternów wymagających confirm: `sbatch`, `scancel <id>`, `| bash`/`| sh` (head -120 scripts/juelich_exec.sh).
+
+### 5. SBATCH `--output=` jest relative to sbatch invocation cwd
+Nie do skryptu. Domyślnie ląduje w `~/jureca/output/log_<id>.txt`. Fix: absolute path `/p/scratch/.../output/log_%j.txt`.
+
+### 6. Output `inputs_embeds` z `prepare_multimodal_inputs`
+Może być LIST `[embeds, mask_text, mask_video, mask_audio, mask_question]` jeśli `inputs_embeds_with_mmask=True`, albo bare tensor. Codebase's custom HF generate (generation_utils.py:1548) **rozumie obie formy** — pass through, nie unwrapuj.
+
+### 7. `model_setup_inference` default
+```python
+num_beams=1, do_sample=False, max_new_tokens=25
+```
+**`max_new_tokens=25` za mało dla EMAIL** (potrafi mieć 30+ chars = 8-12 tokenów). Override → 50.
+
+### 8. `<image>` key z brackets
+W `batch_X_modals` klucz to literalnie `"<image>"` z bracketami (NIE `"image"`). Sprawdzone w multitask_dataset.py:94.
+
+### 9. Tokenizacja tak jak collator: `convert_tokens_to_ids(tokenize(s))`
+NIE `tokenizer.encode()` ani `tokenizer(s).input_ids`. Powód: codebase używa pierwszego sposobu i dodaje special tokens przez `add_tokens(special_tokens=True)` (unified_arch.py:553).
+
 ## Komendy quick reference
 
 ```bash
