@@ -239,3 +239,32 @@ Crude `p̂` ranking from conf-delta (NOT submission-quality, just sanity check o
 1. **Arch-matched synth** (R50 + R152 @ 20ep) — current MLE uses R18 synth for all 9 targets; arch bias likely hurts model_1X / model_2X. Per-arch fits should reduce 0.01-0.03.
 2. **Extra calibration points** (p ∈ {0.1, 0.2, 0.3, 0.4, 0.6, 0.7, 0.8, 0.9} R18 @ 20ep) — denser linear fit, tighter slope estimate.
 3. **Multi-seed synth bank** (BASE_SEED=2000 R18 @ 20ep) — average across multiple synth banks reduces variance from training noise.
+
+## Iteration log post-SUB-3
+
+| SUB | Method | Mean p̂ | Range | Score | Notes |
+|---|---|---|---|---|---|
+| 1 | RMIA 50ep | 0.06 | [0.025, 0.12] | 0.4630 | ref overtrained |
+| 2 | RMIA 20ep | 0.07 | [0.025, 0.17] | 0.4549 | regime mismatch |
+| 3 | MLE 20ep R18 mean_loss d=1 | 0.443 | [0.31, 0.59] | **0.0790** | first MLE win |
+| 4 | MLE 50ep R18 mean_loss d=1 | 0.498 | [0.42, 0.58] | **0.0723** | wider signal range, +0.05 mean |
+
+**Trend confirmed:** higher mean p̂ improves score. Real true mean p ≈ 0.55-0.60.
+
+**Failed variants:**
+- R50/R152 synth at 20ep — DIDN'T converge (loss flat ~4.6 across all p)
+- R50 80ep — converged but noisy (non-monotonic at p=0.75 vs 1.0)
+- R152 80ep — STUCK at acc 0.02, won't converge in our recipe at this depth/N
+- Ensemble of all signals — drags down via delta_conf, mean_conf (worse than mean_loss alone)
+- Quadratic deg=2 — overfits 5pts, doesn't beat linear
+
+**Decisions:**
+- 2026-05-09 — SUB-4 = 0.0723 with 50ep R18 mean_loss d=1. From 0.0790 → 0.0723.
+- 2026-05-09 — R152 effectively untrainable in our setup (recipe + N=2000). Use R18 fallback for arch=2.
+- 2026-05-09 — Trend `+mean p̂ → -score` suggests real p mean ≈ 0.55-0.60. Go even higher carefully.
+
+## Pending experiments
+
+- 80ep + 100ep R18 synth — extrapolate to higher mean p̂
+- R50 80ep dense (5+8 extra+5 seed2 = 18 pts) — smoother arch-matched fit for R50 targets
+- Per-arch mixed regime: R18 50ep for arch=0/2, R50 80ep dense for arch=1
