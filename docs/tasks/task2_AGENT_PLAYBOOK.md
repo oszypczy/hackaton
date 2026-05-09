@@ -231,6 +231,20 @@ curl -s http://35.192.205.84/leaderboard_page | grep '27_p4ms::Czumpers'
 
 ## 9. KEY FILES TO READ
 
+**Teammate (kempinski1) process logs on `origin/task2-prompt` branch — READ FIRST:**
+- `code/attacks/task2/CLAUDE.md` — coordination with prior Claude sessions
+- `code/attacks/task2/STRATEGY.md` — high-level strategy choices
+- `code/attacks/task2/prompt/NOTES.md` — implementation log
+- `code/attacks/task2/prompt/TODO.md` — pending tasks
+- `code/attacks/task2/prompt/findings/*.md` — research findings (CD plan, error patterns, hybrid analysis, literature review)
+
+```bash
+git fetch origin
+git show origin/task2-prompt:code/attacks/task2/STRATEGY.md | less
+git show origin/task2-prompt:code/attacks/task2/prompt/NOTES.md | less
+```
+
+**Spec & references:**
 1. `docs/tasks/task2_pii_extraction.md` — full spec (source of truth)
 2. `docs/STATUS.md` — sekcja "Task 2 — Current State (2026-05-09 evening)" with bugs catalog
 3. `docs/SUBMISSION_FLOW.md` — endpoint details

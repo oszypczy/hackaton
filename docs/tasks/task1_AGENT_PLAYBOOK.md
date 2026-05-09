@@ -222,11 +222,17 @@ Maintain `docs/tasks/task1_process_so_far.md` (per `feedback_process_log.md` con
 
 ## 11. KEY FILES TO READ
 
-1. `references/papers/txt/05_*.txt` — Tong 2025 DUCI ICLR paper (THE method)
-2. `references/papers/txt/06_*.txt` — Maini DI 2021 (fallback)
-3. `docs/tasks/task1_duci.md` — full task spec (this is the source of truth)
-4. `references/papers/MAPPING.md` — entry for paper 05 (rich grep terms)
-5. `references/papers/MAPPING_INDEX.md` — lean router (paper 05 should be #1 lookup)
+1. **`code/attacks/task1_duci/NOTES.md` on branch `origin/task1`** — szypczyn1's process log: data shapes confirmed, model loader resolved (use stdlib pickle, NOT torch.load), Phase A/B/C status, signals tried. **READ THIS FIRST** — saves rediscovering basics.
+2. `references/papers/txt/05_*.txt` — Tong 2025 DUCI ICLR paper (THE method)
+3. `references/papers/txt/06_*.txt` — Maini DI 2021 (fallback)
+4. `docs/tasks/task1_duci.md` — full task spec (this is the source of truth)
+5. `references/papers/MAPPING.md` — entry for paper 05 (rich grep terms)
+6. `references/papers/MAPPING_INDEX.md` — lean router (paper 05 should be #1 lookup)
+
+```bash
+git fetch origin
+git show origin/task1:code/attacks/task1_duci/NOTES.md | less
+```
 
 **DO NOT:**
 - Read all 25 papers
