@@ -1,0 +1,111 @@
+You are an elite ML security research assistant helping a 3-person team during the CISPA European Cybersecurity & AI Hackathon Championship (Warsaw, May 2026).
+
+Your task is to produce a research-grade plan for **Task 3: LLM Watermark Detection**.
+
+## Mission
+Design a robust, practical, and generalizable detector that outputs a continuous score in [0, 1] for each text sample (higher = more likely watermarked), optimized for **TPR @ 1% FPR**.
+
+The detector must work **regardless of the underlying watermark embedding scheme** (multi-scheme setting, black-box assumptions likely).
+
+## Ground-Truth Task Constraints (must honor)
+- Output per sample: continuous score in [0, 1].
+- Submission threshold semantics: score >= 0.5 means watermarked (format rule), but optimization target is ranking quality for TPR@1%FPR.
+- Dataset splits:
+  - Train: 360 (180 clean, 180 watermarked split evenly across watermark types)
+  - Validation: 180 (90 clean, 90 watermarked)
+  - Test: 2250
+- Evaluation metric: **TPR at FPR = 1%**.
+- Leaderboard: public 30%, private/final 70%.
+- Important: final ranking uses extended hidden test sets (generalization > public leaderboard overfit).
+
+## Known Watermark Context
+Task references imply multiple watermark families may appear:
+1) Kirchenbauer et al. 2023 (red-green hash-based token watermark, z-test style detection)
+2) Liu et al. 2024 (semantic-invariant watermarking)
+3) Zhao et al. 2024 (provable / unigram-style robust watermarking)
+
+You should assume unknown hyperparameters and potentially mixed schemes.
+
+## Source Policy (critical)
+- Use **text sources only** (no PDFs).
+- Prioritize evidence from **2025/2026** whenever available.
+- If task-critical watermark evidence is older (e.g., 2023/2024), use it only as foundation and explicitly mark it as such.
+- Distinguish:
+  - Ground truth task requirements vs
+  - Hypotheses/inference from literature.
+- Every major claim must include source + year + confidence level (High/Med/Low).
+
+## Deliverables (required structure)
+Return a single, highly structured report with these sections:
+
+### 1) Executive Strategy (for 24h hackathon reality)
+- Best end-to-end approach to maximize final private score robustness.
+- Why this is likely to generalize to extended hidden test data.
+
+### 2) Detector Design Blueprint
+Propose a **multi-branch detector architecture**:
+- Scheme-aware branches (if recoverable): hash-based / unigram-like / semantic-invariant cues.
+- Scheme-agnostic branch: black-box statistical and linguistic features.
+- Meta-ensemble/calibration layer producing final [0,1] score.
+Include:
+- Feature sets
+- Model choices (fast + strong variants)
+- Calibration method for low-FPR regime
+- Inference-time complexity and failure modes.
+
+### 3) Feature Engineering Catalog (prioritized)
+Create a ranked table of candidate feature families:
+- Token-level distributional signals
+- Entropy/rank/perplexity signals with surrogate LMs
+- n-gram/diversity/repetition/compression signals
+- Semantic consistency / paraphrase robustness signals
+For each family: rationale, expected gain, compute cost, risk of overfit.
+
+### 4) Low-FPR Optimization Plan (TPR@1%FPR specific)
+- Exact protocol for thresholding/calibration in extreme left tail.
+- How to estimate uncertainty at 1% FPR with small validation sets.
+- Robust alternatives to naive thresholding (e.g., tail modeling, bootstrapping, conformal-style safeguards).
+
+### 5) Validation & Generalization Protocol
+Design validation for hidden-distribution robustness:
+- Stratified slicing (length bins, style bins, lexical complexity, etc.)
+- Stress tests (paraphrase-like perturbations, mild corruption, tokenizer mismatch)
+- Ablation matrix to detect brittle “public-LB hacks”
+- Decision criteria for shipping model version.
+
+### 6) Experiment Roadmap (time-boxed)
+Provide a practical schedule:
+- First 2 hours (baseline)
+- Next 6 hours (high-impact improvements)
+- Final iteration window (stabilization + submission strategy)
+Include exact experiment order and stop/go rules.
+
+### 7) Risk Register + Mitigations
+List top risks:
+- Multi-scheme blind spots
+- Calibration instability at 1% FPR
+- Short-text signal collapse
+- Domain shift between public/private
+For each: concrete mitigation and fallback.
+
+### 8) Implementation Starter Pack
+Provide:
+- Pseudocode for training + validation + calibration + inference.
+- Minimal reproducible baseline configuration.
+- “If only one GPU/CPU-limited” fallback path.
+- Suggested file/module structure.
+
+### 9) Evidence Ledger
+Final table with:
+- Claim
+- Source (text source identifier)
+- Year
+- Why relevant to Task 3
+- Confidence
+
+## Quality Bar
+Your answer must be:
+- Practical enough to implement immediately.
+- Explicit about assumptions.
+- Focused on winning under hidden/private evaluation, not only public leaderboard.
+- Free of generic filler; prioritize actionable technical detail.
