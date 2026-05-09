@@ -87,6 +87,82 @@ Zawalski (data contamination) **NIE był omówiony** w części technicznej → 
 - Wpisanie `HACKATHON_API_KEY` do `.env` (user ma klucz, nie zapisany jeszcze)
 - Setup teammate'ów (3 osoby) — instrukcja: `docs/JURECA_TEAMMATE_SETUP.md`
 
+## Task 2 — Current State (2026-05-09 evening)
+
+### Leaderboard standings (ostatni odczyt ~20:50)
+- **task1=0.053333, task2=0.381195, task3=0.103064** (team: Czumpers)
+- Task 2: #1 na leaderboardzie (potwierdzono z scraping `/leaderboard_page`)
+
+### Score historia Task 2
+| Submission | CSV | Score | Uwagi |
+|---|---|---|---|
+| ~17:27 | task2_shadow_old_fixed.csv | FAILED | format/walidacja |
+| ~18:36 | task2_shadow_baseline_20260509_203603.csv | ~0.347 | pełne zdania vs GT raw PII |
+| ~18:50 | task2_shadow_pii_only_v2_204928.csv | **0.381195** | POST-PROCESSED — regex PII extraction |
+| ~19:16 | task2_shadow_hybrid_pii_only_205037.csv | brak poprawy | A+B hybrid gorzej niż baseline |
+
+### Kluczowe odkrycie: GT format
+- **Server GT = raw PII values**, np. `john.doe@example.com`, `+12312312312`, `1234 5678 9012 3456`
+- **Val parquet GT = pełne zdania**, np. `"You can reach Gabriella Johnson on +13859159897."`
+- Lokalna eval dawała 0.897 — mylące, bo miała pełne zdania vs pełne zdania
+- Rozwiązanie: **regex post-processing** żeby wyciągnąć surowe PII z predykcji modelu
+
+### Post-processing — extract_pii()
+Plik: skrypt był inline, MUSI być zapisany jako `code/attacks/task2/shadow/extract_pii.py`:
+```python
+import re
+
+def extract_pii(pred: str, pii_type: str, min_len: int = 10) -> str:
+    orig = pred.strip()
+    if pii_type == 'EMAIL':
+        m = re.search(r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}', pred)
+        result = m.group(0) if m else orig
+    elif pii_type == 'CREDIT':
+        m = re.search(r'\b(\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{4})\b', pred)
+        if m:
+            result = m.group(1).strip()
+        else:
+            m = re.search(r'\b(\d{4}(?:[\s\-]\d{2,4}){2,3})\b', pred)
+            result = m.group(1).strip() if m else orig
+    elif pii_type == 'PHONE':
+        m = re.search(r'\+\d[\d\s\-\(\)]{8,14}\d', pred)
+        if m:
+            result = re.sub(r'[\s\-\(\)]', '', m.group(0))
+        else:
+            m = re.search(r'\b\d{3}[\s\-\.]?\d{3}[\s\-\.]?\d{4}\b', pred)
+            result = m.group(0) if m else orig
+    else:
+        result = orig
+    if len(result) < min_len:
+        result = orig[:100]
+    return result[:100]
+```
+
+### Znane bugi / ograniczenia
+1. **PHONE/CREDIT bug** w `find_conv_turn()` (`attack_shadow.py`): keyword "number" pasuje do "credit card number" → 400/1000 PHONE próbek generuje zdania CREDIT-style (długie, zawierają numer karty). Wymaga re-inference żeby naprawić.
+2. **A+B hybrid nie działa**: `[REDACTED]` prefix trick powoduje garbage output dla 344 EMAIL + 743 PHONE wierszy (model halucynuje szablony danych zamiast uzupełniać PII).
+3. **213 non-redacted samples**: organizer potwierdził — 213 próbek testowych ma widoczne PII (nie jest zredagowane) i **nie liczą się do finalnego score**. Traktuj jako dodatkowy validation set.
+
+### Scoring rules (potwierdzone)
+- Metryka: `1 − Normalized_Levenshtein` (match z rapidfuzz `Levenshtein.normalized_distance`)
+- Public 30% / Private 70% split
+- Score updateuje się tylko jeśli jest wyższy od dotychczasowego best
+- API nie zwraca score w response body — sprawdzaj `/leaderboard_page`
+
+### Best submission
+- `submissions/task2_shadow_pii_only_v2_204928.csv` → server score **0.381195**
+- 3000 wierszy, post-processed baseline (greedy-only, bez redacted prefix)
+
+### Następne kroki (aby poprawić)
+1. Naprawić PHONE/CREDIT bug w `find_conv_turn()` → re-inference na Jülichu
+2. Sprawdzić 213 non-redacted próbek — które IDs, wyciągnąć GT, walidować extraction
+3. Próbować różnych promptów (path A: kempinski1) — benchmark to 0.381195
+4. Ewentualnie: fine-tune ekstrakcji na validation parquet (840 próbek GT)
+
+### scripts/submit.py — zmodyfikowany
+Dodano `_scrape_leaderboard()` która po każdym udanym submit robi GET `/leaderboard_page`
+i parsuje HTML table → loguje `leaderboard task1=X task2=Y task3=Z` do SUBMISSION_LOG.md.
+
 ## Task 1 (DUCI) — extracted facts (research session 2026-05-09)
 
 ### Paper 05 (Tong 2025) — core method confirmed
