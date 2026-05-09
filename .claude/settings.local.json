@@ -1,10 +1,18 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(grep -c \"^[0-9]*,0\\\\.0$\" /home/kmultan/coding/hackaton/submissions/task3_watermark.csv)",
+      "Bash(grep -c \"^[0-9]*,1\\\\.0$\" /home/kmultan/coding/hackaton/submissions/task3_watermark.csv)",
+      "Bash(python3 -)",
+      "Bash(python -c ' *)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "github",
     "hf",
     "paper-search",
     "playwright",
     "duckdb"
-  ],
-  "enableAllProjectMcpServers": true
+  ]
 }

@@ -78,7 +78,15 @@ def _log(task_name: str, csv_path: Path, csv_md5: str, response: dict | str) -> 
     log_path = REPO_ROOT / "SUBMISSION_LOG.md"
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
     score = response.get("score") if isinstance(response, dict) else None
-    score_str = f"score={score}" if score is not None else "FAILED"
+    held_out = response.get("score_held_out") if isinstance(response, dict) else None
+    status = response.get("status", "") if isinstance(response, dict) else ""
+    msg = response.get("message", "") if isinstance(response, dict) else str(response)
+    if score is not None:
+        score_str = f"score={score}" + (f" held_out={held_out}" if held_out is not None else "")
+    elif status == "success":
+        score_str = f"OK (check leaderboard)"
+    else:
+        score_str = f"FAILED status={status} msg={msg!r}"
     line = f"- {ts} {task_name} {score_str} csv-md5={csv_md5} ({csv_path.name})\n"
     with log_path.open("a") as f:
         f.write(line)

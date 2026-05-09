@@ -13,17 +13,20 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 TASK_MAP: dict[str, dict[str, str]] = {
-    "task1": {"cluster_dir": "DUCI", "local_name": "task1_duci.csv"},
-    "task2": {"cluster_dir": "P4Ms-hackathon-vision-task", "local_name": "task2_pii.csv"},
-    "task3": {"cluster_dir": "llm-watermark-detection", "local_name": "task3_watermark.csv"},
+    "task1": {"remote_path": "DUCI/submission.csv", "local_name": "task1_duci.csv"},
+    "task2": {"remote_path": "P4Ms-hackathon-vision-task/submission.csv", "local_name": "task2_pii.csv"},
+    "task3": {
+        "remote_path": "repo-multan1/submissions/task3_watermark_detection_full.csv",
+        "local_name": "task3_watermark.csv",
+    },
 }
 
 CLUSTER_BASE = "/p/scratch/training2615/kempinski1/Czumpers"
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 2:
-        print("Usage: pull_csv.py <task1|task2|task3>", file=sys.stderr)
+    if len(argv) < 2:
+        print("Usage: pull_csv.py <task1|task2|task3> [remote_filename]", file=sys.stderr)
         return 2
     task_name = argv[1]
     if task_name not in TASK_MAP:
@@ -31,7 +34,8 @@ def main(argv: list[str]) -> int:
         return 2
 
     task = TASK_MAP[task_name]
-    remote = f"{CLUSTER_BASE}/{task['cluster_dir']}/submission.csv"
+    remote_path = argv[2] if len(argv) >= 3 else task["remote_path"]
+    remote = f"{CLUSTER_BASE}/{remote_path}"
     local_dir = REPO_ROOT / "submissions"
     local_dir.mkdir(exist_ok=True)
     local_path = local_dir / task["local_name"]

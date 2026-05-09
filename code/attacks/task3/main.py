@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 from datasets import load_dataset
 from sklearn.isotonic import IsotonicRegression
+from sklearn.linear_model import LogisticRegression
 
 CURRENT_DIR = Path(__file__).resolve().parent
 if str(CURRENT_DIR) not in sys.path:
@@ -27,6 +28,8 @@ from features import (
     BranchAExtractor,
     BranchBCConfig,
     BranchBCExtractor,
+    BranchBigramConfig,
+    BranchBigramExtractor,
     BranchDConfig,
     BranchDExtractor,
 )
@@ -36,8 +39,9 @@ from features import (
 class Task3Artifacts:
     feature_columns: list[str]
     lgb_model: lgb.Booster
-    calibrator: IsotonicRegression
+    calibrator: IsotonicRegression | LogisticRegression | None
     bc_extractor: BranchBCExtractor
+    bigram_extractor: BranchBigramExtractor | None = None
 
 
 def _read_split(path: Path, require_label: bool) -> pd.DataFrame:
@@ -195,8 +199,23 @@ def _build_extractors(args: argparse.Namespace):
     branch_a = BranchAExtractor(
         BranchAConfig(model_name=args.a_model, max_length=args.max_length, device=args.device)
     )
+    extra_tokenizers = [t.strip() for t in args.bc_extra_tokenizers.split(",") if t.strip()]
     branch_bc = BranchBCExtractor(
-        BranchBCConfig(tokenizer_name=args.bc_tokenizer, max_length=args.max_length)
+        BranchBCConfig(
+            tokenizer_name=args.bc_tokenizer,
+            extra_tokenizer_names=extra_tokenizers,
+            max_length=args.max_length,
+        )
+    )
+    branch_bigram = (
+        BranchBigramExtractor(
+            BranchBigramConfig(
+                tokenizer_name=args.bc_tokenizer,
+                max_length=args.max_length,
+            )
+        )
+        if args.use_bigram
+        else None
     )
     branch_d = (
         BranchDExtractor(BranchDConfig(model_name=args.d_model, device=args.device))
@@ -215,13 +234,14 @@ def _build_extractors(args: argparse.Namespace):
         if args.use_binoculars
         else None
     )
-    return branch_a, branch_bc, branch_d, binoculars
+    return branch_a, branch_bc, branch_bigram, branch_d, binoculars
 
 
 def _extract_features(
     df: pd.DataFrame,
     branch_a: BranchAExtractor,
     branch_bc: BranchBCExtractor,
+    branch_bigram: BranchBigramExtractor | None,
     branch_d: BranchDExtractor | None,
     binoculars: BinocularsExtractor | None,
 ) -> pd.DataFrame:
@@ -230,6 +250,8 @@ def _extract_features(
         feats = {}
         feats.update(branch_a.featurize(text))
         feats.update(branch_bc.featurize(text))
+        if branch_bigram is not None:
+            feats.update(branch_bigram.featurize(text))
         if branch_d is not None:
             feats.update(branch_d.featurize(text))
         if binoculars is not None:
@@ -256,9 +278,11 @@ def train(args: argparse.Namespace) -> None:
     all_df = pd.concat([train_df, val_df], ignore_index=True)
     y = all_df["label"].astype(int).to_numpy()
 
-    branch_a, branch_bc, branch_d, binoculars = _build_extractors(args)
+    branch_a, branch_bc, branch_bigram, branch_d, binoculars = _build_extractors(args)
     branch_bc.fit(all_df["text"].tolist(), y.tolist())
-    x_all = _extract_features(all_df, branch_a, branch_bc, branch_d, binoculars)
+    if branch_bigram is not None:
+        branch_bigram.fit(all_df["text"].tolist(), y.tolist())
+    x_all = _extract_features(all_df, branch_a, branch_bc, branch_bigram, branch_d, binoculars)
     feature_cols = x_all.columns.tolist()
 
     folds = make_stratified_folds(y, n_splits=args.n_splits, seed=args.seed)
@@ -290,16 +314,23 @@ def train(args: argparse.Namespace) -> None:
         fold_tpr = tpr_at_fpr(pred, y[va_idx], target_fpr=0.01)
         fold_scores.append(fold_tpr)
 
-    calibrator = IsotonicRegression(out_of_bounds="clip").fit(oof, y)
-    oof_cal = calibrator.transform(oof)
+    # Platt scaling: LR on 1D raw score → smooth P(watermarked) in (0,1).
+    # IsotonicRegression produces "step" functions that collapse many predictions
+    # to exact 0.0/1.0, destroying the ranking signal needed for TPR@1%FPR.
+    calibrator = LogisticRegression(C=1.0, solver="lbfgs", max_iter=1000)
+    calibrator.fit(oof.reshape(-1, 1), y)
+    oof_cal = calibrator.predict_proba(oof.reshape(-1, 1))[:, 1]
+
     mean_tpr = float(np.mean(fold_scores))
     std_tpr = float(np.std(fold_scores))
     oof_tpr = tpr_at_fpr(oof_cal, y, target_fpr=0.01)
+    oof_uncal_tpr = tpr_at_fpr(oof, y, target_fpr=0.01)
     ci5, ci50, ci95 = bootstrap_tpr_ci(oof_cal, y, target_fpr=0.01, n_boot=args.n_boot, seed=args.seed)
 
     print(f"Fold TPR@1%FPR: {[round(s, 4) for s in fold_scores]}")
     print(f"CV mean/std: {mean_tpr:.4f}/{std_tpr:.4f}")
-    print(f"OOF calibrated TPR@1%FPR: {oof_tpr:.4f}")
+    print(f"OOF raw TPR@1%FPR: {oof_uncal_tpr:.4f}")
+    print(f"OOF Platt-calibrated TPR@1%FPR: {oof_tpr:.4f}")
     print(f"Bootstrap TPR@1%FPR [5/50/95]: {ci5:.4f}/{ci50:.4f}/{ci95:.4f}")
 
     final_model = lgb.train(
@@ -324,6 +355,7 @@ def train(args: argparse.Namespace) -> None:
         lgb_model=final_model,
         calibrator=calibrator,
         bc_extractor=branch_bc,
+        bigram_extractor=branch_bigram,
     )
     out = Path(args.artifacts_path)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -337,17 +369,29 @@ def infer(args: argparse.Namespace) -> None:
     with Path(args.artifacts_path).open("rb") as f:
         artifacts: Task3Artifacts = pickle.load(f)
 
-    branch_a, branch_bc_fresh, branch_d, binoculars = _build_extractors(args)
+    branch_a, branch_bc_fresh, branch_bigram_fresh, branch_d, binoculars = _build_extractors(args)
     branch_bc = artifacts.bc_extractor if artifacts.bc_extractor.soft_green_weights else branch_bc_fresh
-    x_test = _extract_features(test_df, branch_a, branch_bc, branch_d, binoculars)
+    branch_bigram = (
+        artifacts.bigram_extractor
+        if (artifacts.bigram_extractor is not None and artifacts.bigram_extractor.soft_bigram_weights)
+        else branch_bigram_fresh
+    )
+    x_test = _extract_features(test_df, branch_a, branch_bc, branch_bigram, branch_d, binoculars)
     for col in artifacts.feature_columns:
         if col not in x_test.columns:
             x_test[col] = 0.0
     x_test = x_test[artifacts.feature_columns]
 
     raw = artifacts.lgb_model.predict(x_test)
-    cal = np.clip(artifacts.calibrator.transform(raw), 0.0, 1.0)
-    sub = pd.DataFrame({"id": test_df["id"], "score": cal})
+    if artifacts.calibrator is None:
+        cal = raw.astype(float)
+    elif hasattr(artifacts.calibrator, "predict_proba"):
+        # Platt scaling (LogisticRegression)
+        cal = artifacts.calibrator.predict_proba(raw.reshape(-1, 1))[:, 1]
+    else:
+        # Legacy IsotonicRegression artifacts
+        cal = np.clip(artifacts.calibrator.transform(raw), 0.0, 1.0)
+    sub = pd.DataFrame({"id": test_df["id"], "score": cal.astype(float)})
     _validate_submission(sub, expected_rows=args.expected_rows)
     out = Path(args.out_csv)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -389,6 +433,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-length", type=int, default=512)
     p.add_argument("--a-model", default="gpt2")
     p.add_argument("--bc-tokenizer", default="gpt2")
+    p.add_argument(
+        "--bc-extra-tokenizers",
+        default="",
+        help="Comma-separated extra tokenizer names for BranchBC multi-tokenizer mode. "
+        "E.g. 'facebook/opt-1.3b' (Kirchenbauer original model tokenizer).",
+    )
+    p.add_argument("--use-bigram", action="store_true", help="Enable BranchBigram (KGW-targeted)")
     p.add_argument("--d-model", default="all-MiniLM-L6-v2")
     p.add_argument("--use-branch-d", action="store_true")
     p.add_argument("--use-binoculars", action="store_true")

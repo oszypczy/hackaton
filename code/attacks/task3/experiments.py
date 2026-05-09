@@ -8,7 +8,7 @@ from pathlib import Path
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
-from sklearn.isotonic import IsotonicRegression
+from sklearn.linear_model import LogisticRegression
 
 import main as task3_main
 from cv_utils import bootstrap_tpr_ci, make_stratified_folds, tpr_at_fpr
@@ -19,6 +19,8 @@ class Variant:
     name: str
     use_branch_d: bool
     use_binoculars: bool
+    use_bigram: bool = False
+    bc_extra_tokenizers: str = ""
 
 
 def _mutate_for_truncation(df: pd.DataFrame, max_words: int | None) -> pd.DataFrame:
@@ -50,6 +52,8 @@ def _run_variant(base_args: argparse.Namespace, variant: Variant, trunc_words: i
     args = argparse.Namespace(**vars(base_args))
     args.use_branch_d = variant.use_branch_d
     args.use_binoculars = variant.use_binoculars
+    args.use_bigram = variant.use_bigram
+    args.bc_extra_tokenizers = variant.bc_extra_tokenizers
 
     train_df, val_df = task3_main._load_train_val(args)
     train_df = _mutate_for_truncation(train_df, trunc_words)
@@ -58,9 +62,11 @@ def _run_variant(base_args: argparse.Namespace, variant: Variant, trunc_words: i
     y = all_df["label"].astype(int).to_numpy()
     lengths = all_df["text"].astype(str).map(lambda x: len(x.split())).to_numpy()
 
-    branch_a, branch_bc, branch_d, binoculars = task3_main._build_extractors(args)
+    branch_a, branch_bc, branch_bigram, branch_d, binoculars = task3_main._build_extractors(args)
     branch_bc.fit(all_df["text"].tolist(), y.tolist())
-    x_all = task3_main._extract_features(all_df, branch_a, branch_bc, branch_d, binoculars)
+    if branch_bigram is not None:
+        branch_bigram.fit(all_df["text"].tolist(), y.tolist())
+    x_all = task3_main._extract_features(all_df, branch_a, branch_bc, branch_bigram, branch_d, binoculars)
 
     folds = make_stratified_folds(y, n_splits=args.n_splits, seed=args.seed)
     oof = np.zeros(len(all_df), dtype=float)
@@ -91,8 +97,8 @@ def _run_variant(base_args: argparse.Namespace, variant: Variant, trunc_words: i
         oof[va_idx] = pred
         fold_scores.append(tpr_at_fpr(pred, y[va_idx], target_fpr=0.01))
 
-    cal = IsotonicRegression(out_of_bounds="clip").fit(oof, y)
-    oof_cal = cal.transform(oof)
+    cal = LogisticRegression(C=1.0, solver="lbfgs", max_iter=1000).fit(oof.reshape(-1, 1), y)
+    oof_cal = cal.predict_proba(oof.reshape(-1, 1))[:, 1]
     q5, q50, q95 = bootstrap_tpr_ci(oof_cal, y, target_fpr=0.01, n_boot=args.n_boot, seed=args.seed)
 
     report = {
@@ -143,6 +149,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-length", type=int, default=512)
     p.add_argument("--a-model", default="gpt2")
     p.add_argument("--bc-tokenizer", default="gpt2")
+    p.add_argument("--bc-extra-tokenizers", default="")
+    p.add_argument("--use-bigram", action="store_true")
     p.add_argument("--d-model", default="all-MiniLM-L6-v2")
     p.add_argument("--binoculars-observer", default="gpt2")
     p.add_argument("--binoculars-performer", default="gpt2-medium")
@@ -152,12 +160,14 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     variants = [
-        Variant("A+BC", use_branch_d=False, use_binoculars=False),
-        Variant("A+BC+D", use_branch_d=True, use_binoculars=False),
-        Variant("A+BC+Binoculars", use_branch_d=False, use_binoculars=True),
-        Variant("FULL_A+BC+D+Binoculars", use_branch_d=True, use_binoculars=True),
+        Variant("A+BC+Bigram", use_branch_d=False, use_binoculars=False, use_bigram=True),
+        Variant("A+BC+Bigram+OPT", use_branch_d=False, use_binoculars=False,
+                use_bigram=True, bc_extra_tokenizers="facebook/opt-1.3b"),
+        Variant("A+BC+Bigram+D", use_branch_d=True, use_binoculars=False, use_bigram=True),
+        Variant("FULL+Bigram+OPT", use_branch_d=True, use_binoculars=True,
+                use_bigram=True, bc_extra_tokenizers="facebook/opt-1.3b"),
     ]
-    trunc_set = [None, 50, 100, 200]
+    trunc_set = [None]
 
     all_reports: list[dict] = []
     for trunc in trunc_set:
