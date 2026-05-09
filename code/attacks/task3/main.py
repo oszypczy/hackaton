@@ -86,6 +86,8 @@ def parse_args() -> argparse.Namespace:
                    help="OLMo-7B PPL per chunk (5 chunks) - local PPL variation features")
     p.add_argument("--use-cross-lm", action="store_true",
                    help="Cross-LM derived features (OLMo vs Pythia ratios from cached PPLs)")
+    p.add_argument("--cross-lm-mode", choices=["v1", "v2"], default="v2",
+                   help="v1=original 6 features (winning 0.284), v2=full 56 (didn't help)")
     p.add_argument("--select-k-best", type=int, default=0,
                    help="Use SelectKBest (mutual_info) to pick top-K features before LogReg (0=all)")
     p.add_argument("--minimal-stack", action="store_true",
@@ -568,9 +570,31 @@ def main() -> None:
     # ── 3. Build feature matrix
     full_df = pd.concat(parts, axis=1).fillna(0.0)
 
-    # Cross-LM derived features. Pierwsza wersja (6 features) dała 0.284 leaderboard!
-    # Amplifikujemy: 25+ pairwise diffs + ratios + quadratics.
-    if args.use_cross_lm:
+    # Cross-LM derived features. v1 (6 features) dało 0.284 leaderboard.
+    # v2 (56 features) nie poprawiło — dilution. Default v2 dla amplifikacji,
+    # v1 dla focus.
+    if args.use_cross_lm and args.cross_lm_mode == "v1":
+        derived = {}
+        if "olmo7b_lp_mean" in full_df and "lp_per" in full_df:
+            derived["cross_olmo7b_vs_gpt2med_lp"] = full_df["olmo7b_lp_mean"] - full_df["lp_per"]
+        if "olmo7b_lp_mean" in full_df and "bino_xl_lp_obs" in full_df:
+            derived["cross_olmo7b_vs_pythia28b_lp"] = full_df["olmo7b_lp_mean"] - full_df["bino_xl_lp_obs"]
+        if "olmo7b_lp_mean" in full_df and "bino_xl_lp_per" in full_df:
+            derived["cross_olmo7b_vs_pythia69b_lp"] = full_df["olmo7b_lp_mean"] - full_df["bino_xl_lp_per"]
+        if "olmo7b_lp_mean" in full_df and "olmo_lp_mean" in full_df:
+            derived["cross_olmo7b_vs_olmo1b_lp"] = full_df["olmo7b_lp_mean"] - full_df["olmo_lp_mean"]
+        if "bino_strong_lp_obs" in full_df and "bino_xl_lp_obs" in full_df:
+            derived["cross_pythia14b_vs_28b_lp"] = full_df["bino_strong_lp_obs"] - full_df["bino_xl_lp_obs"]
+        if "olmo7b_ppl" in full_df and "bino_xl_ppl_obs" in full_df:
+            derived["cross_olmo7b_vs_pythia_ppl_ratio"] = (
+                full_df["olmo7b_ppl"] / (full_df["bino_xl_ppl_obs"] + 1e-9)
+            )
+        if derived:
+            cross_df = pd.DataFrame(derived)
+            full_df = pd.concat([full_df, cross_df], axis=1)
+            print(f"  [cross-lm v1] Added {len(derived)} derived features (focused)")
+
+    elif args.use_cross_lm and args.cross_lm_mode == "v2":
         # Map: friendly_name -> column_name (lp_mean equivalent)
         lp_cols = {}
         if "lp_mean" in full_df: lp_cols["gpt2"] = "lp_mean"
