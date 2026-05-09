@@ -99,16 +99,29 @@ def fit_predict_poly(s_synth, p_synth, s_target, degree: int) -> float:
     if len(p_arr) <= degree:
         degree = max(1, len(p_arr) - 1)
     coeffs = np.polyfit(p_arr, s_arr, degree)
-    poly = np.poly1d(coeffs)
-    p_grid = np.linspace(0.0, 1.0, 1001)
-    s_grid = poly(p_grid)
+
+    if degree == 1:
+        # Analytical inverse: s = a*p + b => p = (s - b) / a
+        a, b = coeffs
+        if abs(a) < 1e-12:
+            return 0.5
+        return float((s_target - b) / a)
+
+    # Higher-degree: solve poly(p) - s_target = 0 via numpy roots, pick real root in [0,1]
+    poly_eq = np.poly1d(coeffs - np.array([0] * (len(coeffs) - 1) + [s_target]))
+    roots = np.roots(poly_eq)
+    real_roots = [r.real for r in roots if abs(r.imag) < 1e-9]
+    if real_roots:
+        in_range = [r for r in real_roots if -0.5 <= r <= 1.5]
+        if in_range:
+            return float(min(in_range, key=lambda r: abs(r - 0.5)))
+        return float(min(real_roots, key=lambda r: min(abs(r), abs(r - 1))))
+    # Fallback: dense grid
+    p_grid = np.linspace(0.0, 1.0, 100001)
+    s_grid = np.poly1d(coeffs)(p_grid)
     if not (s_grid.max() - s_grid.min()) > 1e-9:
         return 0.5
-    if s_grid[-1] >= s_grid[0]:
-        idx = int(np.argmin(np.abs(s_grid - s_target)))
-    else:
-        idx = int(np.argmin(np.abs(s_grid - s_target)))
-    return float(p_grid[idx])
+    return float(p_grid[int(np.argmin(np.abs(s_grid - s_target)))])
 
 
 def loo_mae_poly(s_synth, p_synth, degree: int) -> float:
