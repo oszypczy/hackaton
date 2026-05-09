@@ -19,14 +19,16 @@ LABEL_SMOOTHING=${LABEL_SMOOTHING:-0.0}
 MIXUP_ALPHA=${MIXUP_ALPHA:-0.0}
 N_TOTAL=${N_TOTAL:-0}
 AUG_MODE=${AUG_MODE:-basic}
+WD=${WD:-5e-4}
+LR=${LR:-0.1}
 
-REPO=/p/scratch/training2615/kempinski1/Czumpers/repo-szypczyn1
+REPO=${REPO:-/p/scratch/training2615/kempinski1/Czumpers/repo-${USER}}
 P4VENV=/p/scratch/training2615/kempinski1/Czumpers/P4Ms-hackathon-vision-task/.venv/bin/python
 OUT_DIR=${OUT_DIR:-/p/scratch/training2615/kempinski1/Czumpers/DUCI/synth_targets}
 
 mkdir -p "$OUT_DIR" /p/scratch/training2615/kempinski1/Czumpers/DUCI/output
 
-echo "[sbatch] node=$(hostname)  job=$SLURM_JOB_ID  arch=$ARCH p_list=$P_LIST epochs=$EPOCHS"
+echo "[sbatch] node=$(hostname)  job=$SLURM_JOB_ID  arch=$ARCH p_list=$P_LIST epochs=$EPOCHS wd=$WD lr=$LR"
 echo "[sbatch] CUDA visible: $(nvidia-smi -L 2>/dev/null | head -2)"
 
 cd "$REPO"
@@ -34,6 +36,7 @@ $P4VENV -m code.attacks.task1_duci.train_synth \
     --arch "$ARCH" --p-list "$P_LIST" \
     --epochs "$EPOCHS" --base-seed "$BASE_SEED" --out-dir "$OUT_DIR" \
     --label-smoothing "$LABEL_SMOOTHING" --mixup-alpha "$MIXUP_ALPHA" \
-    --n-total "$N_TOTAL" --aug-mode "$AUG_MODE"
+    --n-total "$N_TOTAL" --aug-mode "$AUG_MODE" \
+    --wd "$WD" --lr "$LR"
 
 echo "[sbatch] done"
