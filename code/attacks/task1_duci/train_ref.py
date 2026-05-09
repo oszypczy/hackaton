@@ -60,6 +60,8 @@ def parse_args() -> argparse.Namespace:
                     help="initialize from ImageNet pretrained weights (regime-match probe)")
     ap.add_argument("--n-total", type=int, default=0,
                     help="total training set size; 0 = |MIXED|. Probe larger N for regime match.")
+    ap.add_argument("--aug-mode", type=str, default="basic", choices=["basic", "autoaugment"],
+                    help="basic = RandomCrop+HFlip; autoaugment = + AutoAugment(CIFAR10) + Cutout 8x8")
     return ap.parse_args()
 
 
@@ -113,15 +115,36 @@ def build_split(seed: int, p_fraction: float, n_total: int = 0
 
 
 class TrainAugment:
-    """RandomCrop(32, padding=4) + RandomHorizontalFlip + CIFAR-100 normalize. CPU-side."""
-    def __init__(self):
-        self.mean = CIFAR_MEAN.numpy()  # (1,3,1,1)
+    """RandomCrop(32, padding=4) + RandomHorizontalFlip + CIFAR-100 normalize. CPU-side.
+
+    aug_mode:
+      - "basic": crop + hflip only
+      - "autoaugment": adds torchvision AutoAugment(CIFAR10) + Cutout(8x8)
+    """
+    def __init__(self, aug_mode: str = "basic"):
+        self.mean = CIFAR_MEAN.numpy()
         self.std = CIFAR_STD.numpy()
+        self.aug_mode = aug_mode
+        if aug_mode == "autoaugment":
+            from torchvision.transforms import AutoAugment, AutoAugmentPolicy
+            self._auto = AutoAugment(AutoAugmentPolicy.CIFAR10)
+        else:
+            self._auto = None
+
+    def _cutout(self, img_uint8: np.ndarray, size: int = 8) -> np.ndarray:
+        h, w = img_uint8.shape[:2]
+        cy = np.random.randint(0, h)
+        cx = np.random.randint(0, w)
+        y1 = max(0, cy - size // 2)
+        y2 = min(h, cy + size // 2)
+        x1 = max(0, cx - size // 2)
+        x2 = min(w, cx + size // 2)
+        out = img_uint8.copy()
+        out[y1:y2, x1:x2] = 0
+        return out
 
     def __call__(self, x_uint8: np.ndarray) -> np.ndarray:
-        # x: (B, 32, 32, 3) uint8 → (B, 3, 32, 32) float normalized
         B = x_uint8.shape[0]
-        # pad
         x = np.pad(x_uint8, ((0, 0), (4, 4), (4, 4), (0, 0)), mode="reflect")
         out = np.empty((B, 32, 32, 3), dtype=np.uint8)
         for i in range(B):
@@ -131,6 +154,15 @@ class TrainAugment:
             if np.random.rand() < 0.5:
                 crop = crop[:, ::-1, :].copy()
             out[i] = crop
+
+        if self.aug_mode == "autoaugment":
+            from PIL import Image
+            for i in range(B):
+                pil = Image.fromarray(out[i])
+                pil = self._auto(pil)
+                out[i] = np.asarray(pil)
+                out[i] = self._cutout(out[i], size=8)
+
         out_f = out.astype(np.float32).transpose(0, 3, 1, 2) / 255.0
         out_f = (out_f - self.mean) / self.std
         return out_f
@@ -170,7 +202,7 @@ def train_one(args: argparse.Namespace) -> None:
                                 nesterov=True, weight_decay=args.wd)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
     loss_fn = nn.CrossEntropyLoss()
-    augment = TrainAugment()
+    augment = TrainAugment(aug_mode=args.aug_mode)
 
     n = len(X_train)
     indices = np.arange(n)

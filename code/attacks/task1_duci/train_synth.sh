@@ -18,6 +18,7 @@ BASE_SEED=${BASE_SEED:-1000}
 LABEL_SMOOTHING=${LABEL_SMOOTHING:-0.0}
 MIXUP_ALPHA=${MIXUP_ALPHA:-0.0}
 N_TOTAL=${N_TOTAL:-0}
+AUG_MODE=${AUG_MODE:-basic}
 
 REPO=/p/scratch/training2615/kempinski1/Czumpers/repo-szypczyn1
 P4VENV=/p/scratch/training2615/kempinski1/Czumpers/P4Ms-hackathon-vision-task/.venv/bin/python
@@ -33,6 +34,6 @@ $P4VENV -m code.attacks.task1_duci.train_synth \
     --arch "$ARCH" --p-list "$P_LIST" \
     --epochs "$EPOCHS" --base-seed "$BASE_SEED" --out-dir "$OUT_DIR" \
     --label-smoothing "$LABEL_SMOOTHING" --mixup-alpha "$MIXUP_ALPHA" \
-    --n-total "$N_TOTAL"
+    --n-total "$N_TOTAL" --aug-mode "$AUG_MODE"
 
 echo "[sbatch] done"

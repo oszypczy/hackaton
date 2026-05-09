@@ -52,6 +52,8 @@ def parse_args() -> argparse.Namespace:
                     help="mixup beta-distribution alpha; 0.0 = off")
     ap.add_argument("--n-total", type=int, default=0,
                     help="total training set size; 0 = |MIXED|. Match regime to organizer (e.g., 7000).")
+    ap.add_argument("--aug-mode", type=str, default="basic", choices=["basic", "autoaugment"],
+                    help="basic = RandomCrop+HFlip; autoaugment = + AutoAugment(CIFAR10) + Cutout")
     return ap.parse_args()
 
 
@@ -110,7 +112,7 @@ def train_one_synth(p: float, seed: int, args: argparse.Namespace, device: str) 
                                 nesterov=True, weight_decay=args.wd)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
     loss_fn = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
-    augment = TrainAugment()
+    augment = TrainAugment(aug_mode=args.aug_mode)
     mixup_alpha = args.mixup_alpha
 
     n = len(X_train)
