@@ -124,3 +124,34 @@ Now we have 7 candidate paths (P1-P7). Recommended ordering after P1+P2 evals re
 5. **P3** K-shot ensemble — last because expensive
 
 P4 (EMAIL domain re-rank) absorbed into P6 (demos give domain prior implicitly).
+
+## P1 + P2 eval results (jobs 14739383, 14739384, blank-mode 840)
+
+```
+                      CREDIT  EMAIL   PHONE   OVERALL    vs direct_probe (0.398)
+baseline               0.231   0.438   0.278   0.316       -0.082
+direct_probe           0.245   0.579   0.370   0.398       (top)
+P1 per_pii_route       0.231   0.579   0.370   0.393       -0.005
+P2 verbatim_prefix     0.189   0.496   0.310   0.332       -0.066
+```
+
+### Both REJECTED — direct_probe stays top
+
+**P1 per_pii_route failed** at the exact PII it was supposed to help: baseline CREDIT (0.231) is *worse* than direct_probe CREDIT (0.245). The "preserve 4-4-4-4 training format" hypothesis loses to direct_probe's free-form 14-digit halucynacja in Levenshtein distance — the format match doesn't compensate for content loss. Routing only loses on CREDIT slot.
+
+**P2 verbatim_prefix regresses across ALL PII types.** Carlini'21 §6.5 / Nasr'23 §5 hypothesis (chat template wrapper = alignment defense) is FALSE empirically on our OLMo-2-1B fine-tune. The chat template is HELPING, not hurting. Possible reasons:
+- OLMo-2 is *not* RLHF-aligned (it's instruction-tuned only) — Nasr'23 defense targets RLHF
+- Our fine-tune likely re-applied chat template at training time, so dropping it is OOD
+- Raw `formatted_q + " " + prefix` may need different special tokens we're missing
+
+### Implication for remaining priorities
+
+P1, P2 dropped. Remaining candidates ordered by ROI:
+- **P7** training-Q reverse-engineering (manual inspection, big upside per Pinto §5.2) — but our paraphrase `direct_probe` empirically beats verbatim — Pinto's claim may also not transfer cleanly. Lower confidence than before.
+- **P6** val_pii one-shot demo — orthogonal to prompt structure, large upside on CREDIT floor (per PII-Scope §6.4 PII-Compass +3×). Most attractive next step.
+- **P5** Template-D email-header phrasing — narrow (EMAIL only), low cost. Worth ablating.
+- **P3** K-shot ensemble — expensive but solid theoretical basis (Carlini'21 §5.1).
+
+### Calibrator robustness check
+
+Our blank-mode val_pii calibrator predicted v2 task/ score within +0.03 of measured (predicted ~0.40, actual 0.381). **The calibrator is reliable.** P1=0.393 → expected task/ ~0.37 (regression vs v2 0.381). P2=0.332 → expected ~0.31 (back to baseline level). Don't waste a submit slot on either.

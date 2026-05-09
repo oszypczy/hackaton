@@ -371,11 +371,38 @@ Cost: 50/type × 3 = 150 samples × 6 strategii = 900 forwardów ≈ 16 min na 1
 - [x] **Predict 14739020** direct_probe → submit anchor v2 → **leaderboard 0.381** (+0.034 vs v1, +0.071 vs v0)
 - [x] **3-agent analysis** (method depth + literature + hybrid) → 4 paths zsyntetyzowane w `findings/synthesis.md`
 - [x] **Pinto + PII-Scope downloaded + verified** (agent #4) → korekty w NOTES.md anchor papers section
-- [ ] **P1 (per_pii_route) + P2 (verbatim_prefix) evale** lecą (jobs 14739383, 14739384)
-- [ ] Po wynikach P1/P2 → decyzja: predict task/ + submit v3
-- [ ] **P5/P6/P7 z paper analysis** (Template-D phrasing, val_pii one-shot demos, training-Q reverse-eng) — kandydaci na v4+
-- [ ] (Optional) P3 K-shot ensemble — drogie, low priority
+- [x] **P1 (per_pii_route) + P2 (verbatim_prefix) evale** (jobs 14739383, 14739384) — **OBA REJECTED**
+- [ ] **P6 val_pii one-shot demo** (PII-Compass z PII-Scope §6.4) — high-priority, +3× claim, attacks CREDIT floor
+- [ ] **P5 Template-D email-header phrasing** — narrow EMAIL ablation, low cost
+- [ ] **P7 training-question reverse-engineering** — manual inspection val_pii images. Lower confidence after P2 fail (literature claim about verbatim doesn't transfer cleanly to our setup)
+- [ ] (Optional) P3 K-shot ensemble — drogie, last priority
 - [ ] (Out of scope path A) Shadow logprob diff (Path B murdzek2)
+
+## Phase 10 — P1/P2 evale (rejected) + paper hypothesis test
+
+### P1 per_pii_route (job 14739383, blank-mode 840)
+```
+                CREDIT  EMAIL   PHONE   OVERALL
+baseline        0.231   0.438   0.278   0.316
+direct_probe    0.245   0.579   0.370   0.398
+P1 per_pii_route 0.231  0.579   0.370   0.393   ← -0.005 vs DP
+```
+**Rejected.** Hybrid loses CREDIT (-0.013 vs DP) by switching to baseline-prefix priming there. Baseline's 4-4-4-4 format prior NOT enough to overcome content loss vs DP's 14-digit halucynacja.
+
+### P2 verbatim_prefix (job 14739384, blank-mode 840)
+```
+                    CREDIT  EMAIL   PHONE   OVERALL
+direct_probe        0.245   0.579   0.370   0.398
+P2 verbatim_prefix  0.189   0.496   0.310   0.332   ← -0.066 vs DP
+```
+**Rejected.** Bypass of chat template REGRESSES across all PII types.
+
+**Carlini'21 §6.5 / Nasr'23 §5 hypothesis FALSIFIED on our setup:** chat template wrapper is HELPING, not hurting. Reasons:
+1. OLMo-2-1B is instruction-tuned, NOT RLHF-aligned — Nasr'23 defense applies to RLHF only
+2. Our fine-tune dataset likely uses chat template at training time → dropping it = OOD
+3. Raw `formatted_q + " " + prefix` may miss training-time special tokens
+
+**Insight for v3 / final report:** "Empirical lift on val_pii blank wins over published literature claims when the deployment differs (instruction-tune vs RLHF). Always validate paper recipes on local calibrator before submission."
 
 ## Phase 9 — 3-agent analysis + paper download (2026-05-09 ~21:00-21:30)
 
