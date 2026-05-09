@@ -165,9 +165,11 @@ def main() -> int:
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--roberta-pca", type=int, default=32)
     p.add_argument("--n-rows", type=int, default=2250)
-    p.add_argument("--classifier", choices=["logreg", "lgbm", "ensemble"], default="logreg")
+    p.add_argument("--classifier", choices=["logreg", "lgbm", "ensemble", "elasticnet", "ridge", "svm", "mlp"], default="logreg")
     p.add_argument("--ensemble-weights", default="0.5,0.5",
                    help="weights for ensemble (logreg, lgbm) — comma-separated")
+    p.add_argument("--l1-ratio", type=float, default=0.5)
+    p.add_argument("--mlp-hidden", type=int, default=64)
     args = p.parse_args()
 
     print("Loading data splits...")
@@ -206,6 +208,71 @@ def main() -> int:
         scores = pipe.predict_proba(X_test)[:, 1]
     elif args.classifier == "lgbm":
         oof, scores = _train_lgbm_oof(X_labeled, y, X_test, args.n_splits, args.seed)
+    elif args.classifier == "elasticnet":
+        from sklearn.linear_model import LogisticRegression
+        pipe = Pipeline([
+            ("scaler", StandardScaler()),
+            ("clf", LogisticRegression(C=args.logreg_C, max_iter=4000, solver="saga",
+                                       penalty="elasticnet", l1_ratio=args.l1_ratio)),
+        ])
+        # OOF
+        skf = StratifiedKFold(n_splits=args.n_splits, shuffle=True, random_state=args.seed)
+        oof = np.zeros(len(y))
+        for tr, va in skf.split(X_labeled, y):
+            p2 = Pipeline([("scaler", StandardScaler()),
+                           ("clf", LogisticRegression(C=args.logreg_C, max_iter=4000, solver="saga",
+                                                      penalty="elasticnet", l1_ratio=args.l1_ratio))])
+            p2.fit(X_labeled[tr], y[tr])
+            oof[va] = p2.predict_proba(X_labeled[va])[:, 1]
+        pipe.fit(X_labeled, y)
+        scores = pipe.predict_proba(X_test)[:, 1]
+    elif args.classifier == "ridge":
+        from sklearn.linear_model import RidgeClassifierCV
+        pipe = Pipeline([
+            ("scaler", StandardScaler()),
+            ("clf", RidgeClassifierCV(alphas=[0.1, 0.5, 1.0, 5.0, 10.0, 50.0])),
+        ])
+        skf = StratifiedKFold(n_splits=args.n_splits, shuffle=True, random_state=args.seed)
+        oof = np.zeros(len(y))
+        for tr, va in skf.split(X_labeled, y):
+            from sklearn.linear_model import RidgeClassifierCV
+            p2 = Pipeline([("scaler", StandardScaler()),
+                           ("clf", RidgeClassifierCV(alphas=[0.1, 0.5, 1.0, 5.0, 10.0, 50.0]))])
+            p2.fit(X_labeled[tr], y[tr])
+            # ridge classifier outputs decision_function, scale to [0,1] via sigmoid
+            oof[va] = 1 / (1 + np.exp(-p2.decision_function(X_labeled[va])))
+        pipe.fit(X_labeled, y)
+        scores = 1 / (1 + np.exp(-pipe.decision_function(X_test)))
+    elif args.classifier == "svm":
+        from sklearn.svm import SVC
+        skf = StratifiedKFold(n_splits=args.n_splits, shuffle=True, random_state=args.seed)
+        oof = np.zeros(len(y))
+        for tr, va in skf.split(X_labeled, y):
+            p2 = Pipeline([("scaler", StandardScaler()),
+                           ("clf", SVC(C=args.logreg_C, probability=True, kernel="rbf"))])
+            p2.fit(X_labeled[tr], y[tr])
+            oof[va] = p2.predict_proba(X_labeled[va])[:, 1]
+        pipe = Pipeline([("scaler", StandardScaler()),
+                         ("clf", SVC(C=args.logreg_C, probability=True, kernel="rbf"))])
+        pipe.fit(X_labeled, y)
+        scores = pipe.predict_proba(X_test)[:, 1]
+    elif args.classifier == "mlp":
+        from sklearn.neural_network import MLPClassifier
+        skf = StratifiedKFold(n_splits=args.n_splits, shuffle=True, random_state=args.seed)
+        oof = np.zeros(len(y))
+        for tr, va in skf.split(X_labeled, y):
+            p2 = Pipeline([("scaler", StandardScaler()),
+                           ("clf", MLPClassifier(hidden_layer_sizes=(args.mlp_hidden,),
+                                                  alpha=1.0/args.logreg_C, max_iter=2000,
+                                                  random_state=args.seed))])
+            p2.fit(X_labeled[tr], y[tr])
+            oof[va] = p2.predict_proba(X_labeled[va])[:, 1]
+        pipe = Pipeline([("scaler", StandardScaler()),
+                         ("clf", MLPClassifier(hidden_layer_sizes=(args.mlp_hidden,),
+                                                alpha=1.0/args.logreg_C, max_iter=2000,
+                                                random_state=args.seed))])
+        pipe.fit(X_labeled, y)
+        scores = pipe.predict_proba(X_test)[:, 1]
     elif args.classifier == "ensemble":
         # logreg + lgbm
         oof_lr = run_oof(X_labeled, y, args.n_splits, args.seed, args.logreg_C)
