@@ -65,6 +65,9 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--clamp-hi", type=float, default=P_MAX)
     ap.add_argument("--no-clamp", action="store_true",
                     help="disable clamping (organizer says p is continuous + can be 0/1)")
+    ap.add_argument("--r152-cal-from", type=str, default="2",
+                    help="arch digit (0/1/2) to use for R152 targets calibration; "
+                         "default 2 = own; '0' = use R18 cal cross-arch for R152")
     return ap.parse_args()
 
 
@@ -192,7 +195,13 @@ def run() -> None:
           f"2={synth_dirs['2'].name}", flush=True)
 
     arch_calib: dict[str, dict] = {}
+    skip_archs: list[str] = []
+    if args.r152_cal_from != "2":
+        skip_archs.append("2")
+        print(f"[rmia_mle] R152 cal will use arch={args.r152_cal_from} (cross-arch)", flush=True)
     for arch in ("0", "1", "2"):
+        if arch in skip_archs:
+            continue
         d = synth_dirs[arch]
         synths = [s for s in discover_synth(d) if s["arch_digit"] == arch]
         if len(synths) < 3:
@@ -228,6 +237,14 @@ def run() -> None:
             "a": a, "b": b, "loo": loo, "per_loo": per_loo,
             "signals": signals_synth, "ps": ps_synth,
         }
+
+    # Cross-arch fallback for skipped archs
+    for skip in skip_archs:
+        src = args.r152_cal_from if skip == "2" else "0"
+        if src not in arch_calib:
+            raise RuntimeError(f"cannot fallback arch={skip} to arch={src}: src not calibrated")
+        print(f"[rmia_mle] arch={skip} cal := arch={src} (cross-arch fallback)", flush=True)
+        arch_calib[skip] = {**arch_calib[src], "from_arch": src}
 
     print("\n[rmia_mle] scoring 9 real targets:", flush=True)
     predictions: dict[str, float] = {}
