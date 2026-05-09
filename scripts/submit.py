@@ -74,11 +74,53 @@ def _md5(path: Path) -> str:
     return h.hexdigest()
 
 
-def _log(task_name: str, csv_path: Path, csv_md5: str, response: dict | str) -> None:
+TASK_ID_TO_NAME = {v["id"]: k for k, v in TASK_MAP.items()}
+TASK_ORDER = ["11-duci", "27-p4ms", "13-llm-watermark-detection"]
+
+
+def _scrape_leaderboard(api_key: str) -> dict[str, list[float]]:
+    """Return {team_name: [task1_score, task2_score, task3_score]} from leaderboard page."""
+    import re, time
+    time.sleep(5)  # brief pause before scraping
+    try:
+        resp = requests.get(f"{BASE_URL}/leaderboard_page", headers={"X-API-Key": api_key}, timeout=10)
+        content = resp.text
+        rows = re.findall(r"<tr[^>]*>(.*?)</tr>", content, re.DOTALL)
+        scores: dict[str, list[float]] = {}
+        task_idx = 0
+        for row in rows:
+            cells = re.findall(r"<td[^>]*>(.*?)</td>", row, re.DOTALL)
+            cells = [re.sub(r"<[^>]+>", "", c).strip() for c in cells]
+            cells = [c for c in cells if c]
+            if len(cells) >= 2:
+                try:
+                    rank = int(cells[0])
+                    team = cells[1]
+                    score = float(cells[2])
+                    if rank == 1 and team in scores:
+                        task_idx += 1
+                    if team not in scores:
+                        scores[team] = [None, None, None]
+                    if task_idx < 3:
+                        scores[team][task_idx] = score
+                except (ValueError, IndexError):
+                    pass
+        return scores
+    except Exception:
+        return {}
+
+
+def _log(task_name: str, csv_path: Path, csv_md5: str, response: dict | str, api_key: str = "") -> None:
     log_path = REPO_ROOT / "SUBMISSION_LOG.md"
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
-    score = response.get("score") if isinstance(response, dict) else None
-    score_str = f"score={score}" if score is not None else "FAILED"
+    score_str = "submitted"
+    if api_key:
+        scores = _scrape_leaderboard(api_key)
+        czumpers = scores.get("Czumpers")
+        if czumpers:
+            t1, t2, t3 = czumpers
+            score_str = f"leaderboard task1={t1} task2={t2} task3={t3}"
+            print(f"\nLeaderboard (Czumpers): task1={t1} task2={t2} task3={t3}")
     line = f"- {ts} {task_name} {score_str} csv-md5={csv_md5} ({csv_path.name})\n"
     with log_path.open("a") as f:
         f.write(line)
@@ -119,7 +161,7 @@ def main(argv: list[str]) -> int:
         body = resp.text
     print(f"HTTP {resp.status_code}")
     print(json.dumps(body, indent=2) if isinstance(body, dict) else body)
-    _log(task_name, csv_path, csv_md5, body)
+    _log(task_name, csv_path, csv_md5, body, api_key=api_key if resp.ok else "")
     return 0 if resp.ok else 1
 
 
