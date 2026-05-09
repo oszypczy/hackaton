@@ -28,7 +28,7 @@ SEED=${SEED:-0}
 MAX_MIXED=${MAX_MIXED:-0}        # 0 = full (2000)
 MAX_Z=${MAX_Z:-0}                # 0 = full (5000)
 
-REPO=/p/scratch/training2615/kempinski1/Czumpers/repo-szypczyn1
+REPO=${REPO:-/p/scratch/training2615/kempinski1/Czumpers/repo-${USER}}
 P4VENV=/p/scratch/training2615/kempinski1/Czumpers/P4Ms-hackathon-vision-task/.venv/bin/python
 SIGS_DIR=${SIGS_DIR:-/p/scratch/training2615/kempinski1/Czumpers/DUCI/maini_signals_v1}
 
