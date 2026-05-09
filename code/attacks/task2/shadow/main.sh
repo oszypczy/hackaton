@@ -45,6 +45,6 @@ cd "$CODEBASE"
 export CODEBASE
 
 mkdir -p "$HACKATHON/output"
-python -u "$ATTACK" --mode submit --k 8
+python -u "$ATTACK" --mode submit --greedy-only
 
 echo "done!"
