@@ -52,6 +52,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--skip-branch-d", action="store_true")
     p.add_argument("--skip-branch-bc", action="store_true",
                    help="Skip branch_bc (green-list features) to avoid bimodal collapse")
+    p.add_argument("--use-bigram", action="store_true",
+                   help="Add bigram greenlist features (KGW/Kirchenbauer-specific)")
     p.add_argument("--classifier", choices=["lgbm", "logreg"], default="logreg",
                    help="Classifier: logreg (continuous output) or lgbm (default was lgbm)")
     p.add_argument("--logreg-C", type=float, default=0.05,
@@ -340,6 +342,30 @@ def main() -> None:
         parts.append(fb.reset_index(drop=True))
     else:
         print("  [skip] branch_bc (--skip-branch-bc set)")
+
+    if args.use_bigram:
+        bg_cache = args.cache_dir / "bigram_greenlist.pkl"
+        if not args.force_extract and bg_cache.exists():
+            from transformers import AutoTokenizer
+            gpt2_tok2 = AutoTokenizer.from_pretrained("gpt2")
+            with open(bg_cache, "rb") as f:
+                bg_gl = pickle.load(f)
+            print("  [cache] Loaded bigram_greenlist.pkl")
+        else:
+            from transformers import AutoTokenizer
+            gpt2_tok2 = AutoTokenizer.from_pretrained("gpt2")
+            bg_gl = branch_bc.BigramGreenList()
+            bg_gl.fit(train_df["text"].tolist(), train_df["label"].tolist(), gpt2_tok2)
+            with open(bg_cache, "wb") as f:
+                pickle.dump(bg_gl, f)
+            print("  [extract] Fitted BigramGreenList on training split")
+
+        fb_bg = extract_cached(
+            "bigram", all_texts,
+            lambda t: branch_bc.extract_bigram(t, bg_gl, gpt2_tok2),
+            args.cache_dir, args.force_extract,
+        )
+        parts.append(fb_bg.reset_index(drop=True))
 
     use_bino = args.phase >= 2 and not args.skip_binoculars
     if use_bino:
