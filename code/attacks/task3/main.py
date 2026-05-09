@@ -84,6 +84,8 @@ def parse_args() -> argparse.Namespace:
                    help="OLMo-7B judge with PROPER chat template + 5 prompts (vs plain text 3)")
     p.add_argument("--use-olmo7b-chunks", action="store_true",
                    help="OLMo-7B PPL per chunk (5 chunks) - local PPL variation features")
+    p.add_argument("--use-cross-lm", action="store_true",
+                   help="Cross-LM derived features (OLMo vs Pythia ratios from cached PPLs)")
     p.add_argument("--use-stylometric", action="store_true",
                    help="Add stylometric features (CPU only, fast)")
     p.add_argument("--use-better-liu", action="store_true",
@@ -560,13 +562,47 @@ def main() -> None:
         parts.append(fb_kgw2.reset_index(drop=True))
 
     # ── 3. Build feature matrix
-    X_full = pd.concat(parts, axis=1).fillna(0.0).values.astype(np.float32)
+    full_df = pd.concat(parts, axis=1).fillna(0.0)
+
+    # Cross-LM derived features (OLMo vs Pythia / GPT-2): nielinearne kombinacje
+    # cached PPL features. Brak nowego compute, nowy sygnał discriminacyjny.
+    if args.use_cross_lm:
+        derived = {}
+        # OLMo-7B vs gpt2-medium (binoculars performer) — różnica między instruct LM a base LM
+        if "olmo7b_lp_mean" in full_df and "lp_per" in full_df:
+            derived["cross_olmo7b_vs_gpt2med_lp"] = full_df["olmo7b_lp_mean"] - full_df["lp_per"]
+        # OLMo-7B vs Pythia-2.8b (instruct vs base, similar size)
+        if "olmo7b_lp_mean" in full_df and "bino_xl_lp_obs" in full_df:
+            derived["cross_olmo7b_vs_pythia28b_lp"] = full_df["olmo7b_lp_mean"] - full_df["bino_xl_lp_obs"]
+        # OLMo-7B vs Pythia-6.9b (similar size, different family + base/instruct)
+        if "olmo7b_lp_mean" in full_df and "bino_xl_lp_per" in full_df:
+            derived["cross_olmo7b_vs_pythia69b_lp"] = full_df["olmo7b_lp_mean"] - full_df["bino_xl_lp_per"]
+        # OLMo-1B vs OLMo-7B (instruct, different sizes, ratio captures size sensitivity)
+        if "olmo7b_lp_mean" in full_df and "olmo_lp_mean" in full_df:
+            derived["cross_olmo7b_vs_olmo1b_lp"] = full_df["olmo7b_lp_mean"] - full_df["olmo_lp_mean"]
+        # Pythia size-progression: 1.4b vs 2.8b vs 6.9b
+        if "bino_strong_lp_obs" in full_df and "bino_xl_lp_obs" in full_df:
+            derived["cross_pythia14b_vs_28b_lp"] = full_df["bino_strong_lp_obs"] - full_df["bino_xl_lp_obs"]
+        # OLMo / Pythia perplexity ratio (raw)
+        if "olmo7b_ppl" in full_df and "bino_xl_ppl_obs" in full_df:
+            derived["cross_olmo7b_vs_pythia_ppl_ratio"] = (
+                full_df["olmo7b_ppl"] / (full_df["bino_xl_ppl_obs"] + 1e-9)
+            )
+        if derived:
+            cross_df = pd.DataFrame(derived)
+            full_df = pd.concat([full_df, cross_df], axis=1)
+            print(f"  [cross-lm] Added {len(derived)} derived features: {list(derived.keys())}")
+
+    X_full = full_df.fillna(0.0).values.astype(np.float32)
     X_labeled = X_full[:n_labeled]
     X_test = X_full[n_labeled:]
 
-    feat_names = pd.concat(parts, axis=1).columns.tolist()
+    feat_names = full_df.columns.tolist()
     print(f"\nFeature matrix: {X_labeled.shape} labeled + {X_test.shape} test")
-    print(f"Features ({len(feat_names)}): {feat_names}")
+    if len(feat_names) <= 30:
+        print(f"Features ({len(feat_names)}): {feat_names}")
+    else:
+        print(f"Features ({len(feat_names)}): {feat_names[:5]} ... {feat_names[-5:]}")
 
     # ── 4. Choose classifier and run OOF
     print(f"\nRunning {args.n_splits}-fold OOF with {args.classifier}...")
