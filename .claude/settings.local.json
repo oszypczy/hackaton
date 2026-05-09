@@ -1,10 +1,21 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(python -c ' *)",
+      "Bash(python tests/test_task3.py)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(python scripts/pull_csv.py task3)",
+      "Bash(python3 -c ' *)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "github",
     "hf",
     "paper-search",
     "playwright",
     "duckdb"
-  ],
-  "enableAllProjectMcpServers": true
+  ]
 }

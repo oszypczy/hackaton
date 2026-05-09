@@ -35,6 +35,6 @@ python code/attacks/task3/main.py \
     --data-dir "$SCRATCH/llm-watermark-detection" \
     --cache-dir "$TASK_CACHE" \
     --out "$TASK_OUT/submission.csv" \
-    --n-rows 2250
+    --n-rows 2400
 
 echo "Done. Submission at $TASK_OUT/submission.csv"

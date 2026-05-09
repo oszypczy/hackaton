@@ -275,3 +275,6 @@
 - 2026-05-10 06:13:05Z task1 FAILED csv-md5=94e8d40f4037fa4a7be82f5e7b20a73b (task1_duci_pure_05.csv)
 - 2026-05-10 06:13:41Z task1 FAILED csv-md5=94e8d40f4037fa4a7be82f5e7b20a73b (task1_duci_pure_05.csv)
 - 2026-05-10 06:14:17Z task1 submitted sid=1713 csv-md5=94e8d40f4037fa4a7be82f5e7b20a73b (task1_duci_pure_05.csv)
+- 2026-05-09 14:42:13Z task3 FAILED csv-md5=40e749436b0af24474d774476eca970f (task3_watermark.csv)
+- 2026-05-09 15:44:56Z task3 FAILED csv-md5=d29ad4829ef4483de29e152821b0c083 (task3_watermark.csv)
+- 2026-05-09 15:58:10Z task3 FAILED csv-md5=de83a1b2fbe2b3d7c4e6dfcd5e7d03f2 (task3_watermark.csv)
