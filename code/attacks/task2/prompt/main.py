@@ -20,7 +20,7 @@ from format import (
 )
 from loader import load_parquets
 from scorer import score_batch, _sanity
-from strategies import DEMO_STRATEGIES, STRATEGIES, init_demo_pool
+from strategies import DEMO_STRATEGIES, STRATEGIES, init_demo_pool, set_question_repeat_n
 
 
 def cli() -> argparse.Namespace:
@@ -94,6 +94,12 @@ def cli() -> argparse.Namespace:
         default=None,
         help="Override shadow dir; defaults to {data_dir}/shadow_lmm. Required when --use_cd.",
     )
+    p.add_argument(
+        "--question_repeat_n",
+        type=int,
+        default=8,
+        help="N for question_repeat strategy (research §5.1, multi-token repeat).",
+    )
     p.add_argument("--cd_alpha", type=float, default=1.0)
     p.add_argument("--cd_beta", type=float, default=0.5)
     p.add_argument("--cd_topk", type=int, default=50,
@@ -129,6 +135,10 @@ def main() -> None:
 
     if args.image_mode == "scrubbed" and args.scrubbed_image_dir is None:
         raise SystemExit("--image_mode scrubbed requires --scrubbed_image_dir")
+
+    if args.strategy == "question_repeat":
+        set_question_repeat_n(args.question_repeat_n)
+        print(f"[main] question_repeat N={args.question_repeat_n}")
 
     # Demo-strategy preflight: load validation_pii separately to populate demo
     # pool. Required for oneshot_demo and any future ICL strategies. Loaded
