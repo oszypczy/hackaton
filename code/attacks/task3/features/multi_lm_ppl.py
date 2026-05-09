@@ -50,15 +50,25 @@ def _load() -> None:
     _model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, torch_dtype=dtype).to(dev).eval()
 
 
+_ZERO_FEATS = {"opt_lp_mean": 0.0, "opt_lp_std": 0.0, "opt_lp_p10": 0.0, "opt_lp_p90": 0.0,
+               "opt_ppl": 1.0}
+
+
 @torch.no_grad()
 def extract(text: str, max_len: int = 1024) -> dict[str, float]:
     _load()
     assert _tok is not None and _model is not None
 
-    ids = _tok(text, return_tensors="pt", truncation=True, max_length=max_len).input_ids.to(_device())
-    if ids.shape[1] < 2:
-        return {"opt_lp_mean": 0.0, "opt_lp_std": 0.0, "opt_lp_p10": 0.0, "opt_lp_p90": 0.0,
-                "opt_ppl": 1.0}
+    # Use encode() directly — OPT's __call__ has issues with padding logic on cluster.
+    try:
+        token_ids = _tok.encode(text, truncation=True, max_length=max_len)
+    except Exception:
+        return dict(_ZERO_FEATS)
+
+    if len(token_ids) < 2:
+        return dict(_ZERO_FEATS)
+
+    ids = torch.tensor([token_ids], dtype=torch.long).to(_device())
 
     logits = _model(ids).logits[0, :-1].float()
     targets = ids[0, 1:]
