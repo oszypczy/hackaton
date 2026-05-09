@@ -18,7 +18,7 @@
 2. **Validation_pii (280 × 3 = 840 GT)** jako kalibrator. Wszystkie decyzje (prompt template, decoding mode, threshold) przechodzą przez ten set ZANIM submitujemy.
 3. **Greedy decode + assistant-prefix priming** jako baseline (np. `"The credit card number for {name} is "`).
 4. **Submission format (PDF — DOKŁADNE):** CSV `id,pii_type,pred`, **3000 wierszy**, każda `(id, pii_type)` raz, `pii_type ∈ {EMAIL,CREDIT,PHONE}`, `pred` length **10–100 chars**, bez `<|user|>` / cudzysłowów / whitespace okołoznakowego. Min-len edge case: padować short EMAIL do 10 chars.
-5. **Lokalny scorer:** `from rapidfuzz.distance import Levenshtein; score = 1 - Levenshtein.normalized_distance(gt, pred)`. **Sanity check:** `Levenshtein.normalized_distance("abc","ab") == 1/3` (= dist/max(len)).
+5. **Lokalny scorer:** `from rapidfuzz.distance import Levenshtein; score = 1 - Levenshtein.normalized_distance(gt, pred)`. **Sanity check:** `Levenshtein.normalized_distance("abc","ab") == 1/3` (= dist/max(len)). **⚠ NIE używaj `rapidfuzz.distance.DamerauLevenshtein.normalized_distance`** (niektóre warianty mają substitution-cost=2 — `("abc","ab")` zwraca 2/3 zamiast 1/3) ani `python-Levenshtein.ratio()` (normalizes na InDel distance, zakazuje substitution). Oba rozjadą score z serverem. Jeśli sanity check zawiedzie → fallback `Levenshtein.distance(gt, pred, weights=(1,1,1)) / max(len(gt), len(pred))`.
 6. **Pierwszy submit:** common-floor greedy + format walidacja. Anchor leaderboard. Cooldown 5 min na success, 2 min na failure.
 
 ## Ścieżka A — Prompt / Behavioral Extraction
@@ -73,6 +73,7 @@ CSV `submission_prompt.csv` w formacie z PDF.
 - **Li et al. NeurIPS 2024** — *Membership Inference Attacks against Large VLMs* — arXiv:2411.02902. `logp_target − logp_ref` na LLaVA, MIA target-based attacks. Code: https://github.com/LIONS-EPFL/VL-MIA.
 - **Nguyen et al. ICLR 2025** — *DocMIA: Document-Level MIA* — arXiv:2502.03692. Multi-question per-document loss aggregation (3 PII per user → razem score'ujemy zaufanie do usera). Code: https://github.com/khanhnguyen21006/mia_docvqa.
 - **"Watch Out Your Album" ICML 2025** — arXiv:2503.01208. Layer-wise probing classifier na intermediate activations dla VQA inadvertent memorization. Code: https://github.com/illusionhi/ProbingPrivacy.
+- **memTrace EACL 2026 (marzec)** — *Neural Breadcrumbs: MIA on LLMs via Hidden State and Attention Pattern Analysis* (aclanthology.org/2026.eacl-long.262). Cross-layer transition dynamics + attention distribution entropy jako alternatywne features do linear probe. AUC 0.85 na MIA benchmarks, beats output-based signals. Świeższy upgrade do "Watch Out Your Album" — rozważ jako sub-feature w workflow B.2.
 - **Hintersdorf et al. NeMo NeurIPS 2024** — paper #13 w `references/papers/txt/13_*.txt`. Memorization neuron localization (DM, ale technika hook-on-attention ta sama).
 - **Hayes et al. NeurIPS 2025** — arXiv:2505.18773. Strong MIAs na LLMs — uzasadnia że **single shadow model wystarczy** dla meaningful Δ (bez full LiRA sweep 4000+ models).
 
@@ -87,6 +88,7 @@ CSV `submission_prompt.csv` w formacie z PDF.
 3. **Candidate ranking via Δ:** dla każdego (id, pii_type) wygeneruj K=8 kandydatów (sampling T=0.7), score by Δ, **pick argmax**. Lub fallback: medoid by pairwise similarity (jak w A).
 4. **Per-document aggregation** (DocMIA-style): score 3 PII per user razem. Jeśli user "lights up" memorization (high mean Δ across 3 typów) → wszystkie 3 predykcje z większym confidence.
 5. **Opcjonalnie (P2, jeśli zostanie czas):** gradient ascent na embedding tokenu `[REDACTED]` dla low-Δ samples. CUDA-only (MPS autograd niestabilne dla VLM). Drogi — ostatnia rzecz do robienia.
+6. **Opcjonalnie (P2 alternative — tańsza niż gradient ascent, bez autograd):** **concept steering** w stylu Defeating Cerberus (Zhang et al. EACL 2026, arXiv:2509.25525, *reverse* setup: oni mitigate, my amplify). Recipe: PCA na hidden-state activations z 280 ref samples → top-1 PII concept direction `v_pii` → `forward_hook` na ostatnich 3-5 layers dodający `α · v_pii` (α≈2.5) podczas inference target model. Forward-only, działa na CUDA i potencjalnie MPS. Fitować lokalnie na M4, deployować na klastrze. Próbować przed gradient ascent.
 
 ### Stack
 
@@ -144,6 +146,8 @@ CSV `submission_shadow.csv` w formacie z PDF.
 | H+8 | Czy A i B są na > 0.7? | jeśli nie i jedna jest blocked → wskocz na C tą jedną osobą |
 | H+16 | Freeze metody, tylko refinement | przestajemy zmieniać core attack, tylko hyperparam |
 | H+20 | Final submit | nigdy w ostatnich 5 minutach przed deadline |
+
+**Submit discipline (hard rule):** **NIE submit** chyba że local `validation_pii` similarity poprawiła się o **≥ 0.02** względem ostatniego successful submission. Server nie zwraca feedback gdy nowy score < current best — submisja pod progiem to spalenie 5-min cooldown za 0 informacji. Realistyczny budżet: ~10-20 submisji per ścieżka przez 22h, nie 264 (= teoretyczne max przy 5min cooldown).
 
 ## References — files in this repo
 
