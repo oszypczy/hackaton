@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name=task3-gridsearch
 #SBATCH --account=training2615
-#SBATCH --partition=dc-gpu-devel
+#SBATCH --partition=dc-gpu
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=4
-#SBATCH --gres=gpu:0
+#SBATCH --gres=gpu:1
 #SBATCH --time=00:20:00
 #SBATCH --output=/p/scratch/training2615/kempinski1/Czumpers/task3/output/%j_gridsearch.out
 #SBATCH --error=/p/scratch/training2615/kempinski1/Czumpers/task3/output/%j_gridsearch.err
@@ -30,6 +30,6 @@ cd "$REPO"
 
 echo "=== Unigram grid search (CPU only) ==="
 python code/attacks/task3/grid_search.py \
-    --data-dir "$SCRATCH/llm-watermark-detection/Dataset.zip"
+    --data-dir "$SCRATCH/llm-watermark-detection"
 
 echo "Done."
