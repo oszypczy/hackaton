@@ -94,6 +94,21 @@ ANSWER_SEED = {
 }
 
 
+def _redacted_prefix(sample, pii_type: str) -> str:
+    """Extract the exact answer prefix from scrubbed output (task/ data only).
+
+    task/ output field: "Name's credit card number is [REDACTED]."
+    → prefix = "Name's credit card number is "
+    → model generates only the PII value; we prepend prefix to reconstruct full sentence.
+    """
+    turn = find_conv_turn(sample, pii_type)
+    out = turn.get("output", "")
+    if "[REDACTED]" in out:
+        prefix = out.split("[REDACTED]")[0]
+        return prefix if prefix else ""
+    return ""
+
+
 def find_conv_turn(sample, pii_type: str) -> dict:
     """Return the conversation turn for the given PII type. Robust against
     variations in instruction phrasing (e.g. 'telephone' instead of 'phone')."""
@@ -161,7 +176,8 @@ def preprocess_image(sample, img_proc, img_size: int, device) -> torch.Tensor:
 
 # ── Build prompt token ids (no answer) ────────────────────────────────────────
 def build_prompt_ids(sample, pii_type: str, tokenizer, device,
-                     seed_answer: bool = False) -> torch.Tensor:
+                     seed_answer: bool = False,
+                     extra_prefix: str = "") -> torch.Tensor:
     conv_turn = find_conv_turn(sample, pii_type)
     instruction = get_formatted_question(conv_turn["instruction"], "image")
     data = sample_to_chat_template(
@@ -169,7 +185,10 @@ def build_prompt_ids(sample, pii_type: str, tokenizer, device,
     )
     prompt_text = data["conversation"][0]["instruction"]
     token_ids = tokenizer.convert_tokens_to_ids(tokenizer.tokenize(prompt_text))
-    if seed_answer:
+    if extra_prefix:
+        prefix_ids = tokenizer.convert_tokens_to_ids(tokenizer.tokenize(extra_prefix))
+        token_ids = token_ids + prefix_ids
+    elif seed_answer:
         seed_text = ANSWER_SEED[pii_type]
         seed_ids = tokenizer.convert_tokens_to_ids(tokenizer.tokenize(seed_text))
         token_ids = token_ids + seed_ids
@@ -237,10 +256,13 @@ def answer_loss(model, sample, pii_type: str, answer: str,
 def generate_answer(model, sample, pii_type: str, tokenizer,
                     img_proc, img_size: int,
                     do_sample: bool = False, temperature: float = 0.7,
-                    max_new_tokens: int = 60, seed_answer: bool = False) -> str:
+                    max_new_tokens: int = 60, seed_answer: bool = False,
+                    use_redacted_prefix: bool = False) -> str:
     dev = model.device
+    prefix_str = _redacted_prefix(sample, pii_type) if use_redacted_prefix else ""
     input_ids = build_prompt_ids(sample, pii_type, tokenizer, dev,
-                                 seed_answer=seed_answer)
+                                 seed_answer=seed_answer,
+                                 extra_prefix=prefix_str)
     img_tensor = preprocess_image(sample, img_proc, img_size, dev)
 
     with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
@@ -264,24 +286,31 @@ def generate_answer(model, sample, pii_type: str, tokenizer,
     else:
         ids = gen_out[0]
 
-    return tokenizer.decode(ids, skip_special_tokens=True).strip()
+    raw = tokenizer.decode(ids, skip_special_tokens=True).strip()
+    # model returns only new tokens; prepend prefix to reconstruct full sentence
+    if prefix_str:
+        raw = prefix_str + raw
+    return raw
 
 
 # ── Main prediction: greedy + delta reranking ─────────────────────────────────
 def predict(sample, pii_type: str, target, shadow, tokenizer,
             img_proc, img_size: int, k: int = 8, temperature: float = 0.7,
-            seed_answer: bool = False, max_new_tokens: int = 60) -> str:
+            seed_answer: bool = False, max_new_tokens: int = 60,
+            use_redacted_prefix: bool = False) -> str:
     candidates = []
     candidates.append(
         generate_answer(target, sample, pii_type, tokenizer, img_proc, img_size,
                         do_sample=False, seed_answer=seed_answer,
-                        max_new_tokens=max_new_tokens)
+                        max_new_tokens=max_new_tokens,
+                        use_redacted_prefix=use_redacted_prefix)
     )
     for _ in range(k - 1):
         candidates.append(
             generate_answer(target, sample, pii_type, tokenizer, img_proc, img_size,
                             do_sample=True, temperature=temperature,
-                            seed_answer=seed_answer, max_new_tokens=max_new_tokens)
+                            seed_answer=seed_answer, max_new_tokens=max_new_tokens,
+                            use_redacted_prefix=use_redacted_prefix)
         )
 
     best, best_delta = candidates[0], float("-inf")
@@ -332,10 +361,12 @@ def _sanity():
 
 # ── Inspect run (10 samples, raw output + GT + score) ──────────────────────────
 def run_inspect(target, shadow, tokenizer, img_proc, img_size,
-                seed_answer: bool = False, max_new_tokens: int = 60):
-    ds = load_parquet_dir(VAL_DIR)
+                seed_answer: bool = False, max_new_tokens: int = 60,
+                use_redacted_prefix: bool = False, data_dir: Path = None):
+    ds = load_parquet_dir(data_dir or VAL_DIR)
     n = min(10, len(ds))
-    print(f"\n=== Inspect (first {n} samples, seed_answer={seed_answer}, max_new_tokens={max_new_tokens}) ===")
+    print(f"\n=== Inspect (first {n} samples, seed_answer={seed_answer}, "
+          f"redacted_prefix={use_redacted_prefix}, max_new_tokens={max_new_tokens}) ===")
     for i, sample in enumerate(ds):
         if i >= n:
             break
@@ -344,7 +375,8 @@ def run_inspect(target, shadow, tokenizer, img_proc, img_size,
             gt = find_conv_turn(sample, pii_type)["output"]
             raw = generate_answer(target, sample, pii_type, tokenizer, img_proc, img_size,
                                   do_sample=False, seed_answer=seed_answer,
-                                  max_new_tokens=max_new_tokens)
+                                  max_new_tokens=max_new_tokens,
+                                  use_redacted_prefix=use_redacted_prefix)
             pred = enforce_length(raw, pii_type)
             score = similarity(gt, pred)
             print(f"  [{pii_type}] GT  : {gt!r}")
@@ -354,7 +386,8 @@ def run_inspect(target, shadow, tokenizer, img_proc, img_size,
 
 # ── Validation run ─────────────────────────────────────────────────────────────
 def run_val(target, shadow, tokenizer, img_proc, img_size,
-            seed_answer: bool = False, max_new_tokens: int = 60):
+            seed_answer: bool = False, max_new_tokens: int = 60,
+            use_redacted_prefix: bool = False):
     ds = load_parquet_dir(VAL_DIR)
     scores = {t: [] for t in PII_TYPES}
 
@@ -363,7 +396,8 @@ def run_val(target, shadow, tokenizer, img_proc, img_size,
             gt = find_conv_turn(sample, pii_type)["output"]
             pred = enforce_length(
                 predict(sample, pii_type, target, shadow, tokenizer, img_proc, img_size,
-                        seed_answer=seed_answer, max_new_tokens=max_new_tokens),
+                        seed_answer=seed_answer, max_new_tokens=max_new_tokens,
+                        use_redacted_prefix=use_redacted_prefix),
                 pii_type,
             )
             scores[pii_type].append(similarity(gt, pred))
@@ -384,7 +418,8 @@ def run_val(target, shadow, tokenizer, img_proc, img_size,
 
 # ── Submission run ─────────────────────────────────────────────────────────────
 def run_submit(target, shadow, tokenizer, img_proc, img_size,
-               seed_answer: bool = False, max_new_tokens: int = 60):
+               seed_answer: bool = False, max_new_tokens: int = 60,
+               use_redacted_prefix: bool = False):
     ds = load_parquet_dir(TASK_DIR)
     rows = []
 
@@ -393,7 +428,8 @@ def run_submit(target, shadow, tokenizer, img_proc, img_size,
         for pii_type in PII_TYPES:
             pred = enforce_length(
                 predict(sample, pii_type, target, shadow, tokenizer, img_proc, img_size,
-                        seed_answer=seed_answer, max_new_tokens=max_new_tokens),
+                        seed_answer=seed_answer, max_new_tokens=max_new_tokens,
+                        use_redacted_prefix=use_redacted_prefix),
                 pii_type,
             )
             rows.append((sid, pii_type, pred))
@@ -421,8 +457,12 @@ if __name__ == "__main__":
                         help="Skip delta reranking (fast greedy baseline)")
     parser.add_argument("--seed-answer", action="store_true",
                         help="Prepend answer prefix to prompt (e.g. 'The email address is ')")
+    parser.add_argument("--redacted-prefix", action="store_true",
+                        help="A+B hybrid: use [REDACTED] prefix from scrubbed output as generation seed")
     parser.add_argument("--max-new-tokens", type=int, default=60,
                         help="Max new tokens for generation (default 60)")
+    parser.add_argument("--task-dir", type=str, default=None,
+                        help="Override data dir for inspect mode (default: val for inspect, task for submit)")
     args = parser.parse_args()
 
     target, shadow, tokenizer, img_proc, img_size = load_both_models()
@@ -430,18 +470,24 @@ if __name__ == "__main__":
     if args.greedy_only:
         def predict(sample, pii_type, target, shadow, tokenizer,  # type: ignore[no-redef]
                     img_proc, img_size, k=1, temperature=0.7,
-                    seed_answer=False, max_new_tokens=60):
+                    seed_answer=False, max_new_tokens=60,
+                    use_redacted_prefix=False):
             return generate_answer(target, sample, pii_type, tokenizer,
                                    img_proc, img_size, do_sample=False,
                                    seed_answer=seed_answer,
-                                   max_new_tokens=max_new_tokens)
+                                   max_new_tokens=max_new_tokens,
+                                   use_redacted_prefix=use_redacted_prefix)
 
     if args.mode == "inspect":
+        data_dir = Path(args.task_dir) if args.task_dir else None
         run_inspect(target, shadow, tokenizer, img_proc, img_size,
-                    seed_answer=args.seed_answer, max_new_tokens=args.max_new_tokens)
+                    seed_answer=args.seed_answer, max_new_tokens=args.max_new_tokens,
+                    use_redacted_prefix=args.redacted_prefix, data_dir=data_dir)
     elif args.mode == "val":
         run_val(target, shadow, tokenizer, img_proc, img_size,
-                seed_answer=args.seed_answer, max_new_tokens=args.max_new_tokens)
+                seed_answer=args.seed_answer, max_new_tokens=args.max_new_tokens,
+                use_redacted_prefix=args.redacted_prefix)
     else:
         run_submit(target, shadow, tokenizer, img_proc, img_size,
-                   seed_answer=args.seed_answer, max_new_tokens=args.max_new_tokens)
+                   seed_answer=args.seed_answer, max_new_tokens=args.max_new_tokens,
+                   use_redacted_prefix=args.redacted_prefix)
