@@ -41,13 +41,22 @@
 3. **Multi-signal RidgeCV** doesn't help (sparse synth banks for R50/R152 → overfits).
 4. **Cooldown** confirmed: 5 min server-time after successful submission.
 
-## Next steps (queue)
+## Next steps (queue) — 30 min cooldown per submit
 
-1. ~~Submit flip22 alone~~ (~22:57Z)
-2. Wait for Maini extraction completion (~30 min from launch, ETA ~01:00Z)
-3. Run `maini_mle.py` to get full Maini predictions (9/9 targets)
-4. Compute ensemble: avg(MLE_80ep_R18, Maini per-arch) → snap_10
-5. Submit ensemble + scrape
+1. ~~Submit flip22 alone~~ (~22:57Z) — REJECTED (cooldown not over)
+2. ~~Submit r152_all_06~~ (~23:08Z first try, REJECTED 578s left)
+3. **Maini extraction COMPLETE** — full 9 targets + 5p R18/R50/R152 synth
+4. **Maini results** (no improvement over MLE):
+   - arch=0 R18: PASS, signal `mean_mixed_laplace`, gives p ≈ 0.12-0.30 (low)
+   - arch=1 R50: PASS, signal `delta_gaussian`, gives p ≈ 0.02-0.11 (low)
+   - arch=2 R152: FAIL (degenerate signal), gives 0.5 for all
+   - Mean Maini = 0.26 vs MLE 0.52 — same uniform-offset issue as Tong
+5. Pending submissions queue (in priority):
+   - 23:18Z: r152_all_06 (3 changes, R152→0.6 hypothesis)
+   - 23:48Z: dense_R18all_snap10 (7 changes, shift mean down)
+   - 00:18Z: based on prior results
+6. Strategic backup: SUB-9 (snap_10 of MLE 80ep R18) remains unbeaten
+7. Cooldown verified: **task1 = 30 min** (not 5 as docs claimed)
 
 ## Strategy notes
 
