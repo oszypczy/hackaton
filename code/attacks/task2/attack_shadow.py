@@ -301,8 +301,13 @@ def predict(sample, pii_type: str, target, shadow, tokenizer,
 # ── Length / format enforcement ────────────────────────────────────────────────
 def enforce_length(pred: str, pii_type: str) -> str:
     pred = pred.strip().strip('"\'<>').strip()
-    # GT is full-sentence format ("The credit card is X") — don't regex-extract,
-    # model's natural output already matches GT format.
+    # GT is always a single sentence. Truncate model output to its first complete
+    # sentence — this eliminates trailing noise and often gives exact GT match.
+    for delim in ('. ', '.\n'):
+        idx = pred.find(delim)
+        if idx != -1 and idx + 1 >= PRED_MIN:
+            pred = pred[:idx + 1]
+            break
     if len(pred) < PRED_MIN:
         pred = pred.ljust(PRED_MIN, "0")
     if len(pred) > PRED_MAX:
