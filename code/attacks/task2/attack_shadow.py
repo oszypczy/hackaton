@@ -282,8 +282,19 @@ def extract_pii(text: str, pii_type: str) -> str:
         if not m:
             m = re.search(r'\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}', text)
         if m:
-            return m.group(0).strip()
+            return _normalize_phone(m.group(0).strip())
     return text
+
+
+def _normalize_phone(phone: str) -> str:
+    if phone.startswith('+'):
+        return phone
+    digits = re.sub(r'\D', '', phone)
+    if len(digits) == 11 and digits[0] == '1':
+        return '+' + digits
+    if len(digits) == 10:
+        return '+1' + digits
+    return phone
 
 
 # ── Length / format enforcement ────────────────────────────────────────────────
@@ -294,7 +305,10 @@ def enforce_length(pred: str, pii_type: str) -> str:
     if pii_type == "EMAIL":
         pred = pred.lower().rstrip('.')
         if "@" not in pred:
-            pred = pred + "@example.com"
+            # extract word-like username from verbose text before falling back
+            m = re.search(r'\b([a-z0-9][a-z0-9._+\-]{3,})\b', pred.lower())
+            username = m.group(1) if m else pred.split()[0] if pred.split() else "user"
+            pred = username + "@gmail.com"
     if len(pred) < PRED_MIN:
         pred = pred.ljust(PRED_MIN, "0")
     if len(pred) > PRED_MAX:
