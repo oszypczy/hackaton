@@ -147,6 +147,23 @@ Potem dopisujemy `prefix` do końca → model generuje continuation.
 5. **Phone format normalization:** `+1 385 915 9897` vs `+13859159897` — Levenshtein liczy spacje. Test obu.
 6. **Cooldown management:** 5 min × 24h = 288 max submitów. Ale `validation_pii` (lokalny GT) wystarczy do większości decyzji. Submit tylko anchor po phase.
 
+## Phase 5 — Image ablation (eval 14738396), 2026-05-09 18:48
+
+```
+              v1 original   v2 blank-img   Δ
+CREDIT        1.0000        0.2312          -77%   ← critical
+EMAIL         0.9495        0.4380          -51%   (fallback ratuje partial)
+PHONE         0.9371        0.2507          -75%
+OVERALL       0.9622        0.3067          -65%
+```
+
+**Konkluzja:** **OBRAZ JEST KLUCZOWY** dla memorization recall. Bez niego model halucynuje. Sticky with full image preprocess, no speedup possible by dropping image.
+
+**Implikacje:**
+- Path C (image-side attack) zyskuje na wartości — image clearly carries memorization key.
+- W prezentacji to insight: "in this setup, image is the user identifier — text alone insufficient" (vs Wen NeurIPS'25 "text-conditioning dominates" — domain-specific finding).
+- Można w przyszłości testować `noise` mode (czy CLIP encoding random pixels też all-or-nothing).
+
 ## v1 (post-process fixes) eval — 840 GT, 2026-05-09 18:37
 
 ```
