@@ -101,7 +101,14 @@ def run() -> None:
     for arch in ("0", "1", "2"):
         synths = discover_combined(archs[arch], arch)
         if len(synths) < 3:
-            raise RuntimeError(f"need >=3 synths for arch={arch}, got {len(synths)} in {archs[arch]}")
+            # Fallback: use ANY arch from same dirs (cross-arch calibration)
+            synths_any = discover_combined(archs[arch], None)
+            if len(synths_any) >= 3:
+                print(f"  [warn] no arch={arch} synths in {archs[arch]}; "
+                      f"falling back to {len(synths_any)} cross-arch synths", flush=True)
+                synths = synths_any
+            else:
+                raise RuntimeError(f"need >=3 synths for arch={arch}, got {len(synths)} in {archs[arch]}")
         print(f"\n[mlec] arch={arch}: {len(synths)} synth points (combined)", flush=True)
         for s in synths:
             print(f"    {s['ckpt'].parent.name}/{s['ckpt'].name}  p={s['true_p']:.2f}")
