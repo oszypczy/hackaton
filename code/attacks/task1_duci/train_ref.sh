@@ -18,7 +18,7 @@ EPOCHS=${EPOCHS:-50}
 
 REPO=/p/scratch/training2615/kempinski1/Czumpers/repo-szypczyn1
 P4VENV=/p/scratch/training2615/kempinski1/Czumpers/P4Ms-hackathon-vision-task/.venv/bin/python
-OUT_DIR=/p/scratch/training2615/kempinski1/Czumpers/DUCI/refs
+OUT_DIR=${OUT_DIR:-/p/scratch/training2615/kempinski1/Czumpers/DUCI/refs}
 
 mkdir -p "$OUT_DIR" /p/scratch/training2615/kempinski1/Czumpers/DUCI/output
 

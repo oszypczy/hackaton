@@ -175,6 +175,25 @@ def train_one(args: argparse.Namespace) -> None:
 
     # Save state_dict via stdlib loader convention (matches organizer)
     model.train(False)
+
+    # Probe POPULATION_z accuracy — memorization-profile diagnostic
+    from .data import load_population as _lp, population_z as _pz
+    _Xp, _yp = _lp()
+    _Xpz, _ypz = _pz(_Xp, _yp)
+    _correct, _total = 0, 0
+    with torch.no_grad():
+        _mean = CIFAR_MEAN.to(device)
+        _std = CIFAR_STD.to(device)
+        for _i in range(0, len(_Xpz), args.batch):
+            _xb = torch.from_numpy(_Xpz[_i:_i + args.batch]).to(device).permute(0, 3, 1, 2).float() / 255.0
+            _xb = (_xb - _mean) / _std
+            _yb = torch.from_numpy(_ypz[_i:_i + args.batch]).long().to(device)
+            _pred = model(_xb).argmax(1)
+            _correct += (_pred == _yb).sum().item()
+            _total += _yb.shape[0]
+    pz_acc = _correct / _total
+    print(f"[train_ref] POP_z accuracy: {pz_acc:.4f}  (target ~0.27 to match organizer)", flush=True)
+
     state_dict = model.state_dict()
     # Move to CPU for portable save
     state_dict_cpu = {k: v.detach().cpu() for k, v in state_dict.items()}
