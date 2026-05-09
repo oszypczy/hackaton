@@ -69,16 +69,56 @@ def load_splits(data_dir: Path | None) -> tuple[pd.DataFrame, pd.DataFrame, pd.D
     else:
         from datasets import load_dataset as hf_load
         ds = hf_load("SprintML/llm-watermark-detection")
-        # Handle split names: prefer "validation", fall back to "dev"
-        val_key = "validation" if "validation" in ds else "dev"
-        train = ds["train"].to_pandas()
-        val = ds[val_key].to_pandas()
-        test = ds["test"].to_pandas()
+        available = list(ds.keys())
+        print(f"  HF splits: {available}")
+
+        if "train" in available and "validation" in available and "test" in available:
+            # Separate HF splits (ideal case)
+            train = ds["train"].to_pandas()
+            val = ds["validation"].to_pandas()
+            test = ds["test"].to_pandas()
+        elif "train" in available and "test" in available:
+            train = ds["train"].to_pandas()
+            val = ds["test"].to_pandas()  # treat test as val if no validation
+            test = ds["test"].to_pandas()
+        else:
+            # All data in a single split — look for a 'split' / 'partition' column
+            df_all = ds[available[0]].to_pandas()
+            print(f"  Columns: {df_all.columns.tolist()}")
+            split_col = next(
+                (c for c in ("split", "partition", "subset", "set") if c in df_all.columns),
+                None,
+            )
+            if split_col:
+                vals = df_all[split_col].unique()
+                print(f"  Split column '{split_col}', values: {vals}")
+                # Normalize split names
+                split_map: dict[str, str] = {}
+                for v in vals:
+                    s = str(v).lower()
+                    if "train" in s:
+                        split_map[v] = "train"
+                    elif "val" in s or "dev" in s:
+                        split_map[v] = "val"
+                    elif "test" in s:
+                        split_map[v] = "test"
+                df_all["_split"] = df_all[split_col].map(split_map)
+                train = df_all[df_all["_split"] == "train"].drop(columns=["_split"]).reset_index(drop=True)
+                val = df_all[df_all["_split"] == "val"].drop(columns=["_split"]).reset_index(drop=True)
+                test = df_all[df_all["_split"] == "test"].drop(columns=["_split"]).reset_index(drop=True)
+            else:
+                # Last resort: divide by known sizes 360/180/2250
+                print("  No split column — dividing by known sizes 360/180/2250")
+                train = df_all.iloc[:360].reset_index(drop=True)
+                val = df_all.iloc[360:540].reset_index(drop=True)
+                test = df_all.iloc[540:].reset_index(drop=True)
 
     # Normalize column names
     for df in (train, val, test):
         if "labels" in df.columns and "label" not in df.columns:
             df.rename(columns={"labels": "label"}, inplace=True)
+        if "watermark" in df.columns and "label" not in df.columns:
+            df.rename(columns={"watermark": "label"}, inplace=True)
 
     return train, val, test
 
