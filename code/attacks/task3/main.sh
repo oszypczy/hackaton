@@ -29,12 +29,15 @@ export HF_DATASETS_OFFLINE=1
 
 cd "$REPO"
 
-# Phase 2: all branches, GPU (binoculars uses CUDA automatically)
+# Phase 2 without branch_bc (no bimodal collapse), LogReg classifier
 python code/attacks/task3/main.py \
     --phase 2 \
+    --skip-branch-bc \
+    --classifier logreg \
+    --logreg-C 0.05 \
     --data-dir "$SCRATCH/llm-watermark-detection" \
     --cache-dir "$TASK_CACHE" \
     --out "$TASK_OUT/submission.csv" \
-    --n-rows 2400
+    --n-rows 2250
 
 echo "Done. Submission at $TASK_OUT/submission.csv"
