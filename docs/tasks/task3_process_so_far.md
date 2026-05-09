@@ -5,7 +5,18 @@
 
 ---
 
-## TL;DR — Current state (2026-05-09 ~22:24 UTC)
+## TL;DR — Current state (2026-05-09 ~22:49 UTC)
+
+**🎯 LB plateau confirmed at 0.2841** — pseudo-label OOF 0.94 → SAME LB. Going from 18 → 24 features (multan1's olmo_13b + judges) unlocked the +0.025 jump from 0.259. But pseudo-label OOF inflation is mostly artifact (no LB gain).
+
+Submitted with super features (24 cols):
+- pseudo_meta_ensemble: 0.2841
+- super_pseudo_f050 (OOF 0.96): 0.2841
+- super baseline (no pseudo, OOF 0.80): 0.2841
+
+**All same**. So 0.2841 = our REAL model ceiling on public 30%. Need NEW signal (SIR detector?) to break.
+
+
 
 - **Leaderboard score: task3 = 0.2841 (#2)** ⬆️ JUMP from 0.259 — leader Syntax Terror **0.396** (also up), gap 0.111
 - Mystery: score went from 0.259 → 0.2841 between 22:01 and 22:22 even though no submissions logged in that window. Hypothesis: a 429-rejected POST (pseudo_meta_ensemble at 22:11:36 OR similar) was actually processed by server, OR teammate submitted.
