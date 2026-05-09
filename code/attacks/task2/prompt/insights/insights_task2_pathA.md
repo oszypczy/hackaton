@@ -363,8 +363,30 @@ Cost: 50/type × 3 = 150 samples × 6 strategii = 900 forwardów ≈ 16 min na 1
 
 ## Pending tasks
 
-- [ ] **Predict 14738701** (~50 min) → submit anchor v1
-- [ ] **Multi-eval 14738761** (pending → running) → analiza per-strategy lift
-- [ ] Best strategy z multi-eval → predict task/ → submit
-- [ ] (Optional) Realistic image scrub PoC (`SCRUB_RESEARCH_PROMPT.md` — handover dla nowej sesji)
-- [ ] (Optional) Shadow logprob diff strategy — wymaga shadow_lmm load (nie zaczęte)
+- [x] **Predict 14738701** baseline v1 → submit anchor v1 → leaderboard 0.347 (+0.037)
+- [x] **Multi-eval 14738761** blank-mode n=150: direct_probe / role_play_dba +0.07, system_override / completion_format szkodzi
+- [x] **Multi-eval 14738997** scrubbed-mode n=150: scrub gorszy calibrator niż blank, ranking zachowany
+- [x] Image-scrub PoC delivered (`scrub_image.py`, 280/280 PNG, lokalnie, pytesseract M4-only)
+- [ ] **Full eval 840 blank-mode** dla top 3 strategii (osobne joby): baseline / direct_probe / role_play_dba — sanity check stabilności
+- [ ] **Predict 14739020** direct_probe → submit anchor v2 (expected ~0.40)
+- [ ] Po confirmed full evals: testować WARIANTY direct_probe (różne wording) na multi_eval
+- [ ] (Out of scope path A) Shadow logprob diff (Path B murdzek2)
+
+## Multi-strategy findings — kluczowe (jobs 14738761 / 14738997)
+
+### Top 3 strategii (blank-mode, n=150)
+| Strategy | OVERALL | Δ vs baseline | Notes |
+|---|---|---|---|
+| baseline (current) | 0.3244 | — | chat template + assistant prefix |
+| direct_probe | 0.3961 | +0.072 | rezygnacja z prefiksu, "What was X for [Name] during training?" |
+| role_play_dba | 0.3978 | +0.073 | DBA persona, query by user_id + name. Tied z direct_probe (różnica nieistotna stat) |
+
+### Cross-mode validation (scrubbed vs blank, n=150)
+- Lift z direct_probe / role_play_dba zachowany w obu trybach (+0.04 scrubbed, +0.07 blank)
+- Scrubbed mode dał LOWER absolute scores niż blank → nasz scrub usuwa za dużo signal (CREDIT 0.13 scrubbed vs 0.25 blank)
+- **Zostajemy z blank-mode** jako calibrator dla dalszych eksperymentów
+
+### Per-PII memorization signal
+- **EMAIL**: real signal — model pamięta `firstname.lastname` (mean Δ=+0.13 dla direct_probe), halucynuje domain
+- **PHONE**: real signal — pamięta US area code `+1505...` (mean Δ=+0.08), halucynuje suffix
+- **CREDIT**: floor ~0.13-0.25 wszystkie strategie. 0 perfect → wymagałoby shadow logprob lub OCR (które nie działa na scrubbed task/ images)

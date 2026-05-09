@@ -399,6 +399,50 @@ Output JSON:
 
 Plan: predict 14738701 → CSV z wszystkimi format fixami → submit anchor v1. Spodziewany ~0.32-0.34 (drobne lift z EMAIL fallback działającymi prawidłowo na halucynacje).
 
+## Phase 7 — Multi-strategy results (jobs 14738761 blank, 14738997 scrubbed)
+
+### Blank-mode val_pii (n=150 stratified, job 14738761)
+```
+strategy            CREDIT  EMAIL   PHONE   OVERALL    Δ vs baseline
+baseline            0.2477  0.4499  0.2755  0.3244       —
+direct_probe        0.2537  0.5831  0.3517  0.3961    +0.072
+role_play_dba       0.2531  0.5886  0.3517  0.3978    +0.073
+user_id_explicit    0.2183  0.5580  0.2705  0.3489    +0.025
+system_override     0.2343  0.4137  0.2820  0.3100    -0.014  (szkodzi)
+completion_format   0.2292  0.2514  0.2872  0.2559    -0.069  (szkodzi mocno)
+```
+
+### Scrubbed-mode val_pii (n=150 stratified, job 14738997)
+Tylko top 3 strategii pod test, scrub via local pytesseract (PoC, 280/280 PNG).
+```
+strategy        CREDIT  EMAIL   PHONE   OVERALL    Δ vs baseline
+baseline        0.1283  0.5040  0.2850  0.3058       —
+direct_probe    0.1311  0.5844  0.3209  0.3455    +0.040
+role_play_dba   0.1586  0.5799  0.3083  0.3489    +0.043
+```
+
+### Cross-mode comparison
+```
+strategy         blank-OVERALL  scrubbed-OVERALL  task/-leaderboard
+baseline         0.3244         0.3058            0.347 (v1, post-fix)
+direct_probe     0.3961         0.3455            (predict 14739020 leci)
+role_play_dba    0.3978         0.3489            (TBD)
+```
+
+### Insights
+1. **direct_probe / role_play_dba — real memorization signal** na EMAIL i PHONE. Mean Δ EMAIL=+0.13 (28/50 wins), PHONE Δ=+0.08 (29/50 wins). Model pamięta `firstname.lastname` username i US area code (`+1505...`), halucynuje domain/suffix.
+2. **CREDIT = floor** dla wszystkich strategii (~0.13–0.25). 0 perfect na blank/scrubbed dla wszystkich strategii. CC numerów się nie da odzyskać prompt-only — wymagałoby shadow logprob diff lub OCR.
+3. **scrubbed mode NIE jest lepszym calibratorem niż blank.** Scrubbed dał NIŻSZE OVERALL niż blank dla wszystkich strategii (-0.02 do -0.05). Hipoteza: nasz lokalny scrub zostawia residue (liczba cyfr widoczna, partial layout) które aktywnie myli model — gorzej niż czysty blank. **Zostajemy z blank jako calibrator.**
+4. **Rezygnacja z prefix-attack to klucz**, nie konkretne wording. direct_probe ≈ role_play_dba (różnica 0.0017, poniżej SE 0.04). Memorization przeciekają lepiej z naturalnym pytaniem niż z prefix-completion.
+5. **system_override / completion_format SHKODZĄ** — model nie reaguje na privilege escalation (nie aligned), a synthesized primer "The X for [name] is " psuje halucynacje EMAIL.
+
+### Submission log update
+| Time | ID | Strategy | CSV | Score |
+|---|---|---|---|---|
+| 19:00 | 198 | baseline (raw v0 + leading-zero fix) | task2_pii_v0_fixed.csv | 0.31 |
+| 20:23 | 334 | baseline (v1 + EMAIL fallback + PHONE force '+') | task2_pii_v1_baseline.csv | 0.347 (+0.037) |
+| TBD   | TBD | direct_probe predict (14739020 leci) | TBD | expected ~0.40 |
+
 ## Komendy quick reference
 
 ```bash
