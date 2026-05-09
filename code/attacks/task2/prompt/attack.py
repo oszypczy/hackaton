@@ -116,12 +116,16 @@ def _build_image_tensor(
     image_size: int,
     image_processor,
     mode: str,
+    user_id: str | None = None,
+    scrubbed_image_dir: Path | None = None,
 ) -> torch.Tensor:
     """Build image input tensor under one of:
-    - 'original': decode PNG, resize, CLIP-process
+    - 'original': decode PNG bytes from parquet, resize, CLIP-process
     - 'blank':    mid-gray placeholder (no visual signal)
     - 'noise':    random uniform pixels (sanity baseline)
-    Used for image-ablation experiments (Phase 5).
+    - 'scrubbed': load pre-scrubbed PNG from `scrubbed_image_dir/<user_id>.png`
+                  (PII values masked offline by code/attacks/task2/prompt/scrub_image.py).
+                  Better task/ proxy than 'blank' — preserves Name + caption + layout.
     """
     if mode == "original":
         pil_img = load_image(image_bytes, image_size)
@@ -131,6 +135,14 @@ def _build_image_tensor(
         import numpy as np
         arr = np.random.randint(0, 256, size=(image_size, image_size, 3), dtype=np.uint8)
         pil_img = Image.fromarray(arr)
+    elif mode == "scrubbed":
+        if not user_id or scrubbed_image_dir is None:
+            raise ValueError("scrubbed mode requires user_id + scrubbed_image_dir")
+        path = Path(scrubbed_image_dir) / f"{user_id}.png"
+        if not path.exists():
+            raise FileNotFoundError(f"Scrubbed image missing: {path}")
+        pil_img = Image.open(path).convert("RGB")
+        pil_img = pil_img.resize((image_size, image_size), Image.Resampling.BILINEAR)
     else:
         raise ValueError(f"unknown image_mode: {mode!r}")
     return preprocess_image_to_tensor(pil_img, image_processor)
@@ -147,6 +159,7 @@ def generate_one(
     max_new_tokens: int = 50,
     use_prefix: bool = True,
     image_mode: str = "original",
+    scrubbed_image_dir: Path | None = None,
 ) -> str:
     """Generate one PII prediction. Returns the raw (post-prefix) text."""
     prefix = derive_assistant_prefix(sample.scrubbed_output) if use_prefix else ""
@@ -160,7 +173,8 @@ def generate_one(
 
     # Image preprocessing — supports image_mode for ablation
     image_tensor = _build_image_tensor(
-        sample.image_bytes, image_size, image_processor, image_mode
+        sample.image_bytes, image_size, image_processor, image_mode,
+        user_id=sample.user_id, scrubbed_image_dir=scrubbed_image_dir,
     ).to(model.device)
 
     # Use the codebase's overridden `generate`. It accepts the unified-arch

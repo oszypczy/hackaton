@@ -48,9 +48,16 @@ def cli() -> argparse.Namespace:
     p.add_argument("--output_log", type=Path, required=True)
     p.add_argument(
         "--image_mode",
-        choices=["original", "blank", "noise"],
+        choices=["original", "blank", "noise", "scrubbed"],
         default="blank",
-        help="blank is the calibrator for task/ conditions.",
+        help="blank is the calibrator for task/ conditions; scrubbed loads "
+             "pre-scrubbed PNGs from --scrubbed_image_dir.",
+    )
+    p.add_argument(
+        "--scrubbed_image_dir",
+        type=Path,
+        default=None,
+        help="Required for image_mode=scrubbed. Folder with <user_id>.png files.",
     )
     p.add_argument(
         "--strategies",
@@ -132,8 +139,13 @@ def main() -> None:
         if name not in STRATEGIES:
             raise SystemExit(f"unknown strategy: {name!r}. Available: {list(STRATEGIES)}")
 
+    if args.image_mode == "scrubbed" and args.scrubbed_image_dir is None:
+        raise SystemExit("--image_mode scrubbed requires --scrubbed_image_dir")
+
     print(f"[multi_eval] strategies={chosen}")
     print(f"[multi_eval] image_mode={args.image_mode}  per_type={args.per_type}")
+    if args.scrubbed_image_dir:
+        print(f"[multi_eval] scrubbed_image_dir={args.scrubbed_image_dir}")
 
     samples = load_parquets(args.data_dir / "validation_pii", with_gt=True)
     samples = _stratified_subset(samples, args.per_type, args.seed)
@@ -153,7 +165,8 @@ def main() -> None:
     image_tensors: list[torch.Tensor] = []
     for s in samples:
         t = _build_image_tensor(
-            s.image_bytes, image_size, image_processor, args.image_mode
+            s.image_bytes, image_size, image_processor, args.image_mode,
+            user_id=s.user_id, scrubbed_image_dir=args.scrubbed_image_dir,
         ).to(model.device)
         image_tensors.append(t)
 
@@ -209,6 +222,7 @@ def main() -> None:
         "config": {
             "strategies": chosen,
             "image_mode": args.image_mode,
+            "scrubbed_image_dir": str(args.scrubbed_image_dir) if args.scrubbed_image_dir else None,
             "per_type": args.per_type,
             "seed": args.seed,
             "n_samples": len(samples),

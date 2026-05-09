@@ -25,6 +25,14 @@ if [[ "$STRATEGIES" == "-" ]]; then
 fi
 IMAGE_MODE="${3:-blank}"
 
+# Scrubbed-image directory (only used when image_mode=scrubbed). Pre-scrubbed PNGs
+# named <user_id>.png live OUTSIDE the dataset folder per "no overwrite" rule.
+SCRUBBED_DIR="/p/scratch/training2615/kempinski1/Czumpers/val_pii_scrubbed"
+SCRUBBED_ARG=""
+if [[ "$IMAGE_MODE" == "scrubbed" ]]; then
+    SCRUBBED_ARG="--scrubbed_image_dir $SCRUBBED_DIR"
+fi
+
 DATA_DIR="/p/scratch/training2615/kempinski1/Czumpers/P4Ms-hackathon-vision-task"
 CODEBASE_DIR="/p/scratch/training2615/kempinski1/Czumpers/p4ms_codebase/p4ms_hackathon_warsaw_code-main"
 ATTACK_DIR="/p/scratch/training2615/kempinski1/Czumpers/repo-kempinski1/code/attacks/task2/prompt"
@@ -61,4 +69,5 @@ python "$ATTACK_DIR/multi_eval.py" \
     --output_log "$OUT_LOG" \
     --image_mode "$IMAGE_MODE" \
     --per_type "$PER_TYPE" \
-    --strategies "$STRATEGIES"
+    --strategies "$STRATEGIES" \
+    $SCRUBBED_ARG
