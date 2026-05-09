@@ -568,34 +568,73 @@ def main() -> None:
     # ── 3. Build feature matrix
     full_df = pd.concat(parts, axis=1).fillna(0.0)
 
-    # Cross-LM derived features (OLMo vs Pythia / GPT-2): nielinearne kombinacje
-    # cached PPL features. Brak nowego compute, nowy sygnał discriminacyjny.
+    # Cross-LM derived features. Pierwsza wersja (6 features) dała 0.284 leaderboard!
+    # Amplifikujemy: 25+ pairwise diffs + ratios + quadratics.
     if args.use_cross_lm:
+        # Map: friendly_name -> column_name (lp_mean equivalent)
+        lp_cols = {}
+        if "lp_mean" in full_df: lp_cols["gpt2"] = "lp_mean"
+        if "lp_obs" in full_df: lp_cols["bino_obs"] = "lp_obs"          # gpt2 from binoculars
+        if "lp_per" in full_df: lp_cols["gpt2med"] = "lp_per"           # gpt2-medium
+        if "bino_strong_lp_obs" in full_df: lp_cols["pythia14b"] = "bino_strong_lp_obs"
+        if "bino_strong_lp_per" in full_df: lp_cols["pythia28b_s"] = "bino_strong_lp_per"
+        if "bino_xl_lp_obs" in full_df: lp_cols["pythia28b_xl"] = "bino_xl_lp_obs"
+        if "bino_xl_lp_per" in full_df: lp_cols["pythia69b"] = "bino_xl_lp_per"
+        if "olmo_lp_mean" in full_df: lp_cols["olmo1b"] = "olmo_lp_mean"
+        if "olmo7b_lp_mean" in full_df: lp_cols["olmo7b"] = "olmo7b_lp_mean"
+        if "olmo13b_lp_mean" in full_df: lp_cols["olmo13b"] = "olmo13b_lp_mean"
+
+        ppl_cols = {}
+        if "ppl_observer" in full_df: ppl_cols["gpt2"] = "ppl_observer"
+        if "ppl_performer" in full_df: ppl_cols["gpt2med"] = "ppl_performer"
+        if "olmo_ppl" in full_df: ppl_cols["olmo1b"] = "olmo_ppl"
+        if "olmo7b_ppl" in full_df: ppl_cols["olmo7b"] = "olmo7b_ppl"
+        if "bino_strong_ppl_obs" in full_df: ppl_cols["pythia14b"] = "bino_strong_ppl_obs"
+        if "bino_xl_ppl_per" in full_df: ppl_cols["pythia69b"] = "bino_xl_ppl_per"
+
         derived = {}
-        # OLMo-7B vs gpt2-medium (binoculars performer) — różnica między instruct LM a base LM
-        if "olmo7b_lp_mean" in full_df and "lp_per" in full_df:
-            derived["cross_olmo7b_vs_gpt2med_lp"] = full_df["olmo7b_lp_mean"] - full_df["lp_per"]
-        # OLMo-7B vs Pythia-2.8b (instruct vs base, similar size)
-        if "olmo7b_lp_mean" in full_df and "bino_xl_lp_obs" in full_df:
-            derived["cross_olmo7b_vs_pythia28b_lp"] = full_df["olmo7b_lp_mean"] - full_df["bino_xl_lp_obs"]
-        # OLMo-7B vs Pythia-6.9b (similar size, different family + base/instruct)
-        if "olmo7b_lp_mean" in full_df and "bino_xl_lp_per" in full_df:
-            derived["cross_olmo7b_vs_pythia69b_lp"] = full_df["olmo7b_lp_mean"] - full_df["bino_xl_lp_per"]
-        # OLMo-1B vs OLMo-7B (instruct, different sizes, ratio captures size sensitivity)
-        if "olmo7b_lp_mean" in full_df and "olmo_lp_mean" in full_df:
-            derived["cross_olmo7b_vs_olmo1b_lp"] = full_df["olmo7b_lp_mean"] - full_df["olmo_lp_mean"]
-        # Pythia size-progression: 1.4b vs 2.8b vs 6.9b
-        if "bino_strong_lp_obs" in full_df and "bino_xl_lp_obs" in full_df:
-            derived["cross_pythia14b_vs_28b_lp"] = full_df["bino_strong_lp_obs"] - full_df["bino_xl_lp_obs"]
-        # OLMo / Pythia perplexity ratio (raw)
-        if "olmo7b_ppl" in full_df and "bino_xl_ppl_obs" in full_df:
-            derived["cross_olmo7b_vs_pythia_ppl_ratio"] = (
-                full_df["olmo7b_ppl"] / (full_df["bino_xl_ppl_obs"] + 1e-9)
+
+        # All pairwise lp differences (asymmetric - both directions matter)
+        names = list(lp_cols.keys())
+        for i, a in enumerate(names):
+            for b in names[i+1:]:
+                derived[f"cross_lp_{a}_minus_{b}"] = full_df[lp_cols[a]] - full_df[lp_cols[b]]
+
+        # PPL ratios (selected — most informative pairs)
+        ppl_pairs = [
+            ("olmo7b", "gpt2"),
+            ("olmo7b", "gpt2med"),
+            ("olmo7b", "pythia14b"),
+            ("olmo7b", "pythia69b"),
+            ("olmo7b", "olmo1b"),
+            ("olmo1b", "gpt2"),
+            ("pythia14b", "pythia69b"),
+        ]
+        for a, b in ppl_pairs:
+            if a in ppl_cols and b in ppl_cols:
+                derived[f"cross_ppl_ratio_{a}_over_{b}"] = (
+                    full_df[ppl_cols[a]] / (full_df[ppl_cols[b]] + 1e-9)
+                )
+
+        # Quadratic / interactions of strongest LM (OLMo-7B)
+        if "olmo7b" in lp_cols:
+            derived["cross_olmo7b_lp_sq"] = full_df[lp_cols["olmo7b"]] ** 2
+            if "olmo1b" in lp_cols:
+                derived["cross_olmo7b_x_olmo1b"] = full_df[lp_cols["olmo7b"]] * full_df[lp_cols["olmo1b"]]
+            if "pythia69b" in lp_cols:
+                derived["cross_olmo7b_x_pythia69b"] = full_df[lp_cols["olmo7b"]] * full_df[lp_cols["pythia69b"]]
+
+        # Binoculars-style log ratio under OLMo: log(PPL_pythia) / log(PPL_olmo)
+        if "olmo7b" in ppl_cols and "pythia69b" in ppl_cols:
+            derived["cross_log_ppl_pythia_over_olmo7b"] = (
+                np.log(full_df[ppl_cols["pythia69b"]] + 1.001) /
+                (np.log(full_df[ppl_cols["olmo7b"]] + 1.001) + 1e-9)
             )
+
         if derived:
             cross_df = pd.DataFrame(derived)
             full_df = pd.concat([full_df, cross_df], axis=1)
-            print(f"  [cross-lm] Added {len(derived)} derived features: {list(derived.keys())}")
+            print(f"  [cross-lm] Added {len(derived)} derived features")
 
     # SelectKBest by mutual_info_classif
     if args.select_k_best and args.select_k_best < full_df.shape[1]:
