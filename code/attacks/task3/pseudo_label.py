@@ -92,6 +92,8 @@ def main():
                    help="how many pseudo-labeling iterations to run")
     p.add_argument("--features", nargs="*", default=None,
                    help="override DEFAULT_FEATURES list")
+    p.add_argument("--shuffle-pseudo", action="store_true",
+                   help="CANARY: shuffle pseudo-labels — if OOF still inflates, metric is broken")
     args = p.parse_args()
     feature_names = args.features if args.features else DEFAULT_FEATURES
 
@@ -132,6 +134,10 @@ def main():
 
         X_extra = np.concatenate([X_te[pos_idx], X_te[neg_idx]], axis=0)
         y_extra = np.array([1] * len(pos_idx) + [0] * len(neg_idx))
+        if args.shuffle_pseudo:
+            rng = np.random.RandomState(args.seed)
+            rng.shuffle(y_extra)
+            print(f"  [CANARY] pseudo-labels SHUFFLED — y_extra.mean={y_extra.mean():.3f}")
 
         X_aug = np.concatenate([X_lab, X_extra], axis=0)
         y_aug = np.concatenate([y, y_extra], axis=0)
