@@ -74,6 +74,10 @@ def parse_args() -> argparse.Namespace:
                    help="Add LM-judge under Phi-2 (Microsoft 2.7B instruct)")
     p.add_argument("--use-judge-mistral", action="store_true",
                    help="Add LM-judge under Mistral-7B-Instruct")
+    p.add_argument("--use-judge-olmo7b", action="store_true",
+                   help="Add LM-judge under OLMo-2-7B-Instruct (best size + best signal combo)")
+    p.add_argument("--use-olmo13b", action="store_true",
+                   help="Add OLMo-2-13B-Instruct PPL features (next size up from 7B)")
     p.add_argument("--use-stylometric", action="store_true",
                    help="Add stylometric features (CPU only, fast)")
     p.add_argument("--use-better-liu", action="store_true",
@@ -470,6 +474,18 @@ def main() -> None:
         fb_jm = extract_cached("judge_mistral", all_texts, lm_judge_mistral.extract,
                                args.cache_dir, args.force_extract)
         parts.append(fb_jm.reset_index(drop=True))
+
+    if args.use_judge_olmo7b:
+        from features import lm_judge_olmo7b
+        fb_jo7 = extract_cached("judge_olmo7b", all_texts, lm_judge_olmo7b.extract,
+                                args.cache_dir, args.force_extract)
+        parts.append(fb_jo7.reset_index(drop=True))
+
+    if args.use_olmo13b:
+        from features import olmo_13b
+        fb_o13 = extract_cached("olmo_13b", all_texts, olmo_13b.extract,
+                                args.cache_dir, args.force_extract)
+        parts.append(fb_o13.reset_index(drop=True))
 
     if args.use_stylometric:
         from features import stylometric
