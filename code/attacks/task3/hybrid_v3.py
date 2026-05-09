@@ -37,6 +37,10 @@ DEFAULT_FEATURE_NAMES = [
     "multi_lm", "multi_lm_v2",
     "roberta",
     "unigram_direct",  # murdzek2's
+    "olmo_7b",          # extracted later
+    "judge_phi2",       # extracted later
+    "judge_mistral",    # extracted later
+    "kgw_selfhash",     # if ever finishes
 ]
 
 
