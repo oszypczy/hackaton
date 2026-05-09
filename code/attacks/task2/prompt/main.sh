@@ -12,11 +12,13 @@
 #SBATCH --error=/p/scratch/training2615/kempinski1/Czumpers/repo-kempinski1/code/attacks/task2/prompt/output/log_%j.txt
 
 # Usage:
-#   sbatch main.sh eval                          # eval on validation_pii (840 GT)
-#   sbatch main.sh predict                       # full task/ -> submission_v0.csv
-#   sbatch main.sh eval 100                      # smoke: 100 samples
-#   sbatch main.sh eval - blank                  # image ablation: blank image
-#   sbatch main.sh eval 100 noise                # smoke + noise image
+#   sbatch main.sh eval                                 # eval on validation_pii (840 GT)
+#   sbatch main.sh predict                              # full task/ -> submission_v0.csv
+#   sbatch main.sh eval 100                             # smoke: 100 samples
+#   sbatch main.sh eval - blank                        # image ablation: blank image
+#   sbatch main.sh eval 100 noise                       # smoke + noise image
+#   sbatch main.sh predict - original direct_probe      # predict task/ with direct_probe strategy
+#   sbatch main.sh eval - scrubbed direct_probe         # eval on val_pii with scrubbed images
 set -euo pipefail
 
 MODE="${1:-eval}"
@@ -26,7 +28,16 @@ if [[ -n "${2:-}" && "${2:-}" != "-" ]]; then
 fi
 IMAGE_MODE="${3:-original}"
 IMAGE_ARG="--image_mode ${IMAGE_MODE}"
-TS_TAG="${IMAGE_MODE}"
+STRATEGY="${4:-baseline}"
+STRATEGY_ARG="--strategy ${STRATEGY}"
+TS_TAG="${IMAGE_MODE}_${STRATEGY}"
+
+# Scrubbed-image directory (only used when image_mode=scrubbed)
+SCRUBBED_DIR="/p/scratch/training2615/kempinski1/Czumpers/val_pii_scrubbed"
+SCRUBBED_ARG=""
+if [[ "$IMAGE_MODE" == "scrubbed" ]]; then
+    SCRUBBED_ARG="--scrubbed_image_dir $SCRUBBED_DIR"
+fi
 
 DATA_DIR="/p/scratch/training2615/kempinski1/Czumpers/P4Ms-hackathon-vision-task"
 CODEBASE_DIR="/p/scratch/training2615/kempinski1/Czumpers/p4ms_codebase/p4ms_hackathon_warsaw_code-main"
@@ -82,7 +93,9 @@ case "$MODE" in
             --data_dir "$DATA_DIR" \
             --output_log "$OUT_LOG" \
             $LIMIT_ARG \
-            $IMAGE_ARG
+            $IMAGE_ARG \
+            $STRATEGY_ARG \
+            $SCRUBBED_ARG
         ;;
     predict)
         OUT_CSV="$ATTACK_DIR/output/submission_v0_${TS_TAG}_${TS}.csv"
@@ -94,7 +107,9 @@ case "$MODE" in
             --output_csv "$OUT_CSV" \
             --output_log "$OUT_LOG" \
             $LIMIT_ARG \
-            $IMAGE_ARG
+            $IMAGE_ARG \
+            $STRATEGY_ARG \
+            $SCRUBBED_ARG
         ;;
     *)
         echo "Unknown mode: $MODE (use 'eval' or 'predict')"

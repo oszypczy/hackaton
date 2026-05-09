@@ -21,6 +21,7 @@ from PIL import Image
 # loader holds the dataclass + image bytes → PIL helper
 from loader import Sample, derive_assistant_prefix, load_image
 from format import extract_pii, validate_pred
+from strategies import STRATEGIES
 
 
 def setup_codebase_path(codebase_dir: Path) -> None:
@@ -160,12 +161,25 @@ def generate_one(
     use_prefix: bool = True,
     image_mode: str = "original",
     scrubbed_image_dir: Path | None = None,
+    strategy: str = "baseline",
 ) -> str:
-    """Generate one PII prediction. Returns the raw (post-prefix) text."""
-    prefix = derive_assistant_prefix(sample.scrubbed_output) if use_prefix else ""
-    prompt_text = build_prompt_text(
-        tokenizer, get_formatted_question, sample.question, prefix
-    )
+    """Generate one PII prediction. Returns the raw (post-prefix) text.
+
+    `strategy` selects prompt construction from `strategies.STRATEGIES`.
+    For 'baseline' the legacy `use_prefix` flag still controls whether the
+    scrubbed-output prefix is appended (kept for --no_prefix smoke runs).
+    For other strategies the prompt structure is fully dictated by the
+    strategy function; use_prefix is ignored.
+    """
+    if strategy == "baseline":
+        prefix = derive_assistant_prefix(sample.scrubbed_output) if use_prefix else ""
+        prompt_text = build_prompt_text(
+            tokenizer, get_formatted_question, sample.question, prefix
+        )
+    else:
+        if strategy not in STRATEGIES:
+            raise ValueError(f"unknown strategy: {strategy!r}. Available: {list(STRATEGIES)}")
+        prompt_text = STRATEGIES[strategy](sample, get_formatted_question, tokenizer)
 
     # Tokenize like the codebase collator does (tokenize then convert_to_ids).
     token_ids = tokenizer.convert_tokens_to_ids(tokenizer.tokenize(prompt_text))

@@ -20,6 +20,7 @@ from format import (
 )
 from loader import load_parquets
 from scorer import score_batch, _sanity
+from strategies import STRATEGIES
 
 
 def cli() -> argparse.Namespace:
@@ -61,9 +62,24 @@ def cli() -> argparse.Namespace:
     p.add_argument("--dtype", type=str, default="bf16")
     p.add_argument(
         "--image_mode",
-        choices=["original", "blank", "noise"],
+        choices=["original", "blank", "noise", "scrubbed"],
         default="original",
-        help="Image ablation: 'original' uses real image, 'blank' = mid-gray, 'noise' = random pixels.",
+        help="Image ablation: 'original' = real image, 'blank' = mid-gray, "
+             "'noise' = random pixels, 'scrubbed' = pre-masked PNG from --scrubbed_image_dir.",
+    )
+    p.add_argument(
+        "--scrubbed_image_dir",
+        type=Path,
+        default=None,
+        help="Required for image_mode=scrubbed. Folder with <user_id>.png files.",
+    )
+    p.add_argument(
+        "--strategy",
+        choices=list(STRATEGIES.keys()),
+        default="baseline",
+        help="Prompt-construction strategy. 'baseline' = chat template + assistant "
+             "prefix priming (legacy). 'direct_probe' / 'role_play_dba' / etc replace "
+             "the prompt entirely (no prefix). See strategies.py.",
     )
     return p.parse_args()
 
@@ -85,8 +101,14 @@ def main() -> None:
     if args.limit:
         samples = samples[: args.limit]
 
-    print(f"[main] mode={args.mode}  samples={len(samples)}  use_prefix={not args.no_prefix}")
+    if args.image_mode == "scrubbed" and args.scrubbed_image_dir is None:
+        raise SystemExit("--image_mode scrubbed requires --scrubbed_image_dir")
+
+    print(f"[main] mode={args.mode}  samples={len(samples)}  strategy={args.strategy}  "
+          f"image_mode={args.image_mode}  use_prefix={not args.no_prefix}")
     print(f"[main] model_dir={args.model_dir}")
+    if args.scrubbed_image_dir:
+        print(f"[main] scrubbed_image_dir={args.scrubbed_image_dir}")
 
     model, tokenizer, image_processor, image_size, get_fmt_q = load_model_and_tools(
         codebase_dir=args.codebase_dir,
@@ -104,6 +126,8 @@ def main() -> None:
             model, tokenizer, image_processor, image_size, get_fmt_q,
             s, max_new_tokens=args.max_new_tokens, use_prefix=use_prefix,
             image_mode=args.image_mode,
+            scrubbed_image_dir=args.scrubbed_image_dir,
+            strategy=args.strategy,
         )
         extracted = extract_pii(raw, s.pii_type)
         # EMAIL fallback: when model emits non-email content (phone/CC/twitter),
