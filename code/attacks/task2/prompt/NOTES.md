@@ -147,6 +147,21 @@ Potem dopisujemy `prefix` do końca → model generuje continuation.
 5. **Phone format normalization:** `+1 385 915 9897` vs `+13859159897` — Levenshtein liczy spacje. Test obu.
 6. **Cooldown management:** 5 min × 24h = 288 max submitów. Ale `validation_pii` (lokalny GT) wystarczy do większości decyzji. Submit tylko anchor po phase.
 
+## v1 (post-process fixes) eval — 840 GT, 2026-05-09 18:37
+
+```
+              v0        v1         Δ
+CREDIT     1.0000    1.0000      --       (już idealne)
+EMAIL      0.9015    0.9495      +5.3%    (name-based fallback działa)
+PHONE      0.9273    0.9371      +1.1%    (force '+' pomaga TYLKO dla missing-+ cases)
+OVERALL    0.9429    0.9622      +2.0%    (738→770 perfect)
+```
+
+**Lessons learned:**
+- EMAIL fallback (`firstname.lastname@example.com`): podniósł 28 wrong-mode samples z ~0.0 do ~0.6 sim (gain +5%, blisko estymacji).
+- PHONE force '+' (10-15 digit): podniósł 32 sampli z 0.917 → 1.0 (gain +1%). **Nie +19%** jak estymowałem — większość PHONE imperfect ma WRONG CONTENT (CC zamiast phone), nie missing '+'. Phase 3 (multi-prompt retry) może to naprawić.
+- Brak regresji na CREDIT (1.0 → 1.0).
+
 ## Pierwszy działający run — score smoke test (5 sampli, validation_pii)
 
 ```

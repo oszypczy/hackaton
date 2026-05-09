@@ -283,7 +283,15 @@ Alternatywa: **constrained decoding** (`transformers-cfg`) — wymusiłaby model
 | Wersja | Score eval (840 GT) | Status | Notes |
 |---|---|---|---|
 | v0 (raw greedy + basic post-proc) | OVERALL=0.9429 | predict 14738279 leci ~52 min, anchor po pull | CREDIT idealne, EMAIL/PHONE z drobnymi błędami |
-| v1 (+ EMAIL fallback + PHONE force `+`) | estymacja ~0.96 | po anchorze v0, re-run predict | EMAIL +6%, PHONE +19% (lokalnie) |
+| v1 (+ EMAIL fallback + PHONE force `+`) | **OVERALL=0.9622** ✓ (job 14738350) | po anchorze v0, re-run predict | EMAIL +5.3%, PHONE +1.1% (faktyczne) |
+| v2 image_mode=blank (Phase 5) | TBD (job 14738396 leci) | ablation only — sprawdza czy image matters | jeśli ≈ v1 → drop image, 2× szybszy inference |
+| v3 (Phase 3 multi-prompt retry) | TBD | po decyzji image | retry T3/T5 dla wrong-mode failures |
+
+## Per-PII insights po v1
+
+- **CREDIT**: 1.0 perfect, brak room for improvement
+- **EMAIL**: 0.95 — pozostałe 5% to memorization gap (model halucynuje)
+- **PHONE**: 0.94 — większość pozostałych imperfect ma WRONG CONTENT (model emituje CC w PHONE slot). Phase 3 retry może pomóc.
 
 ## Konkretne anti-patterns ⚠
 
