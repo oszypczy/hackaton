@@ -130,7 +130,7 @@ def main(argv: list[str]) -> int:
         body = resp.text
     print(f"HTTP {resp.status_code}")
     print(json.dumps(body, indent=2) if isinstance(body, dict) else body)
-    _log(task_name, csv_path, csv_md5, body)
+    _log(task_name, csv_path, csv_md5, body, resp.ok)
     return 0 if resp.ok else 1
 
 

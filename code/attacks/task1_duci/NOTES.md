@@ -194,3 +194,48 @@ Sweet spot: ref POP_z acc ≈ 0.27 ⇒ ~20 epochs (extrapolated 0.12 @ 10ep → 
 Crude `p̂` ranking from conf-delta (NOT submission-quality, just sanity check on RMIA later):
 - High: model_02, model_22, model_01, model_12
 - Low: model_20
+
+## Phase 4 — MLE breakthrough (2026-05-09)
+
+**Background:** After SUB-2 (refs_20ep RMIA) gave 0.4549, switched to Avg-Logit MLE (`mle.py`).
+
+**Method:**
+- Calibrate via 5 synth targets at known p ∈ {0, 0.25, 0.5, 0.75, 1}.
+- Compute per-model **mean target-class loss on MIXED** (signal `mean_loss_mixed`).
+- Linear regression: signal = a·p + b on synth.
+- Invert for real targets, clamp [0.025, 0.975].
+
+**SUB-3 (mle.py + synth_20ep + mean_loss_mixed deg=1):**
+- Predictions: 00=0.349 01=0.538 02=0.586 10=0.311 11=0.413 12=0.512 20=0.374 21=0.397 22=0.503
+- Mean p̂ = 0.443; range [0.31, 0.59]
+- Synth LOO-MAE = 0.022
+- **Real score: 0.0790 — ~6× better than RMIA**
+
+**Why MLE > RMIA here:**
+- RMIA needs ref's TPR/FPR to match target's. Memorization mismatch breaks the debias.
+- MLE only needs synth at SAME regime as target — direct calibration via known-p anchors.
+- mean_loss_mixed is monotone in p AND has wide synth range (4.36 → 1.10), giving strong signal.
+
+**Variants compared (no submission for these):**
+| Variant | Mean p̂ | Notes |
+|---|---|---|
+| mle 10ep | 0.79 | over-shoot (synth too undertrained vs real) |
+| mle 20ep mean_loss d=1 | 0.44 | **WINNER, score 0.079** |
+| mle 20ep mean_loss d=2 | 0.44 | identical to d=1 (5pts) |
+| mle 20ep ensemble d=1 | 0.20 | other signals drag down |
+| mle 30ep delta_conf d=2 | 0.07 | severe undershoot |
+| mle 50ep mean_conf d=1 | 0.12 | undershoot |
+| avg_all regimes | 0.35 | regime ensemble dilutes good 20ep signal |
+
+**Sweet spot is sharp at 20ep.** Going 10ep or 30ep changes signal scale relative to real targets.
+
+## Decisions log (cont'd)
+
+- 2026-05-09 — **SUB-3 = 0.0790 (Phase 4 MLE win).** From 0.4630 (SUB-1) → 0.4549 (SUB-2) → 0.0790 (SUB-3). MLE pivot from RMIA was the key unblock. Top of leaderboard contention.
+- 2026-05-09 — **mle.py v2** (poly fit + ensemble + per-arch lookup). LOO-MAE auto-pick suggested delta_conf deg=2 (LOO 0.008) but generalized worse on real (predictions too low). LOO is misleading proxy when synth ≠ target regime. **Stick with mean_loss_mixed deg=1.**
+
+## Next iterations queued
+
+1. **Arch-matched synth** (R50 + R152 @ 20ep) — current MLE uses R18 synth for all 9 targets; arch bias likely hurts model_1X / model_2X. Per-arch fits should reduce 0.01-0.03.
+2. **Extra calibration points** (p ∈ {0.1, 0.2, 0.3, 0.4, 0.6, 0.7, 0.8, 0.9} R18 @ 20ep) — denser linear fit, tighter slope estimate.
+3. **Multi-seed synth bank** (BASE_SEED=2000 R18 @ 20ep) — average across multiple synth banks reduces variance from training noise.
