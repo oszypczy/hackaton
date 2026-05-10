@@ -56,15 +56,13 @@
 
 ### Scoreboard screenshots
 
-> _Placeholders — drop the PNGs into `docs/screenshots/` and they'll render below._
+![Final leaderboard — overall ranking](leaderbord/overall.png)
 
-![Final leaderboard](docs/screenshots/final_leaderboard.png)
+![Task 1 — DUCI scoreboard](leaderbord/task1.png)
 
-![Task 1 — DUCI](docs/screenshots/task1_board.png)
+![Task 2 — PII Extraction scoreboard (Czumpers #1)](leaderbord/task2.png)
 
-![Task 2 — PII Extraction](docs/screenshots/task2_board.png)
-
-![Task 3 — Watermark Detection](docs/screenshots/task3_board.png)
+![Task 3 — Watermark Detection scoreboard](leaderbord/task3.png)
 
 ---
 
