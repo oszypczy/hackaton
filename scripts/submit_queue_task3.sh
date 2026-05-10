@@ -5,12 +5,12 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 queue=(
+  # Core blends (skip BEST3 — same md5 as blend_kgwx_o7be)
   "submissions/task3_watermark_clm_mega.csv"
   "submissions/task3_watermark_clm_para.csv"
   "submissions/task3_watermark_blend_para_kgwo7be.csv"
   "submissions/task3_watermark_triblend_para.csv"
   "submissions/task3_watermark_clm_llama2.csv"
-  "submissions/task3_watermark_blend_kgwx_o7be_BEST3.csv"
   "submissions/task3_watermark_triblend_4way.csv"
   "submissions/task3_watermark_blend_mega_blend.csv"
   "submissions/task3_watermark_triblend_mega.csv"
@@ -19,6 +19,11 @@ queue=(
   "submissions/task3_watermark_blend_o7be_heavy2.csv"
   "submissions/task3_watermark_blend_median.csv"
   "submissions/task3_watermark_blend_geomean.csv"
+  # C2, B1, B7, D5 (pull from cluster when jobs finish)
+  "submissions/task3_watermark_clm_llama3.csv"
+  "submissions/task3_watermark_clm_roberta_pppl.csv"
+  "submissions/task3_watermark_clm_vocab_cov.csv"
+  "submissions/task3_watermark_v6_best.csv"
 )
 
 submit_one() {

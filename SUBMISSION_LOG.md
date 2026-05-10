@@ -466,3 +466,7 @@
 - 2026-05-10 07:21:26Z task3 FAILED csv-md5=4afde5ffb130d397cae7a987f50dea94 (task3_watermark_triblend_para.csv)
 - 2026-05-10 07:26:38Z task3 FAILED csv-md5=6148b2da05a9e096919a0cb89834af89 (task3_watermark_clm_llama2.csv)
 - 2026-05-10 07:31:50Z task3 FAILED csv-md5=70631f9404c3ea762e7340588075918a (task3_watermark_blend_kgwx_o7be_BEST3.csv)
+- 2026-05-10 07:37:02Z task3 FAILED csv-md5=b755e9490d34f1c43fe8bc3faf6e633f (task3_watermark_triblend_4way.csv)
+- 2026-05-10 07:42:14Z task3 FAILED csv-md5=851a15c8223c0c9b68092385f682707e (task3_watermark_blend_mega_blend.csv)
+- 2026-05-10 07:47:26Z task3 FAILED csv-md5=379961ef7804d131cde2d49ab4c97074 (task3_watermark_triblend_mega.csv)
+- 2026-05-10 07:52:38Z task3 FAILED csv-md5=ed2132285f46b67d9d05f7531fd3fe61 (task3_watermark_blend_kgwx_o7be_clm.csv)
