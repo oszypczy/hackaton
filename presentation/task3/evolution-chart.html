@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Task 3 — ewolucja wyniku (public LB, przybliżenie)</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --fg: #e7ecf3;
+      --muted: #8b9aab;
+      --bar: #3d8fd1;
+      --bar-last: #5cb85c;
+      --grid: #2a3441;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      padding: 1.5rem 2rem 3rem;
+    }
+    h1 {
+      font-size: 1.35rem;
+      font-weight: 600;
+      margin: 0 0 0.35rem;
+    }
+    .sub {
+      color: var(--muted);
+      font-size: 0.9rem;
+      max-width: 52rem;
+      line-height: 1.45;
+      margin-bottom: 1.5rem;
+    }
+    .chart-wrap {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    svg { display: block; width: 100%; height: auto; }
+    .foot {
+      margin-top: 1.25rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+      max-width: 52rem;
+    }
+    .legend-est {
+      color: #a3d9a5;
+    }
+  </style>
+</head>
+<body>
+  <h1>Ewolucja wyniku — TPR @ 1% FPR (przybliżenie)</h1>
+  <p class="sub">
+    Mileston’y <strong>strong_bino → cross_lm</strong> z <code>docs/tasks/task3_submissions_tracker.md</code>.
+    Ostatni zielony słupek: <span class="legend-est"><strong>rank blend</strong> (kgwx + o7be)</span> —
+    <strong>wartość szacunkowa</strong> (ustaw w <code>MILESTONES</code> jeśli znasz dokładny wynik).
+  </p>
+  <div class="chart-wrap" id="chart-root"></div>
+  <p class="foot">
+    Edytuj tablicę <code>MILESTONES</code> w tym pliku, jeśli masz dokładny wynik z API. Export: zrzut ekranu lub drukuj do PDF z przeglądarki.
+  </p>
+
+  <script>
+    // last bar illustrative; edit scores in-repo as needed
+    const MILESTONES = [
+      { key: "strong_bino",    label: "Strong bino", score: 0.103,  confirmed: true },
+      { key: "multi_lm",       label: "multi_lm",    score: 0.158,  confirmed: true },
+      { key: "lm_judge",       label: "lm_judge",    score: 0.20,   confirmed: true },
+      { key: "olmo7b",         label: "olmo7b PPL",  score: 0.259,  confirmed: true },
+      { key: "cross_lm",       label: "cross_lm v1", score: 0.284,  confirmed: true },
+      { key: "best3_blend",    label: "rank blend", score: 0.3148,   confirmed: false },
+      // upper reference from handoff snapshot (not ours): Syntax Terror ~0.3955
+      { key: "leader_ref",     label: "LB #1 (ref)", score: 0.3955, confirmed: false, refOnly: true },
+    ];
+
+    const W = 880;
+    const H = 420;
+    const padL = 56;
+    const padR = 24;
+    const padT = 28;
+    const padB = 72;
+    const innerW = W - padL - padR;
+    const innerH = H - padT - padB;
+    const yMax = 0.45;
+    const bars = MILESTONES.filter((m) => !m.refOnly);
+    const n = bars.length;
+    const gap = 10;
+    const bw = (innerW - gap * (n - 1)) / n;
+
+    function yScale(v) {
+      return padT + innerH * (1 - v / yMax);
+    }
+
+    const parts = [];
+    parts.push(`<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`);
+
+    // grid
+    for (let t = 0; t <= 4; t++) {
+      const val = (yMax / 4) * t;
+      const y = yScale(val);
+      parts.push(
+        `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="#2a3441" stroke-width="1" />`
+      );
+      parts.push(
+        `<text x="${padL - 8}" y="${y + 4}" fill="#8b9aab" font-size="11" text-anchor="end">${val.toFixed(2)}</text>`
+      );
+    }
+
+    bars.forEach((b, i) => {
+      const x = padL + i * (bw + gap);
+      const h = innerH * (b.score / yMax);
+      const y = padT + innerH - h;
+      const fill = b.key === "best3_blend" ? "#5cb85c" : b.confirmed ? "#3d8fd1" : "#7a8f99";
+      parts.push(`<rect x="${x}" y="${y}" width="${bw}" height="${h}" rx="4" fill="${fill}" opacity="0.9" />`);
+      parts.push(
+        `<text x="${x + bw / 2}" y="${y - 6}" fill="#e7ecf3" font-size="12" font-weight="600" text-anchor="middle">${b.score.toFixed(3)}</text>`
+      );
+      const lx = b.label.replace(/ /g, "\n");
+      const lines = lx.split("\n");
+      lines.forEach((line, li) => {
+        parts.push(
+          `<text x="${x + bw / 2}" y="${H - padB + 14 + li * 14}" fill="#8b9aab" font-size="11" text-anchor="middle">${line}</text>`
+        );
+      });
+      if (!b.confirmed) {
+        parts.push(
+          `<text x="${x + bw / 2}" y="${H - 18}" fill="#a3d9a5" font-size="9" text-anchor="middle">(est.)</text>`
+        );
+      }
+    });
+
+    const ref = MILESTONES.find((m) => m.refOnly);
+    if (ref) {
+      const ry = yScale(ref.score);
+      parts.push(
+        `<line x1="${padL}" y1="${ry}" x2="${W - padR}" y2="${ry}" stroke="#c9a227" stroke-width="1.5" stroke-dasharray="6 4" opacity="0.85" />`
+      );
+      parts.push(
+        `<text x="${W - padR}" y="${ry - 6}" fill="#c9a227" font-size="11" text-anchor="end">ref. LB #1 ~${ref.score.toFixed(2)}</text>`
+      );
+    }
+
+    parts.push(`</svg>`);
+    document.getElementById("chart-root").innerHTML = parts.join("\n");
+  </script>
+</body>
+</html>

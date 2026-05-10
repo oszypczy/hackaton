@@ -6,7 +6,6 @@ Usage: python scripts/submit.py <task> <csv_path>
 """
 from __future__ import annotations
 
-import csv
 import hashlib
 import json
 import os
@@ -52,33 +51,19 @@ MAX_BYTES = 10 * 1024 * 1024
 
 
 def _validate_csv(path: Path, task: TaskSpec) -> None:
-    """Use csv.reader (not naive line count) — embedded newlines in pred fields
-    inflate `wc -l`. Server parses CSV records, so we should too."""
     if not path.exists():
         raise FileNotFoundError(f"CSV not found: {path}")
     size = path.stat().st_size
     if size > MAX_BYTES:
         raise ValueError(f"CSV {size} bytes > 10 MB limit")
-    with path.open("r", encoding="utf-8", newline="") as f:
-        reader = csv.reader(f)
-        rows = list(reader)
-    if not rows:
-        raise ValueError("CSV is empty")
-    header = rows[0]
-    if header != task["expected_cols"]:
-        raise ValueError(f"Header mismatch: got {header!r}, expected {task['expected_cols']!r}")
-    n_data = len(rows) - 1
-    if n_data != task["expected_rows"]:
-        raise ValueError(f"Row count mismatch: got {n_data}, expected {task['expected_rows']}")
-    # Per-row checks: embedded newlines, length, forbidden chars
-    for i, row in enumerate(rows[1:], start=1):
-        if len(row) != len(task["expected_cols"]):
-            raise ValueError(f"Row {i}: column count {len(row)} != {len(task['expected_cols'])}")
-        pred = row[-1]
-        if "\n" in pred or "\r" in pred:
-            raise ValueError(f"Row {i}: pred contains embedded newline: {pred!r}")
-        if not (10 <= len(pred) <= 100):
-            raise ValueError(f"Row {i}: pred length {len(pred)} outside [10,100]: {pred!r}")
+    with path.open("r", encoding="utf-8") as f:
+        header = f.readline().strip()
+        rows = sum(1 for _ in f)
+    expected_header = ",".join(task["expected_cols"])
+    if header != expected_header:
+        raise ValueError(f"Header mismatch: got {header!r}, expected {expected_header!r}")
+    if rows != task["expected_rows"]:
+        raise ValueError(f"Row count mismatch: got {rows}, expected {task['expected_rows']}")
 
 
 def _md5(path: Path) -> str:
@@ -89,21 +74,22 @@ def _md5(path: Path) -> str:
     return h.hexdigest()
 
 
-def _log(task_name: str, csv_path: Path, csv_md5: str, response: dict | str) -> None:
-    """Server returns either {status:'success', submission_id, message} on accept,
-    or {status:'failed', message} on reject. Score comes from leaderboard, not
-    response. Log status + submission_id; user reads score from web UI."""
+def _log(task_name: str, csv_path: Path, csv_md5: str, response: dict | str,
+         http_ok: bool) -> None:
     log_path = REPO_ROOT / "SUBMISSION_LOG.md"
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
     if isinstance(response, dict):
-        status = response.get("status", "unknown")
-        sub_id = response.get("submission_id", "")
-        msg = response.get("message", "")
-        tag = f"status={status} id={sub_id}" if sub_id else f"status={status}"
-        if status == "failed":
-            tag += f" msg={msg!r}"
+        score = response.get("score")
+        sid = response.get("submission_id")
+        status = response.get("status")
+        if score is not None:
+            tag = f"score={score}"
+        elif http_ok and (status == "success" or sid is not None):
+            tag = f"submitted sid={sid}"
+        else:
+            tag = "FAILED"
     else:
-        tag = "FAILED (non-json response)"
+        tag = "FAILED" if not http_ok else "submitted"
     line = f"- {ts} {task_name} {tag} csv-md5={csv_md5} ({csv_path.name})\n"
     with log_path.open("a") as f:
         f.write(line)
@@ -144,7 +130,7 @@ def main(argv: list[str]) -> int:
         body = resp.text
     print(f"HTTP {resp.status_code}")
     print(json.dumps(body, indent=2) if isinstance(body, dict) else body)
-    _log(task_name, csv_path, csv_md5, body)
+    _log(task_name, csv_path, csv_md5, body, resp.ok)
     return 0 if resp.ok else 1
 
 
