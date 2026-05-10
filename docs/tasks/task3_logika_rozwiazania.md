@@ -76,6 +76,66 @@ Każda gałąź na końcu przypisuje testowemu tekstowi **jedną liczbę** (praw
 
 ---
 
+## Head A i Head B — dokładniejszy opis
+
+Poniżej: co **konkretnie** dokładamy do wspólnego tła cech w jednym vs drugim przebiegu uczenia. W obu przypadkach końcowy klasyfikator widzi **ten sam szeroki wektor „ogólny + cross-LM”** plus **wyłącznie jeden** z tych dwóch bloków specjalistycznych.
+
+### Head A — pełny rozkład następnego tokenu pod OLMo-7B-Instruct
+
+**Model:** instruction-tuned **OLMo-2-1124-7B-Instruct** (w praktyce forward na GPU w typowej konfiguracji klastra).
+
+**Co się liczy (logicznie):**
+
+1. Tekst jest tokenizowany (z obcięciem do maksymalnej długości kontekstu, np. ~1024 tokenów).
+
+2. Dla każdej pozycji \(i\) model z prefiksem \(x_{\le i}\) przewiduje rozkład \(p(\cdot \mid x_{\le i})\) nad całym słownikiem — to jest **pełny softmax**, nie tylko jedna liczba typu średnie log-prob.
+
+3. **Dla każdego kroku czasowego** (odpowiadającego „prawdziwemu” następnemu tokenowi z tekstu) zapisujesz m.in.:
+   - **Entropię** rozkładu \(H = -\sum_v p_v \log p_v\) — „jak rozrzucona” jest masa prawdopodobieństwa; niska entropia = model jest **pewny** i wąski wybór.
+   - **Rangę** faktycznie występującego tokenu w posortowanych malejąco logitach (0 = najwyższy, najbardziej prawdopodobny według modelu).
+   - **Odległość od argmaxu w log-space:** log-prawdopodobieństwo wybranego tokenu minus maksymalne log-prawdopodobieństwo (wartość \(\le 0\)) — jak „daleko” od najlepszego wyboru leży to, co naprawdę stoi w tekście.
+   - **Margines top-2:** różnica log-prawdopodobieństw między pierwszym a drugim kandydatem — jak „ostry” jest szczyt rozkładu.
+   - Wielkość powiązana z **odległością od rozkładu jednostajnego** na słowniku (w praktyce: \(\log |V| - H\)) — „jak daleko od pełnej niepewności” jest rozkład kroku.
+
+4. **Agregacja na poziomie tekstu** — z powyższych serii liczysz statystyki opisowe, m.in.:
+   - średnia, odchylenie, percentyle (np. 10/50/90) **entropii** w czasie;
+   - średnia i mediana **rang**; udział kroków z rangą 0 lub &lt; 10; średnia \(\log(1+\mathrm{rank})\) (mniej czuła na skrajne rangi);
+   - średnia i odchylenie „suboptymalności” względem argmaxu; średnia i dolny percentyl marginesu top-2;
+   - średnia „odległości od uniform” po krokach;
+   - **Licznik burstów:** ile jest **spójnych odcinków** co najmniej trzech kolejnych kroków, w których entropia jest **poniżej mediany** entropii w tym tekście — sygnał na „fale” nadmiernej pewności modelu.
+
+**Czym to różni się od warstwy ogólnej z „OLMo-7B sequence scores”:** tam typowo masz **podsumowania** typu średnie log-prob / PPL po tekście. Head A używa **tych samego modelu**, ale dodaje **kształt rozkładu krok po kroku** (entropie, rangi, bursty), więc łapie inne aspekty watermarku niż sama średnia „dziwności” sekwencji.
+
+**Teksty zbyt krótkie lub błędna tokenizacja** → sensowne zdefiniowanie wektora nie jest możliwe; w implementacji takie przypadki ustawiają blok specjalistyczny na zera (reszta cech nadal może niosła sygnał).
+
+---
+
+### Head B — wiele wariantów testu „zielona lista” (styl Kirchenbauera)
+
+**Bez forwardu dużego LM** — używane są **tokenizery** (różne wielkości słownika i podział na podjednostki), a potem prosta pętla po indeksach tokenów na CPU.
+
+**Idea statystyczna:** przy „neutralnym” tekście, jeśli dla każdej pozycji losowo z prawdopodobieństwem \(\gamma\) uznamy token za „zielony” według ustalonej reguły zależnej od kontekstu, liczba zielonych ma rozkład zbliżony do binomialnego ze średnią \(\gamma N\). Przy watermarkie kierującym losowanie do podzbioru **obserwowana** frakcja zielonych może **systematycznie odbiegać** w górę. Z tego budowany jest **z-score** standaryzujący odchylenie względem hipotezy losowej.
+
+**Konfiguracja jednego wariantu** (każdy wariant = osobna cecha lub grupa powiązanych):
+
+- Wybór **tokenizera** (w rozwiązaniu: m.in. wariant zbliżony do Llama-2, ten sam korpus co OLMo-7B-Instruct, oraz GPT-2 — logicznie: różna granularność tokenów i różne \(|\mathcal{V}|\)).
+
+- Udział \(\gamma \in \{0{,}25,\; 0{,}5\}\) — jak duży ma być „typowy” udział zieleni pod hipotezą null.
+
+- **Kontekst seeda** dla pozycji \(i\):
+  - **\(h=1\):** seed z **jednego** poprzedniego tokena;
+  - **\(h=4\):** seed z **kombinacji** kilku poprzednich tokenów (np. przez łączenie bitowe z wagami) — inna zależność od historii, inna niż sama klasyka „poprzedni token”.
+
+- **Reguła „czy token jest zielony”:** szybki test losowy z **hasza** złożenia (seed kontekstu, identyfikator tokenu) z progiem \(\gamma\) — przybliża losowanie „zielony z prawdopodobieństwem \(\gamma\)” bez enumeracji całego słownika.
+
+**Wyjście na tekst:** dla każdej sensownej konfiguracji jedna liczba **z-score**; dodatkowo **agregaty** po wszystkich z-score’ach w danym tekście, np. maksimum modułu, suma modułów, liczba wariantów z \(|z| > 2\) (liczba „wyraźnych” konfiguracji naraz).
+
+**Tekst zbyt krótki (np. za mało tokenów albo za mało słów po domyślnym podziale)** → z-score’y mogą być uznane za niewiarygodne; implementacja może zerować ten blok.
+
+**Rola w całym stacku:** Head B **nie** zakłada, że organizator użył dokładnie tej funkcji skrótu i tych \(\gamma\). Cechy są **wejściem** do logistycznej regresji razem z resztą: model **uczy się**, które warianty i agregaty najbardziej korelują z etykietą na zbiorze zlabelowanym. Może to być silny sygnał, słaby, lub prawie szum — zależnie od prawdziwego generatora danych.
+
+---
+
 ## Dlaczego to ma sens jako „najlepsze” podejście w tej rodzinie
 
 - **Dwa niezależne spojrzenia:** jedna gałąź opiera się na **zachowaniu dużego LM na tekście**, druga na **abstrakcyjnych statystykach list tokenowych** bez ponownego przepuszczania tekstu przez ten sam duży forward w taki sam sposób. Błędy i mocne strony jednej gałęzi częściowo **komplementują** drugą.
