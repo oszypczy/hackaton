@@ -25,12 +25,12 @@ echo "[sbatch] node=$(hostname) job=$SLURM_JOB_ID"
 echo "[sbatch] CUDA: $(nvidia-smi -L 2>/dev/null | head -1)"
 echo "[sbatch] dump -> $DUMP_JSON"
 
-$P4VENV -m code.attacks.task1_duci.rmia_mle \
-    --refs-dir "$DUCI/refs" \
-    --synth-dir-r18 "$DUCI/synth_targets_80ep_r18" \
+$P4VENV -m code.attacks.task1_duci.mle \
+    --synth-dir "$DUCI/synth_targets_80ep_r18" \
     --synth-dir-r50 "$DUCI/synth_targets_80ep_r50" \
     --synth-dir-r152 "$DUCI/synth_targets_80ep_r18" \
-    --r152-cal-from 0 \
+    --use-signal mean_loss_mixed \
+    --degree 1 \
     --out "$OUT_CSV" \
     --dump-signals "$DUMP_JSON"
 

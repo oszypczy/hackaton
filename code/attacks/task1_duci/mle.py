@@ -57,6 +57,9 @@ def parse_args() -> argparse.Namespace:
                     help="average predictions across all signals at chosen degree")
     ap.add_argument("--clamp-lo", type=float, default=P_MIN)
     ap.add_argument("--clamp-hi", type=float, default=P_MAX)
+    ap.add_argument("--dump-signals", type=str, default="",
+                    help="optional path to JSON dump of synth calibration + per-target signals "
+                         "(for downstream plotting / presentation; default empty = no dump)")
     return ap.parse_args()
 
 
@@ -222,6 +225,8 @@ def run() -> None:
 
     print(f"\n[mle] scoring 9 real targets:", flush=True)
     predictions: dict[str, float] = {}
+    target_signals: dict[str, dict[str, float]] = {}
+    target_p_raw: dict[str, float] = {}
     for mid in MODEL_IDS:
         t0 = time.time()
         arch = mid.removeprefix("model_")[0]
@@ -249,6 +254,8 @@ def run() -> None:
         p_clamped = clamp(p_raw, args.clamp_lo, args.clamp_hi)
         key = mid.removeprefix("model_")
         predictions[key] = p_clamped
+        target_signals[key] = {k: float(v) for k, v in sigs_t.items()}
+        target_p_raw[key] = float(p_raw)
         print(f"  {mid}  arch={arch}  s={s_t:+.4f}  p_raw={p_raw:+.4f}  "
               f"p_final={p_clamped:.4f}  ({note}, {time.time() - t0:.1f}s)", flush=True)
         del model
@@ -259,6 +266,58 @@ def run() -> None:
     print(f"\n[mle] wrote {out_path}", flush=True)
     print(f"[mle] preds: " + "  ".join(f"{k}={predictions[k]:.3f}" for k in sorted(predictions)),
           flush=True)
+
+    if args.dump_signals:
+        dump_path = Path(args.dump_signals)
+        dump_path.parent.mkdir(parents=True, exist_ok=True)
+        arch_names = {"0": "ResNet18", "1": "ResNet50", "2": "ResNet152"}
+        synth_block = {}
+        for arch_key in ("0", "1", "2"):
+            cal = arch_calib[arch_key]
+            best_sig = cal["best_signal"]
+            best_deg = cal["best_degree"]
+            sigs = cal["sigs_per"][best_sig]
+            ps = cal["ps"]
+            zipped = sorted(zip(ps, sigs))
+            ps_sorted = [float(p) for p, _ in zipped]
+            sigs_sorted = [float(s) for _, s in zipped]
+            poly_coeffs = list(map(float, np.polyfit(ps_sorted, sigs_sorted, best_deg)))
+            loo_actual = loo_mae_poly(sigs_sorted, ps_sorted, best_deg)
+            synth_block[arch_key] = {
+                "arch_name": arch_names[arch_key],
+                "best_signal": best_sig,
+                "best_degree": int(best_deg),
+                "ps": ps_sorted,
+                "signals": sigs_sorted,
+                "poly_coeffs": poly_coeffs,
+                "loo_mae": float(loo_actual),
+                "all_signals": {
+                    k: [float(v) for _, v in sorted(zip(ps, cal["sigs_per"][k]))]
+                    for k in SIGNALS
+                },
+            }
+        targets_block = []
+        for key in sorted(predictions):
+            arch_key = key[0]
+            best_sig = arch_calib[arch_key]["best_signal"]
+            targets_block.append({
+                "model_id": key,
+                "arch": arch_key,
+                "arch_name": arch_names[arch_key],
+                "best_signal": best_sig,
+                "signal": float(target_signals[key][best_sig]),
+                "all_signals": target_signals[key],
+                "p_raw": target_p_raw[key],
+                "p_hat": float(predictions[key]),
+            })
+        payload = {
+            "method": "Avg-loss MLE (synth-calibrated polynomial inversion)",
+            "synth": synth_block,
+            "targets": targets_block,
+        }
+        with open(dump_path, "w") as f:
+            json.dump(payload, f, indent=2)
+        print(f"[mle] dumped signals to {dump_path}", flush=True)
 
 
 if __name__ == "__main__":
