@@ -1,8 +1,13 @@
 # Claude Design prompt — Task 1 (DUCI) presentation slides
 
-> Paste this whole document (plus the three PNGs in `figures/`) into Claude
-> Design. The goal is **1 to 2 slides** that occupy 2 minutes of a 6-minute
-> team presentation at the CISPA / SprintML hackathon finals.
+> Paste this whole document (plus `step_by_step.md`, plus the three PNGs in
+> `figures/`) into Claude Design. The goal is **1 to 2 slides** that occupy
+> 2 minutes of a 6-minute team presentation at the CISPA / SprintML
+> hackathon finals.
+>
+> **Read `step_by_step.md` first** — it contains the canonical mental
+> model, designer cues per slide region, and speaker timing. This document
+> is the brief; that one is the reference.
 
 ---
 
@@ -37,9 +42,10 @@ matches the paper benchmark. That is the entire story.
 
 | File | What it shows | When to use |
 |---|---|---|
-| `figures/01_pipeline.png` | Boxes-and-arrows data flow: 9 targets + synth bank + MIXED data → forward pass → calibration → inversion → continuous $\hat p$. 16:9, 300 DPI, monochrome-friendly. | **Slide 1 hero figure.** Anchors the whole talk. |
-| `figures/02_calibration.png` | Three side-by-side panels (ResNet18 / 50 / 152). Each panel: scatter of synth bank (5 known-$p$ points), linear fit overlaid, real targets dropped onto the fit as diamond markers. LOO-MAE annotated. | **Slide 2 left half** (or middle of slide 1 if 1-slide layout). Validates the calibration claim. |
-| `figures/03_predictions.png` | Bar chart of $\hat p$ for the 9 targets, color-coded by architecture. Subtitle states the headline number (MAE 0.053, paper match). | **Slide 2 right half / closer.** This is the result viewers should remember. |
+| `figures/01_pipeline.png` | Boxes-and-arrows data flow: 9 targets + reference bank + MIXED data → forward pass on candidate dataset (mean loss) → linear calibration → inversion → continuous $\hat p$. 16:9, 300 DPI. | **Slide 1 hero figure.** Anchors the whole talk. |
+| `figures/02_calibration.png` | One linear fit line, 5 reference-bank points (gray dots) at known $p$, plus 9 target diamonds (color-coded by architecture) sitting on the same line. LOO-MAE = 0.007 annotated. | **Slide 2 hero figure.** This is the "it works" moment. Do not crop the fit line. Preserve the diamonds-on-line geometry. |
+| `figures/03_predictions.png` | Bar chart of $\hat p$ for the 9 targets, color-coded by architecture. Subtitle states the headline number (MAE 0.053, paper match). | **Slide 2 secondary** (right side or below calibration). Reinforces the result. |
+| `step_by_step.md` | Plain-language walkthrough of the method, slide-region breakdown, designer cues, speaker timing map, and Q&A pocket card. | **Read this first.** It is the canonical mental model the slides need to support. |
 
 ---
 
