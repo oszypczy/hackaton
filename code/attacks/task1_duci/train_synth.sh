@@ -37,6 +37,7 @@ $P4VENV -m code.attacks.task1_duci.train_synth \
     --epochs "$EPOCHS" --base-seed "$BASE_SEED" --out-dir "$OUT_DIR" \
     --label-smoothing "$LABEL_SMOOTHING" --mixup-alpha "$MIXUP_ALPHA" \
     --n-total "$N_TOTAL" --aug-mode "$AUG_MODE" \
-    --wd "$WD" --lr "$LR"
+    --wd "$WD" --lr "$LR" \
+    --optimizer "${OPTIMIZER:-sgd}"
 
 echo "[sbatch] done"

@@ -54,6 +54,7 @@ def parse_args() -> argparse.Namespace:
                     help="total training set size; 0 = |MIXED|. Match regime to organizer (e.g., 7000).")
     ap.add_argument("--aug-mode", type=str, default="basic", choices=["basic", "autoaugment"],
                     help="basic = RandomCrop+HFlip; autoaugment = + AutoAugment(CIFAR10) + Cutout")
+    ap.add_argument("--optimizer", type=str, default="sgd", choices=["sgd", "adam", "adamw"])
     return ap.parse_args()
 
 
@@ -108,8 +109,14 @@ def train_one_synth(p: float, seed: int, args: argparse.Namespace, device: str) 
           flush=True)
 
     model = build_resnet(args.arch, device=device, num_classes=100)
-    optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9,
-                                nesterov=True, weight_decay=args.wd)
+    opt_choice = getattr(args, "optimizer", "sgd")
+    if opt_choice == "adam":
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.wd)
+    elif opt_choice == "adamw":
+        optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.wd)
+    else:
+        optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9,
+                                    nesterov=True, weight_decay=args.wd)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
     loss_fn = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
     augment = TrainAugment(aug_mode=args.aug_mode)
