@@ -68,6 +68,9 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--r152-cal-from", type=str, default="2",
                     help="arch digit (0/1/2) to use for R152 targets calibration; "
                          "default 2 = own; '0' = use R18 cal cross-arch for R152")
+    ap.add_argument("--dump-signals", type=str, default="",
+                    help="optional path to JSON dump of synth calibration + per-target signals "
+                         "(for downstream plotting / presentation; default empty = no dump)")
     return ap.parse_args()
 
 
@@ -248,6 +251,8 @@ def run() -> None:
 
     print("\n[rmia_mle] scoring 9 real targets:", flush=True)
     predictions: dict[str, float] = {}
+    target_signals: dict[str, float] = {}
+    target_p_raw: dict[str, float] = {}
     for mid in MODEL_IDS:
         t0 = time.time()
         arch = mid.removeprefix("model_")[0]
@@ -261,6 +266,8 @@ def run() -> None:
         p_final = float(np.clip(p_final, 0.0, 1.0))
         key = mid.removeprefix("model_")
         predictions[key] = p_final
+        target_signals[key] = float(sig)
+        target_p_raw[key] = float(p_raw)
         del model
         if device == "cuda":
             torch.cuda.empty_cache()
@@ -273,6 +280,43 @@ def run() -> None:
                                              for k in sorted(predictions)), flush=True)
     print(f"[rmia_mle] LOO-MAE per arch: 0={arch_calib['0']['loo']:.4f}  "
           f"1={arch_calib['1']['loo']:.4f}  2={arch_calib['2']['loo']:.4f}", flush=True)
+
+    if args.dump_signals:
+        dump_path = Path(args.dump_signals)
+        dump_path.parent.mkdir(parents=True, exist_ok=True)
+        arch_names = {"0": "ResNet18", "1": "ResNet50", "2": "ResNet152"}
+        synth_block = {}
+        for arch_key in ("0", "1", "2"):
+            cal = arch_calib[arch_key]
+            synth_block[arch_key] = {
+                "arch_name": arch_names[arch_key],
+                "ps": list(map(float, cal["ps"])),
+                "signals": list(map(float, cal["signals"])),
+                "a": float(cal["a"]),
+                "b": float(cal["b"]),
+                "loo_mae": float(cal["loo"]),
+                "per_loo": list(map(float, cal["per_loo"])),
+                "from_arch": cal.get("from_arch"),
+            }
+        targets_block = []
+        for key in sorted(predictions):
+            arch_key = key[0]
+            targets_block.append({
+                "model_id": key,
+                "arch": arch_key,
+                "arch_name": arch_names[arch_key],
+                "signal": target_signals[key],
+                "p_raw": target_p_raw[key],
+                "p_hat": predictions[key],
+            })
+        payload = {
+            "method": "RMIA-MLE (synth-calibrated linear inversion)",
+            "synth": synth_block,
+            "targets": targets_block,
+        }
+        with open(dump_path, "w") as f:
+            json.dump(payload, f, indent=2)
+        print(f"[rmia_mle] dumped signals to {dump_path}", flush=True)
 
 
 if __name__ == "__main__":

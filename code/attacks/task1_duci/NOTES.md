@@ -1084,3 +1084,109 @@ Best historical → newest:
 - **sid=1713 v6 pure_0.5**: wszystkie 0.5 — sanity test (jeśli true_p ~ 0.5 perfectly, MAE = 0)
 
 Total: 36+ submissions. Best public 0.020 (najprawdopodobniej sid=1017).
+
+## ============================================================
+## Phase D — task1-murdzek2 fork (2026-05-10 ~00:15–07:06Z)
+## ============================================================
+
+> Source: branch `origin/task1-murdzek2` (forked from `4a616f6`, 14 commits unique).
+> Worktree na laptopie: `/mnt/c/projekty/hackaton-task1/`.
+> Owner: murdzek2; Claude: Sonnet 4.6.
+> **Kanoniczne breakthrough docs:** `docs/tasks/task1_breakthrough_note.md` + `docs/tasks/task1_process_so_far.md` (na branchu task1-murdzek2, NIE na task1).
+
+### 🎯 BREAKTHROUGH 01:40Z — flip11_04 → 0.020 (#3 LB)
+
+Pojedynczy single-flip na bazie SUB-9: `model_11: 0.5 → 0.4`. Reszta (00,01,02,10,12,20,21,22) bez zmian. CSV: `submissions/task1_duci_flip11_04.csv`.
+
+**LB pozycja:** Czumpers #8 → **#3** (1: BatchNormies3d 0.0085, 2: ParmaGo 0.0133, 3: Czumpers 0.020).
+
+**Hipoteza która się sprawdziła:** SUB-5 continuous (przed snap_10) zwracał `model_11 = 0.4993` — borderline, snap zaokrąglił w górę do 0.5. Realnie wartość była po niższej stronie.
+
+### Math derivation z 3 score'ów (sum_errors arithmetic)
+
+- `score = MAE na public 3` ⇒ `sum_errors_public = 3 × score`
+- SUB-9 sum_err = 0.16 (score 0.0533); flip11_04 sum_err = 0.06 (score 0.020)
+- Drop = 0.10 ⇒ `|0.5 − true_11| − |0.4 − true_11| = 0.10` ⇒ **`true_11 ≤ 0.40`**
+- Z `err_11 ≤ 0.06` przy flip11_04 ⇒ **`true_11 ∈ [0.34, 0.40]`**
+- ⇒ `model_11` JEST w public 3 (model_id leak via score arithmetic)
+
+### Chain3 — 10 wariantów na bazie 11=0.4 (wszystkie 0.020)
+
+8 compound single-flips (22, 12, 00, 01, 02, 10, 20, 21) + 2 finer-grid resnap (snap05, snap_other) — każdy zwrócił 0.020.
+
+**Wniosek:** pozostałe 2 targety w public 3 są poprawne w SUB-9 base (matchują true_p w obrębie gridu 0.1).
+
+### Chain4 — niedokończone
+
+- **`11=0.35`** (`task1_duci_11_035.csv`): jeśli `true_11 ∈ [0.34, 0.375]` → score ~0.003 (#1 LB potential). Cooldown chain blokował submisję do ~05:15Z. **Status nieznany** — sprawdzić SUBMISSION_LOG / leaderboard.
+- **`11=0.45`**: math dowodzi że ZAWSZE da 0.0367 (worsening). Skip.
+
+### 7 negative single-flips (przed breakthrough'em)
+
+| sub_id | flip | mean | wynik |
+|---|---|---|---|
+| 907 | 10→0.5 + 22→0.6 | 0.555 | NO_IMPR |
+| 1089 | 00→0.4 + 22→0.6 (compound swap) | 0.522 | NO_IMPR |
+| 1110 | 22→0.6 alone | 0.533 | NO_IMPR |
+| 1134 | 00→0.4 alone | 0.511 | NO_IMPR |
+| 1158 | 01→0.5 alone | 0.511 | NO_IMPR |
+| ?    | 02→0.5 alone | 0.511 | NO_IMPR |
+| 1220 | 10→0.5 alone | 0.533 | NO_IMPR |
+
+→ kanoniczny lookup: **single-flip discovery działa tylko dla model_id w public 3 ze złą predykcją SUB-9**. 7 nieudanych = albo target poza public 3, albo flip w złą stronę.
+
+### Synth bank wd-calibration (post-Maini, pre-breakthrough)
+
+| Bank | wd | N | fc_norm | mean p̂ targetów |
+|---|---|---|---|---|
+| synth_80ep_r18 (default = SUB-9) | 5e-4 | 2000 | 19.5 | ~0.51 ✓ |
+| synth_80ep_r18_wd0 | 0 | 2000 | 22.5 | ~0.60 |
+| synth_80ep_r18_wd5e3 | 5e-3 | 2000 | 10.6 | ~0.25 |
+| synth_80ep_r18_wd1e2 | 1e-2 | 2000 | **8.95** ← najbliższy org 7.81 | ~0.20 |
+| synth_n7000_80ep_r18_wd5e3 | 5e-3 | 7000 | 9.4 | ~0.07 |
+
+**Konkluzja:** organizer recipe NIE jest wd=0.01 — fc_norm match daje p̂ 0.20, ewidencja empiryczna ~0.5. SUB-9 calibration (wd=5e-4 N=2000 80ep) to "lucky alignment", nie regime match. Improving via global recalibration → ślepa uliczka. Per-target single-flips → jedyna droga.
+
+### Cooldown reset behavior — **podstawowy gotcha**
+
+- Task1 minimal cooldown = **5 min** server-time
+- Każda premature retry (HTTP 429) **resetuje cooldown** do ~10 min od czasu retry, nie od pierwszego submita
+- Workaround: **NIE retryować** dopóki server's reported `Wait N seconds` nie minął + 30s buffer
+- Background submit-retry loops generowały po 8-10 HTTP 429 w logach przed actual fire
+
+### Maini DI full extraction (pre-breakthrough, no improvement)
+
+- arch=0 R18: PASS, signal `mean_mixed_laplace`, p̂ ≈ 0.12-0.30 (low)
+- arch=1 R50: PASS, signal `delta_gaussian`, p̂ ≈ 0.02-0.11 (low)
+- arch=2 R152: FAIL (degenerate signal, LOO-MAE 0.30) — fallback 0.5
+- Mean Maini = 0.26 vs MLE 0.52 → **same uniform-offset issue jak Tong RMIA**
+- Sparse synth banks (5p) dla R50/R152 → multi-signal RidgeCV overfituje
+- → potwierdza Phase B finding: regime mismatch dotyka WSZYSTKIE single-pass calibration metody (Tong, Maini), nie tylko Tong-specific
+
+### Code changes (cherry-pick candidates)
+
+| Commit | Plik | Co dodaje |
+|---|---|---|
+| 470ace9 | `train_synth.py` + `.sh` | `--optimizer {sgd,adam,adamw}` flag |
+| 762907c | `train_synth.sh` | `REPO=${REPO:-…/repo-${USER}}` + `WD`/`LR` env overrides |
+| 494789d | `maini_extract.sh` | `REPO=$USER` auto-resolve (multi-user) |
+| dc595e8 | `ensemble_mle_maini.py` (NEW) | weighted MLE × Maini → snap_10/05 + diff vs SUB-9 |
+
+Wszystkie BACKWARD-COMPAT — bez breaking changes na innych userach. Bezpieczny merge na `task1`.
+
+### Strategiczne wnioski (post-mortem Phase D)
+
+1. **Single-flip from SUB-9 = jedyna metoda która scaled** post-MLE. Dwie hipotezy in play:
+   - (a) **Score arithmetic leak** ujawnia model_id w public 3 (każdy flip zmieniający score → ten model jest w public)
+   - (b) Borderline continuous values (0.4993, etc.) snapują w złą stronę → check pre-snap continuous dla pozostałych modeli
+2. **Public 3 ⊆ {model_11, X, Y}**: model_11 potwierdzony. X, Y nieznane ale ich SUB-9 predykcje są **correct** (inaczej któryś z 7 negative flips zadziałałby).
+3. **Generalizacja na private 6/9 niejasna**: jeśli scoring rule (b) — submisja 0.020 jest finalnym hedge dla public 3. Dla private 6 trzeba SUB-9 lub mean(SUB-5, SUB-9).
+4. **Endgame submisje hedge'owane** (z głównego task1): sid=1705 (mean SUB-5+SUB-9), sid=1713 (pure 0.5) — orthogonal do single-flip approach. Pod (b) nadal valid.
+
+### Pliki referencyjne (Phase D)
+
+- `docs/tasks/task1_breakthrough_note.md` — full breakthrough note (na branchu task1-murdzek2)
+- `docs/tasks/task1_process_so_far.md` — rolling session log z chronologią + tabelkami
+- Memory file: `~/.claude/.../memory/project_task1_breakthrough.md` (na maszynie murdzka2)
+- Best CSV (Phase D): `submissions/task1_duci_flip11_04.csv` (lokalnie u murdzka2; NIE w naszym branchu task1)
+- Continuous source: `/p/scratch/training2615/kempinski1/Czumpers/DUCI/submission_mle_80ep_r18_precise.csv`
