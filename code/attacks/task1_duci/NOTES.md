@@ -976,3 +976,10 @@ User idzie spać 1.5h. Auto chain wakeup co 15min.
 
 v1 sub5_r152_05 (mean 0.514, std 0.049) — submitted as sid=1567.
 Started v2 retry chain (avg s5+s9, R152=0.5 — mean 0.518, std 0.057).
+
+### 06:42 — v2 submitted = sid=1594
+
+v2 avg(s5,s9)+R152=0.5 (mean 0.518, std 0.057) — submitted as sid=1594.
+v1 dupes: sid=1567, sid=1578 (same CSV, retry storm artifact).
+
+Next: v3 mean(s5,s9,1017) at +15min wakeup.
