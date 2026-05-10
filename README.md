@@ -10,33 +10,61 @@
 
 | Metric | Value |
 |---|---|
-| **Overall score** | **0.72** |
+| **Overall score** | **0.72** (avg of normalized per-task ranks) |
 | **Final rank** | **4 / 23** |
 | **Status** | 🏅 **Qualified for the top-6 final round** |
 
 ### Per-task results
 
-| Task | Method | Final score | Notes |
-|---|---|---|---|
-| **Task 1 — DUCI** (Dataset Use Composition Inference) | Maini blind-walk + RMIA + per-arch flip search ensemble | _add screenshot_ | predict the fraction of MIXED data per ResNet model — 9 ResNets × CIFAR100 |
-| **Task 2 — PII Extraction** | Multi-prompt ensemble + per-PII routing (smart_v2) | _add screenshot_ | extract memorised EMAIL / CREDIT / PHONE from an over-fit OLMo-2-1B + LLaVA-HR multimodal LMM |
-| **Task 3 — Watermark Detection** | SIR + KGW selfhash + multi-LM PPL ratios + LogReg meta | _add screenshot_ | detect 3 watermark types (Kirchenbauer / Liu / Zhao); 2250 test samples, TPR @ 1% FPR |
+| # | Task | Method | Score | Rank |
+|---|---|---|---|---|
+| **1** | **DUCI** (Dataset Use Composition Inference) | Maini blind-walk + RMIA + per-arch flip search ensemble | `0.249 MAE` (lower is better) | **17 / 24** |
+| **2** | **PII Extraction** (multimodal LMM) | Multi-prompt ensemble + per-PII routing (smart_v2) | `0.5326` (1 − norm-Levenshtein) | 🥇 **1 / 23** |
+| **3** | **Watermark Detection** (3 schemes) | SIR + KGW selfhash + multi-LM PPL ratios + LogReg meta | `0.2507` (TPR @ 1% FPR) | **7 / 24** |
 
-### Final scoreboard
+> **Task 2 highlight — gold medal.** Our per-PII routing ensemble took
+> first place on the PII extraction track, beating zer0_day (0.5115) and
+> APT (0.4884). The combination of Path A's question-repeat prompt
+> (best EMAIL/PHONE memorisation recall) and Path B's plurality voting
+> on non-placeholder CREDIT candidates was decisive — see
+> [`presentation/task2/pawel_step_by_step.md`](presentation/task2/pawel_step_by_step.md).
 
-> _placeholder for the leaderboard screenshot_
->
-> ![Final leaderboard](docs/screenshots/final_leaderboard.png)
+### Overall ranking — top 6 (qualified for final round)
 
-### Per-task scoreboards
+| Rank | Team | Score |
+|---|---|---|
+| 1 | Syntax Terror | 0.90 |
+| 2 | zer0_day | 0.88 |
+| 3 | Advanced Persistent Thinkers | 0.75 |
+| **4** | **Czumpers** | **0.72** |
+| 5 | SPQR | 0.72 |
+| 6 | BatchNormies3d | 0.64 |
 
-> _placeholders for per-task screenshots_
->
-> ![Task 1 board](docs/screenshots/task1_board.png)
->
-> ![Task 2 board](docs/screenshots/task2_board.png)
->
-> ![Task 3 board](docs/screenshots/task3_board.png)
+### Per-task podiums
+
+**Task 1 — DUCI (top 5, lower MAE = better):**
+1. BatchNormies3d — 0.0393 · 2. CyberDzik Syndicate — 0.0413 · 3. SPQR — 0.0477 ·
+4. zer0_day — 0.0540 · 5. ParmaGo — 0.0700 · ··· · **17. Czumpers — 0.2490**
+
+**Task 2 — PII Extraction (top 5, higher score = better):**
+🥇 **1. Czumpers — 0.5326** · 2. zer0_day — 0.5115 · 3. APT — 0.4884 ·
+4. Sakura — 0.4824 · 5. Syntax Terror — 0.4780
+
+**Task 3 — Watermark Detection (top 7):**
+1. Syntax Terror — 0.3564 · 2. APT — 0.3198 · 3. zer0_day — 0.2859 ·
+4. S.P.Q.L. — 0.2611 · 5. 4aufKind — 0.2585 · 6. SPQR — 0.2559 · **7. Czumpers — 0.2507**
+
+### Scoreboard screenshots
+
+> _Placeholders — drop the PNGs into `docs/screenshots/` and they'll render below._
+
+![Final leaderboard](docs/screenshots/final_leaderboard.png)
+
+![Task 1 — DUCI](docs/screenshots/task1_board.png)
+
+![Task 2 — PII Extraction](docs/screenshots/task2_board.png)
+
+![Task 3 — Watermark Detection](docs/screenshots/task3_board.png)
 
 ---
 
