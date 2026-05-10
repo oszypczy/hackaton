@@ -74,12 +74,23 @@ def _md5(path: Path) -> str:
     return h.hexdigest()
 
 
-def _log(task_name: str, csv_path: Path, csv_md5: str, response: dict | str) -> None:
+def _log(task_name: str, csv_path: Path, csv_md5: str, response: dict | str,
+         http_ok: bool) -> None:
     log_path = REPO_ROOT / "SUBMISSION_LOG.md"
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
-    score = response.get("score") if isinstance(response, dict) else None
-    score_str = f"score={score}" if score is not None else "FAILED"
-    line = f"- {ts} {task_name} {score_str} csv-md5={csv_md5} ({csv_path.name})\n"
+    if isinstance(response, dict):
+        score = response.get("score")
+        sid = response.get("submission_id")
+        status = response.get("status")
+        if score is not None:
+            tag = f"score={score}"
+        elif http_ok and (status == "success" or sid is not None):
+            tag = f"submitted sid={sid}"
+        else:
+            tag = "FAILED"
+    else:
+        tag = "FAILED" if not http_ok else "submitted"
+    line = f"- {ts} {task_name} {tag} csv-md5={csv_md5} ({csv_path.name})\n"
     with log_path.open("a") as f:
         f.write(line)
 
@@ -119,7 +130,7 @@ def main(argv: list[str]) -> int:
         body = resp.text
     print(f"HTTP {resp.status_code}")
     print(json.dumps(body, indent=2) if isinstance(body, dict) else body)
-    _log(task_name, csv_path, csv_md5, body)
+    _log(task_name, csv_path, csv_md5, body, resp.ok)
     return 0 if resp.ok else 1
 
 
