@@ -1077,3 +1077,10 @@ Best historical → newest:
 - Czy private 66% true_p też wąsko ~0.5 lub uniform [0,1]
 - Scoring rule (a) [final = re-eval best public na full 9] vs (b) [każda submisja oddzielnie] — admin nie potwierdził
 
+
+### 08:15 — Final 2 safe variants
+
+- **sid=1705 v5 mean(SUB-5, SUB-9)**: mean 0.519, range [0.42, 0.60], std 0.05 — pure ensemble bez R152 fix
+- **sid=1713 v6 pure_0.5**: wszystkie 0.5 — sanity test (jeśli true_p ~ 0.5 perfectly, MAE = 0)
+
+Total: 36+ submissions. Best public 0.020 (najprawdopodobniej sid=1017).
