@@ -74,7 +74,7 @@
 |---|---|---|
 | Artur Kempiński (`kempinski1`) | Task 2 — Path A (prompt-attack pipeline) | [@arcziwoda](https://github.com/arcziwoda) |
 | Oliwier Szypczyn (`szypczyn1`) | Task 1 — DUCI ensemble + endgame variants | [@oszypczy](https://github.com/oszypczy) |
-| _ZZZdreamm_ (`multan1`) | Task 3 — Watermark detection / RoBERTa fine-tune | _GitHub_ |
+| Kacper Multan (`multan1`) | Task 3 — Watermark detection / RoBERTa fine-tune | [@ZZZdreamm](https://github.com/ZZZdreamm) |
 | Paweł Murdzek (`murdzek2`) | Task 2 — Path B + ensemble hybrid; Task 1 / Task 3 contributions | [@PawelMurdzek](https://github.com/PawelMurdzek) |
 
 Compute provided via **Jülich Supercomputing Centre** (project `training2615`, JURECA `dc-gpu` partition, A800).
