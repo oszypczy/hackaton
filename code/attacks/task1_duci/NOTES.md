@@ -971,3 +971,8 @@ Expected MAE if all true_p ~ 0.5:
 - v4: ~0.04
 
 User idzie spać 1.5h. Auto chain wakeup co 15min.
+
+### 06:25 — v1 submitted = sid=1567
+
+v1 sub5_r152_05 (mean 0.514, std 0.049) — submitted as sid=1567.
+Started v2 retry chain (avg s5+s9, R152=0.5 — mean 0.518, std 0.057).
