@@ -70,7 +70,23 @@
 - R18 dense (13-pt) calibration of mean_loss_mixed is the strongest signal we have.
 - BatchNormies3d at 0.0085 likely has a method we haven't found (possibly: matched-recipe shadow training, or hash/metadata leak).
 
-## Submissions queue (pending leaderboard outcomes)
+## Submissions iteration log (this session)
+
+| sub_id | Time | CSV | Mean | Score | Note |
+|---|---|---|---|---|---|
+| 907 | 22:47Z | flip10_flip22 | 0.555 | 0.0533 (no improve) | 10→0.5, 22→0.6 |
+| 1089 | 23:59Z | compound_swap_00d_22u | 0.522 | 0.0533 (no improve) | 00→0.4, 22→0.6 |
+| 1110 | 00:10Z | flip22_06 | 0.533 | 0.0533 (no improve) | 22→0.6 alone |
+| 1134 | 00:22Z | flip00_04 | 0.511 | 0.0533 (no improve) | 00→0.4 alone |
+| 1158 | 00:33Z | flip01_05 | 0.511 | 0.0533 (no improve) | 01→0.5 alone |
+| ?    | 00:44Z | flip02_05 | 0.511 | 0.0533 (no improve) | 02→0.5 alone |
+| 1220 | 00:55Z | flip10_05 | 0.533 | 0.0533 (no improve) | 10→0.5 alone |
+
+7 single-flip tests, 0 improvements. Likely:
+- Public 3 has SUB-9-correct predictions for {10, 22, 00, 01, 02, 11, 12, 20, 21} ⊆ {tested+SUB-9 same}
+- OR flips were wrong direction (true_X ≠ flipped value)
+
+## Submissions queue (pending)
 
 - 22:47Z: flip10_flip22 (sub 907) → NO IMPROVEMENT
 - 23:08-23:49Z: many retries got HTTP 429 due to cooldown (each retry resets +10 min)
