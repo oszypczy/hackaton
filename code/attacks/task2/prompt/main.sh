@@ -8,8 +8,8 @@
 #SBATCH --cpus-per-task=30
 #SBATCH --gres=gpu:1
 #SBATCH --time=03:00:00
-#SBATCH --output=/p/scratch/training2615/kempinski1/Czumpers/repo-kempinski1-cd/code/attacks/task2/prompt/output/log_%j.txt
-#SBATCH --error=/p/scratch/training2615/kempinski1/Czumpers/repo-kempinski1-cd/code/attacks/task2/prompt/output/log_%j.txt
+#SBATCH --output=/p/scratch/training2615/kempinski1/Czumpers/output_shared/log_%j.txt
+#SBATCH --error=/p/scratch/training2615/kempinski1/Czumpers/output_shared/log_%j.txt
 
 # Usage:
 #   sbatch main.sh eval                                 # eval on validation_pii (840 GT)
@@ -54,7 +54,7 @@ fi
 DATA_DIR="/p/scratch/training2615/kempinski1/Czumpers/P4Ms-hackathon-vision-task"
 CODEBASE_DIR="/p/scratch/training2615/kempinski1/Czumpers/p4ms_codebase/p4ms_hackathon_warsaw_code-main"
 # Hardcoded: sbatch copies the script to /var/spool/.../jobs/<id>, so $0 is unreliable.
-ATTACK_DIR="/p/scratch/training2615/kempinski1/Czumpers/repo-kempinski1-cd/code/attacks/task2/prompt"
+ATTACK_DIR="/p/scratch/training2615/kempinski1/Czumpers/repo-${USER}/code/attacks/task2/prompt"
 
 # Load CUDA (deepspeed needs CUDA_HOME at import time)
 module load CUDA/13 2>/dev/null || module load CUDA 2>/dev/null
