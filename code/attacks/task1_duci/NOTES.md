@@ -983,3 +983,17 @@ v2 avg(s5,s9)+R152=0.5 (mean 0.518, std 0.057) — submitted as sid=1594.
 v1 dupes: sid=1567, sid=1578 (same CSV, retry storm artifact).
 
 Next: v3 mean(s5,s9,1017) at +15min wakeup.
+
+### 06:58 — v3 submitted = sid=1622
+
+v3 mean(SUB-5, SUB-9, sid=1017) (mean 0.486, std 0.054) — submitted as sid=1622.
+Pulls toward sid=1017 (low predictions for R18+R50), so mean below 0.5.
+
+Submission timeline:
+- sid=1567 v1 sub5+R152=0.5 (mean 0.514)
+- sid=1578 v1 (dupe)
+- sid=1594 v2 avg(s5,s9)+R152=0.5 (mean 0.518)
+- sid=1608 v2 (dupe)
+- sid=1622 v3 mean(s5,s9,1017) (mean 0.486)
+
+Next: v4 weighted 0.4/0.4/0.2 at +15min wakeup.
