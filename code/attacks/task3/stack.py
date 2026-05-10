@@ -282,10 +282,11 @@ def main():
         t = tpr_at_fpr(OOF[:, i].tolist(), y.tolist(), 0.01)
         print(f"  {n}: {t:.4f}")
 
-    # ── Meta-learner: LogReg on OOF
-    for meta_C in [0.05, 0.5, 5.0]:
-        meta = _make_logreg(meta_C)
-        meta.fit(OOF, y)
+    # ── Meta-learner: LogReg on OOF (sweep C, pick best by meta-OOF)
+    best_meta_C = None
+    best_meta_tpr = -1.0
+    meta_oof_results = {}
+    for meta_C in [0.01, 0.05, 0.1, 0.5, 1.0, 5.0]:
         meta_oof_pred = np.zeros(len(y))
         skf = StratifiedKFold(n_splits=args.n_splits, shuffle=True, random_state=args.seed + 7)
         for tr, va in skf.split(OOF, y):
@@ -293,11 +294,13 @@ def main():
             m.fit(OOF[tr], y[tr])
             meta_oof_pred[va] = m.predict_proba(OOF[va])[:, 1]
         meta_tpr = tpr_at_fpr(meta_oof_pred.tolist(), y.tolist(), 0.01)
+        meta_oof_results[meta_C] = meta_tpr
         print(f"\n[META C={meta_C}] OOF TPR@1%FPR: {meta_tpr:.4f}")
+        if meta_tpr > best_meta_tpr:
+            best_meta_tpr = meta_tpr
+            best_meta_C = meta_C
 
-    # Pick best meta C by OOF
-    best_meta_C = args.meta_C
-    print(f"\nUsing meta C={best_meta_C}")
+    print(f"\n[META BEST] C={best_meta_C} OOF TPR={best_meta_tpr:.4f}")
     meta = _make_logreg(best_meta_C)
     meta.fit(OOF, y)
     test_meta = meta.predict_proba(TEST)[:, 1]
@@ -319,6 +322,21 @@ def main():
     rank_csv = args.out.with_name(args.out.stem + "_rank.csv")
     pd.DataFrame({"id": test_df["id"].tolist(), "score": np.clip(rank_avg, 0.001, 0.999)}).to_csv(rank_csv, index=False)
     print(f"Saved: {rank_csv} (rank-average baseline)")
+
+    # Also dump rank-avg of TOP-K base models by per-model OOF TPR (diversity-weighted)
+    per_oof_tpr = np.array([tpr_at_fpr(OOF[:, i].tolist(), y.tolist(), 0.01)
+                            for i in range(OOF.shape[1])])
+    top_idx = np.argsort(-per_oof_tpr)[:6]  # top 6 by OOF
+    top_test_ranks = test_ranks[:, top_idx]
+    weights = per_oof_tpr[top_idx] ** 2  # weight by squared OOF TPR
+    weights = weights / weights.sum()
+    weighted_rank = (top_test_ranks * weights).sum(axis=1)
+    weighted_rank = (weighted_rank - weighted_rank.min()) / (weighted_rank.max() - weighted_rank.min() + 1e-9)
+    top_csv = args.out.with_name(args.out.stem + "_top6_weighted.csv")
+    pd.DataFrame({"id": test_df["id"].tolist(), "score": np.clip(weighted_rank, 0.001, 0.999)}).to_csv(top_csv, index=False)
+    print(f"Saved: {top_csv} (top-6 OOF-weighted rank-average)")
+    print(f"  Top-6 base models: {[view_names[i] for i in top_idx]}")
+    print(f"  Their OOF TPRs:  {[f'{per_oof_tpr[i]:.4f}' for i in top_idx]}")
 
 
 if __name__ == "__main__":
