@@ -2,12 +2,21 @@
 
 > Live tracking of every submitted CSV with leaderboard score.
 > Auto-updated as new submissions go in.
-> Last refresh: 2026-05-10 00:40Z
+> Last refresh: 2026-05-10 03:42Z
 
 ## Current best
-**0.284** — `submission_cross_lm.csv` (cross-LM v1, 6 derived features)
+**0.2841** — `submission_cross_lm.csv` (cross-LM v1, 6 derived features) — RANK #2
 
-## Leaderboard top: 0.27+ (known competitor maximum reported earlier)
+## Leaderboard task3 (snapshot 2026-05-10 00:46Z)
+| # | Team | Score |
+|---|---|---|
+| 1 | Syntax Terror | 0.3955 |
+| **2** | **Czumpers** | **0.2841** ⭐ |
+| 3 | Advanced Persistent Thinkers | 0.2702 |
+| 4 | GradientLabs | 0.2173 |
+| 5 | ParmaGo | 0.2006 |
+
+Need to close 0.111 gap to overtake Syntax Terror.
 
 ---
 
@@ -35,8 +44,61 @@
 | 872 | minimal (28 features) | 0.7407 | TBD | Submitted, awaiting leaderboard |
 | 887 | select_k (top-15 by mutual info) | 0.7333 | TBD | Submitted, awaiting leaderboard |
 | – | clm_minimal (v1 + minimal stack) | 0.6889 | not submitted | Ready |
-| – | clm_lgbm (v1 + LightGBM) | 0.7333 | not submitted | Ready |
-| – | ensemble_v2 (rank avg 5) | n/a | not submitted | Ready |
+| – | clm_lgbm (v1 + LightGBM) | 0.7333 | TBD | Submitted (id 1100?) |
+| – | ensemble_v2 (rank avg 5) | n/a | not submitted | Skipped (rho 0.99 vs cross_lm) |
+
+---
+
+## Stacking sweep 2026-05-10 (leak-free pivot)
+
+Hypothesis: branch_bc (UnigramGreenList) is fitted on train labels — overfits OOF
+but doesn't generalize. Drop it, focus on PPL/cross-LM signals only.
+
+Confirmed: leak-free OOF (~0.32-0.39) much closer to leaderboard than leaky OOF (~0.69-0.74).
+
+| ID  | CSV | OOF | rho_vs_cross_lm | Hipoteza testowana |
+|-----|-----|-----|---------|---------|
+| 1167 | stack_meta_top6_weighted | 0.7370 | 0.96 | Leaky stack baseline |
+| 1179 | v2_best_base | 0.3741 | 0.83 | First leak-free (full pool, 127 features) |
+| 1194 | v2_top5_weighted | n/a | ~0.85 | Top-5 rank-avg from v2 views |
+| 1213 | v3_best_base | 0.3778 | 0.84 | SelectKBest K=40 LR C=0.05 |
+| 1229 | v3_meta | 0.3481 | 0.85 | Meta-LR over v3 stack |
+| 1240 | v3_top3_rank | n/a | 0.85 | Top-3 rank-avg from v3 |
+| 1257 | hybrid_v1 | n/a | ~0.82 | v3+v2+v4_meta blend |
+| 1268 | v5_best_base | 0.3667 | 0.84 | Full pool incl. judges/kgw_llama/sir (297 features) |
+| 1274 | v6_round1 | 0.3222 | ~0.83 | Pseudo-labeling, 1 round |
+| 1283 | v7_best_single | **0.3852** | 0.84 | Lucky K=30 seed=2024 (multi-seed sweep max) |
+| 1296 | v7_top5_weighted | n/a | 0.84 | Top-5 from 30 multi-seed K-best |
+| 1306 | v8_best (stable K=40) | 0.3111 | 0.84 | K=40 from MI averaged over 10 seeds |
+| 1314 | v2_pure_cross | 0.21 | **0.77** | Only 11 cross-LM features — most diverse |
+| 1326 | hybrid_v5_3way | n/a | 0.82 | v3+v7+v8 rank-avg |
+| 1334 | v9_top1 | 0.270 | **0.77** | Brute-force best K=4 cross-LM subset |
+| 1342 | hybrid_v8_v3v9 | n/a | 0.82 | 1:1 v3+v9 |
+| 1352 | hybrid_v9_v3v9c | n/a | 0.92 | 1:1:1 v3+v9+cross_lm_best |
+| 1360 | w_proven | n/a | 0.96 | 3:1:1:1 cross_lm+v3+v9+v7 (defensive blend) |
+| 1375 | median9 | n/a | 0.86 | Median rank across 9 distinct submissions |
+
+## Pending analysis (ask user for leaderboard scores)
+- **Leak-free hypothesis**: czy v3_best/v7_best/v9_top1 ≥ cross_lm_best (0.284)?
+  - Jeśli TAK → leak-free recipe działa, dalej iterujemy
+  - Jeśli NIE → branch_bc faktycznie pomaga, wracamy do v1 cross_lm
+- **Lucky vs stable K-best**: v3_best (0.3778 OOF, lucky) vs v8_best (0.3111 OOF, stable)
+  - Lucky wygra → cherry-picking generalizuje
+  - Stable wygra → wariancja w MI selekcji boli
+- **Diversity**: v2_pure_cross/v9_top1 (rho 0.77 vs cross_lm) — kierunek "brand new signal"
+- **Smart blends**: w_proven (defensive, +risk reduction) vs median9 (aggressive, robust)
+- **Pseudo-labeling**: v6_round1 — czy zysk z self-training?
+
+## Spearman rho among leak-free submissions
+- Większość v3-v8: rho 0.98+ między sobą (zbiega na ten sam signal)
+- v9 (cross-LM brute force) i v2_pure_cross: rho 0.77 vs cross_lm_best — **realna różnorodność**
+- median9: rho 0.86 vs cross_lm — robust ensemble
+
+## Untried in this session
+- DeBERTa/RoBERTa fine-tune end-to-end (1-2h compute)
+- Test-time paraphrasing perturbation (heavy)
+- LightGBM/XGBoost (cluster venv blocked — disk quota / inode limit)
+- Aggressive pseudo-labeling rounds 2-3 (rounds 2-3 actually decreased OOF in v6)
 
 ---
 
@@ -64,6 +126,9 @@
 
 ## Untried (if more time)
 - Skip-gram greenlist (k=2,3,4)
-- Test-time paraphrasing perturbation
-- LightGBM (clm_lgbm ready, awaiting submit)
-- Self-training / pseudo-labeling from test
+- Test-time paraphrasing perturbation (would need re-run paraphrasing on 2790 texts)
+- LightGBM (cluster venv blocked — disk quota / inode limit)
+- DeBERTa/RoBERTa fine-tune end-to-end on raw text (~1-2h compute)
+- Aggressive pseudo-labeling (5+ rounds, gradual unmask)
+- Test-time augmentation (multi-paraphrase, average predictions)
+- Cross-team blend (combine our best + leaderboard #3 if we had access)
