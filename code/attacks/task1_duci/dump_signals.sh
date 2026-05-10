@@ -27,8 +27,6 @@ echo "[sbatch] dump -> $DUMP_JSON"
 
 $P4VENV -m code.attacks.task1_duci.mle \
     --synth-dir "$DUCI/synth_targets_80ep_r18" \
-    --synth-dir-r50 "$DUCI/synth_targets_80ep_r50" \
-    --synth-dir-r152 "$DUCI/synth_targets_80ep_r18" \
     --use-signal mean_loss_mixed \
     --degree 1 \
     --out "$OUT_CSV" \
