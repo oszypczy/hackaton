@@ -51,11 +51,11 @@
   </style>
 </head>
 <body>
-  <h1>Ewolucja rozwiązania — TPR @ 1% FPR (public leaderboard)</h1>
+  <h1>Ewolucja wyniku — TPR @ 1% FPR (przybliżenie)</h1>
   <p class="sub">
     Mileston’y <strong>strong_bino → cross_lm</strong> z <code>docs/tasks/task3_submissions_tracker.md</code>.
-    Słupek <span class="legend-est"><strong>BEST3</strong> (blend rankowy kgwx + o7be)</span> —
-    <strong>wartość szacunkowa</strong> (brak zapisu score w repo); ustawiona <em>poniżej</em> szacunku lidera snapshotu (~0.40) i <em>powyżej</em> cross_lm (~0.284).
+    Ostatni zielony słupek: <span class="legend-est"><strong>rank blend</strong> (kgwx + o7be)</span> —
+    <strong>wartość szacunkowa</strong> (ustaw w <code>MILESTONES</code> jeśli znasz dokładny wynik).
   </p>
   <div class="chart-wrap" id="chart-root"></div>
   <p class="foot">
@@ -63,14 +63,14 @@
   </p>
 
   <script>
-    // confirmed-ish from team tracker; BEST3 is illustrative
+    // last bar illustrative; edit scores in-repo as needed
     const MILESTONES = [
       { key: "strong_bino",    label: "Strong bino", score: 0.103,  confirmed: true },
       { key: "multi_lm",       label: "multi_lm",    score: 0.158,  confirmed: true },
       { key: "lm_judge",       label: "lm_judge",    score: 0.20,   confirmed: true },
       { key: "olmo7b",         label: "olmo7b PPL",  score: 0.259,  confirmed: true },
       { key: "cross_lm",       label: "cross_lm v1", score: 0.284,  confirmed: true },
-      { key: "best3_blend",    label: "BEST3 blend", score: 0.3148,   confirmed: false },
+      { key: "best3_blend",    label: "rank blend", score: 0.3148,   confirmed: false },
       // upper reference from handoff snapshot (not ours): Syntax Terror ~0.3955
       { key: "leader_ref",     label: "LB #1 (ref)", score: 0.3955, confirmed: false, refOnly: true },
     ];

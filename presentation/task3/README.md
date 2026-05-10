@@ -1,12 +1,11 @@
-# Presentation — Task 3 (BEST3)
+# `presentation/task3/` — ~2 min, **English**, **solution-only**
 
-## Pliki
+Slides show **our submission pipeline**, not what Task 3 is.
 
-| Plik | Opis |
-|------|------|
-| `slides.md` | Treść **3 slajdów** (format [Marp](https://marp.app/) — separatory `---`); możesz też wklejać sekcje do Google Slides / Keynote. |
-| `data_flow_task3.png` | **High-level data-flow diagram (English):** shared feature layer → two heads (full-distribution OLMo-7B-Instruct vs multi-variant green-list tests) → rank fusion → CSV. No internal code symbol names; model names kept as labels. |
+## Quick start
 
-## BEST3 — szacunek na wykresie
+1. Drop **`slide1_solution.png`**, **`slide2_heads.png`**, **`slide3_tradeoffs_en.png`** into your deck.
+2. Optional on-slide: a **title** only; speak from **`slides_content.md`**.
+3. Optional extras: `data_flow_task3.png`, `evolution-chart.html` (screenshot).
 
-W repozytarium nie ma zapisanej dokładnej wartości API dla `blend_kgwx_o7be_BEST3.csv`. Na wykresie przyjęto **0.30** jako wartość **między** ostatnim pewnym punktem zespołu `cross_lm (~0.284)` a **górną granicą** snapshotu leaderboardu (Syntax Terror ~0.40). Jeśli znasz realny wynik z tablicy — edytuj tablicę `MILESTONES` w `evolution-chart.html`.
+**`slides.md`** — Marp deck = full-bleed images for PDF export.

@@ -84,6 +84,6 @@ Plik **id, score** dla 2250 wierszy — gotowy do API konkursu.
 
 ---
 
-## Jak to się ma do nazw BEST3 / blend?
+## Jak to się ma do nazwy pliku „final blend”?
 
-**BEST3** to po prostu **wersja** tego samego przepływu: rankowa fuzja **Head A** (pełny rozkład OLMo-7B-Instruct) i **Head B** (wielowariantowe z-testy zielonej listy), na wspólnym tle cech black-box.
+**Finalny plik CSV** to po prostu zapis tego samego przepływu: rankowa fuzja **Head A** (pełny rozkład OLMo-7B-Instruct) i **Head B** (wielowariantowe z-testy zielonej listy), na wspólnym tle cech black-box.
