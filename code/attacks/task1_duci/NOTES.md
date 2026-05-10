@@ -997,3 +997,22 @@ Submission timeline:
 - sid=1622 v3 mean(s5,s9,1017) (mean 0.486)
 
 Next: v4 weighted 0.4/0.4/0.2 at +15min wakeup.
+
+### 07:13 — v4 submitted = sid=1637 — ALL 4 ENDGAME VARIANTS DONE
+
+| sid | variant | mean | std | range | hypothesis |
+|---|---|---|---|---|---|
+| 1567/1578 | v1 sub5+R152=0.5 | 0.514 | 0.049 | [0.444, 0.594] | conservative, R152 fix |
+| 1594/1608 | v2 avg(s5,s9)+R152=0.5 | 0.518 | 0.057 | [0.422, 0.597] | smoothed snap, R152 fix |
+| 1622 | v3 mean(s5,s9,1017) | 0.486 | 0.054 | [0.389, 0.554] | heavy 3-way ensemble |
+| 1637 | v4 weighted 0.4/0.4/0.2 | 0.499 | 0.052 | [0.414, 0.563] | s5/s9 heavy + 1017 light |
+
+Expected MAE on all 9 targets if true_p ~ 0.5:
+- v1: ~0.038 (best — narrow std, mean centered)
+- v2: ~0.040
+- v4: ~0.040
+- v3: ~0.060 (mean below 0.5, ciągnie w dół z 1017)
+
+Strategia: pod scoring rule (a) [final = re-eval best public na full 9] — najprawdopodobniej sid=1017 wygra public selection ale słabe na private 6. Nasze v1/v2/v4 powinny mieć GORSZE public ALE BEZPIECZNIEJSZE final na full 9.
+
+Pod (b) [each submission tracked vs private] — nasze v1/v2 są dobre uniwersalne kandydaci.
