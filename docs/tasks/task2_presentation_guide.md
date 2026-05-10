@@ -94,21 +94,28 @@ Pure post-processing, no GPU. **+0.034 OVERALL** (0.347 → 0.381).
 (privilege escalation), `completion_format` (template hint), and **`question_repeat`**
 (re-state the question twice in the same turn).
 
-`question_repeat` won (val_pii blank score 0.401 vs direct_probe 0.398). Mechanism:
-re-stating the question acts as a memory probe — the first attention pass retrieves the
-relevant tokens, the repeat anchors the decoder to emit the recalled span as the answer
-rather than hedging.
+Local val_pii blank-mode scores (calibrator only, NOT leaderboard):
+- baseline 0.316, direct_probe 0.397, role_play_dba 0.399, **question_repeat 0.401** (best)
 
-Adding question_repeat as a source: **+0.008 OVERALL**.
+But **a calibrator score is not a leaderboard score**. We pulled question_repeat's CSV and
+submitted: **public LB 0.388 → 0.39565, Δ=+0.008**. Why is the LB lift smaller than the
+val_pii peak? Because question_repeat halved on a different failure mode (CREDIT — see
+Step 3) that val_pii blank-mode underweights.
+
+Mechanism of question_repeat: re-stating the question acts as a memory probe — the
+first attention pass retrieves relevant tokens, the repeat anchors the decoder to emit
+the recalled span rather than hedging. Big win on EMAIL/PHONE memorisation, useless on
+CREDIT (placeholder fallback).
 
 ### 3.3 Step 3 — Per-PII routing with dummy detection (the +0.005)
-Different prompts win at different PII types:
+**Why question_repeat alone wasn't enough:** different PII types memorise through different
+signal channels. Putting QR on every type would have left CREDIT broken.
 
 | PII type | Best source | Why |
 |---|---|---|
 | EMAIL | question_repeat | local-part recall is highest (`firstname.lastname` pattern) |
 | PHONE | question_repeat | country-code `+1` correct 99.6% |
-| CREDIT | NOT question_repeat | QR emits `0000 0000 0000 0000` for **986/1000** rows when card image is scrubbed (model's placeholder fallback) |
+| CREDIT | **NOT question_repeat** | QR emits `0000 0000 0000 0000` for **986/1000** rows when card image is scrubbed (model's placeholder fallback) |
 
 For CREDIT, we collect non-dummy 16-digit candidates from 6 source CSVs and **plurality vote
 on the normalized digit string**, tie-break by source order.
@@ -118,20 +125,40 @@ Dummy detection rules:
 - EMAIL: throwaway domains (example.com, test.com), single-token locals
 - PHONE: same-digit fills, `1234567890` family
 
-**+0.005 OVERALL → 0.40021 (final).**
+This is split into two micro-lifts:
+- **Idea #2**: `smart_ensemble` (dummy detect + fallback to baseline_v2 for CREDIT only):
+  0.39565 → 0.39886, Δ=+0.003
+- **Idea #3**: `smart_ensemble_v2` (per-PII routing dispatch + plurality voting on
+  non-dummy CREDIT candidates): 0.39886 → **0.40021**, Δ=+0.001 → broke 0.4
 
-## 4. Empirical timeline (verify-pattern logged BEFORE / AFTER each submit)
+**Hybrid total = +0.012 OVERALL** (sum of Ideas #1, #2, #3 from a 0.388 starting point).
+
+## 4. Empirical timeline — actual leaderboard scores (verify-pattern logged)
 
 ```
-17:04 first submit (raw sentence-form):    0.347
-~17:30 + extract_pii regex:                0.381  Δ +0.034   Step 1
-~23:45 + question_repeat as source:        0.396  Δ +0.008   Step 2
-~23:51 + smart_ensemble (dummy detect):    0.399  Δ +0.003   Step 3a
-00:04 + per-PII routing v2:                0.40021 Δ +0.001  Step 3b — plateau
+LB score progression (PUBLIC 30%, hot ground-truth, NOT including the 213 non-redacted bonus):
+
+0.347   first submit, sentence-form           ─── Path B baseline
+        +0.034 (regex extract raw PII)
+0.381   Path B with format alignment          ─── briefly #1 LB
+        +0.007 (kempinski1 anchor)
+0.388   pre-hybrid baseline                   ─── plateau before ensemble
+        +0.008 (Idea #1: pull question_repeat)
+0.39565 hybrid step 1
+        +0.003 (Idea #2: smart_ensemble dummy fallback)
+0.39886 hybrid step 2
+        +0.001 (Idea #3: smart_v2 per-PII routing + non-dummy CREDIT vote)
+0.40021 final smart_v2                        ─── final REAL score (#9 LB)
+        +0.132 (213 non-redacted GT override — does NOT count for final)
+0.5328  public LB peak                        ─── briefly #1, fun fact only
 ```
 
-After 0.40021, **10 consecutive ensemble variants returned Δ=0**. Local sources are highly
-correlated; the ensemble had absorbed all available diversity.
+**Real lift breakdown:**
+- **Path B (regex post-process):** +0.034 (largest single-step lift)
+- **Hybrid (3 ideas):** +0.012 (additive: pull QR / dummy fallback / per-PII routing)
+
+After 0.40021, **10 consecutive ensemble variants returned Δ=0**. Local sources are
+highly correlated; the ensemble had absorbed all available diversity.
 
 ## 5. The verify pattern (meta-method, also worth a slide)
 
